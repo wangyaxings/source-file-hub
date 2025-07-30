@@ -387,7 +387,7 @@ curl -k -X POST https://localhost:8443/api/v1/auth/logout \
 2. **HTTPS优先**: 所有通信使用HTTPS加密，HTTP自动重定向
 3. **RESTful API**: 符合REST规范的API设计
 4. **认证架构**: Token-based认证，支持多租户
-5. **错误处理**: 完善的错误处理和日志记录  
+5. **错误处理**: 完善的错误处理和日志记录
 6. **分层中间件**: 日志、CORS、认证中间件分层处理
 7. **优雅关闭**: 支持HTTPS和HTTP服务器的优雅关闭
 8. **安全性**: HTTPS加密、密码哈希、token验证、输入验证
