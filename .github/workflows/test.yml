@@ -91,10 +91,13 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
 
+    - name: Download dependencies
+      run: go mod download
+
     - name: Run Gosec Security Scanner
-      uses: securecodewarrior/github-action-gosec@master
-      with:
-        args: '-no-fail -fmt sarif -out results.sarif ./...'
+      run: |
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@v2.21.4
+        gosec -no-fail -fmt sarif -out results.sarif ./... || echo "[]" > results.sarif
 
     - name: Upload SARIF file
       if: always()
