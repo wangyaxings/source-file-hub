@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache gcc musl-dev sqlite-dev
@@ -20,7 +20,7 @@ COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static"' -o fileserver cmd/server/main.go
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.20
 
 # Install ca-certificates for HTTPS
 RUN apk update && apk upgrade && apk --no-cache add ca-certificates && rm -rf /var/cache/apk/*
