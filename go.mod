@@ -1,4 +1,4 @@
-module fileserver
+module secure-file-hub
 
 go 1.24.1
 

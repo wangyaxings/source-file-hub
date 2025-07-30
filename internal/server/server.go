@@ -1,7 +1,7 @@
 package server
 
 import (
-	"fileserver/internal/middleware"
+	"secure-file-hub/internal/middleware"
 
 	"github.com/gorilla/mux"
 )

@@ -1,6 +1,6 @@
-# FileServer
+# Secure File Hub
 
-一个使用Go实现的安全REST API文件服务器，支持HTTPS和统一的认证文件下载服务。
+一个使用Go实现的安全REST API文件服务器，支持HTTPS和统一的认证文件下载服务。提供企业级的文件管理、用户认证和结构化日志记录功能。
 
 ## 功能特性
 
@@ -22,7 +22,7 @@
 ## 项目结构
 
 ```
-FileServer/
+secure-file-hub/
 ├── cmd/server/         # 主程序入口
 ├── internal/           # 内部包
 │   ├── auth/           # 用户认证模块

@@ -104,7 +104,7 @@ func InitLogger() error {
 	defaultLogger = &Logger{
 		db:       db,
 		hostname: hostname,
-		ciid:     "fileserver-v1-prod",
+		ciid:     "secure-file-hub-v1-prod",
 		gbid:     generateGBID(),
 	}
 

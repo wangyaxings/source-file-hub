@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"fileserver/internal/auth"
-	"fileserver/internal/logger"
+	"secure-file-hub/internal/auth"
+	"secure-file-hub/internal/logger"
 
 	"github.com/gorilla/mux"
 )

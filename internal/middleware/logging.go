@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"fileserver/internal/logger"
+	"secure-file-hub/internal/logger"
 )
 
 // LoggingMiddleware 结构化日志记录中间件

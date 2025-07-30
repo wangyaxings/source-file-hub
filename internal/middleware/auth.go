@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"fileserver/internal/auth"
+	"secure-file-hub/internal/auth"
 )
 
 // AuthMiddleware 认证中间件

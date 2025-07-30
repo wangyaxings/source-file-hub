@@ -9,13 +9,13 @@ import (
 	"syscall"
 	"time"
 
-	"fileserver/internal/handler"
-	"fileserver/internal/logger"
-	"fileserver/internal/server"
+	"secure-file-hub/internal/handler"
+	"secure-file-hub/internal/logger"
+	"secure-file-hub/internal/server"
 )
 
 func main() {
-	log.Println("Starting FileServer...")
+	log.Println("Starting Secure File Hub...")
 
 	// 初始化结构化日志系统
 	if err := logger.InitLogger(); err != nil {

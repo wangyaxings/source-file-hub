@@ -131,7 +131,7 @@ jobs:
         prerelease: false
         generate_release_notes: true
         body: |
-          ## FileServer ${{ github.ref_name }}
+          ## Secure File Hub ${{ github.ref_name }}
 
           ### 📦 Downloads
           - **Linux (AMD64)**: `fileserver-linux-amd64.tar.gz`
