@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"fileserver/internal/auth"
+	"fileserver/internal/logger"
 
 	"github.com/gorilla/mux"
 )
@@ -34,12 +36,20 @@ func RegisterRoutes(router *mux.Router) {
 	api.HandleFunc("/auth/logout", logoutHandler).Methods("POST")
 	api.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
 
+	// API根信息页面（无需认证）
+	api.HandleFunc("", apiInfoHandler).Methods("GET")
+	api.HandleFunc("/", apiInfoHandler).Methods("GET")
+
 	// 健康检查路由（无需认证）
 	api.HandleFunc("/health", healthCheckHandler).Methods("GET")
 
 	// 统一文件下载路由（需要认证）
 	filesRouter := api.PathPrefix("/files").Subrouter()
 	filesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
+
+	// 日志查询路由（需要认证）
+	api.HandleFunc("/logs/access", getAccessLogsHandler).Methods("GET")
+	api.HandleFunc("/logs/system", getSystemLogsHandler).Methods("GET")
 
 	// 静态文件服务路由（可选）
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
@@ -117,6 +127,89 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("File %s downloaded successfully by %s", filePath, r.RemoteAddr)
+
+	// 记录结构化下载日志
+	if l := logger.GetLogger(); l != nil {
+		var userInfo map[string]interface{}
+		if userCtx := r.Context().Value("user"); userCtx != nil {
+			if user, ok := userCtx.(map[string]interface{}); ok {
+				userInfo = user
+			}
+		}
+		l.LogFileDownload(filePath, r.RemoteAddr, fileInfo.Size(), userInfo)
+	}
+}
+
+// apiInfoHandler API信息页面处理器 - 类似GitHub API根页面
+func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
+	baseURL := "https://localhost:8443/api/v1"
+
+	response := Response{
+		Success: true,
+		Message: "FileServer REST API Information",
+		Data: map[string]interface{}{
+			"name":        "FileServer REST API",
+			"version":     "v1.0.0",
+			"description": "A secure file server with user authentication and SSL support",
+			"base_url":    baseURL,
+			"documentation_url": baseURL + "/docs",
+			"endpoints": map[string]interface{}{
+				"api_info":     baseURL,
+				"health_check": baseURL + "/health",
+				"authentication": map[string]interface{}{
+					"login":         baseURL + "/auth/login",
+					"logout":        baseURL + "/auth/logout",
+					"default_users": baseURL + "/auth/users",
+				},
+				"file_downloads": map[string]interface{}{
+					"unified_download": baseURL + "/files/{path}",
+					"examples": []string{
+						baseURL + "/files/configs/config.json",
+						baseURL + "/files/certificates/server.crt",
+						baseURL + "/files/certificates/server.key",
+						baseURL + "/files/certificates/cert_info.json",
+						baseURL + "/files/docs/api_guide.txt",
+					},
+				},
+				"logs": map[string]interface{}{
+					"access_logs": baseURL + "/logs/access",
+					"system_logs": baseURL + "/logs/system",
+				},
+			},
+			"authentication_required": []string{
+				"/files/*",
+				"/logs/*",
+			},
+			"features": []string{
+				"JWT Authentication",
+				"Multi-tenant Support",
+				"HTTPS Only",
+				"Path Traversal Protection",
+				"Structured Logging",
+				"SQLite Log Storage",
+			},
+			"supported_file_types": []string{
+				"application/json",
+				"application/x-x509-ca-cert",
+				"application/pkcs8",
+				"text/plain",
+				"application/octet-stream",
+			},
+			"rate_limits": map[string]interface{}{
+				"requests_per_minute": 100,
+				"burst_limit":         10,
+			},
+			"server_info": map[string]interface{}{
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"uptime":    "runtime dependent",
+				"ssl_enabled": true,
+				"golang_version": "go1.19+",
+			},
+		},
+	}
+
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	writeJSONResponse(w, http.StatusOK, response)
 }
 
 // healthCheckHandler 健康检查处理器
@@ -167,11 +260,22 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	loginResp, err := auth.Authenticate(&loginReq)
 	if err != nil {
 		log.Printf("Login failed for user %s@%s: %v", loginReq.Username, loginReq.TenantID, err)
+
+		// 记录登录失败日志
+		if l := logger.GetLogger(); l != nil {
+			l.LogUserLogin(loginReq.TenantID, loginReq.Username, r.RemoteAddr, false)
+		}
+
 		writeErrorResponse(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
 	log.Printf("User %s@%s logged in successfully", loginReq.Username, loginReq.TenantID)
+
+	// 记录用户登录日志
+	if l := logger.GetLogger(); l != nil {
+		l.LogUserLogin(loginReq.TenantID, loginReq.Username, r.RemoteAddr, true)
+	}
 
 	// 返回登录成功响应
 	response := Response{
@@ -249,6 +353,68 @@ func isAllowedPath(path string) bool {
 
 	// 检查路径是否在downloads目录下
 	return strings.HasPrefix(absPath, downloadDir)
+}
+
+// getAccessLogsHandler 获取访问日志处理器
+func getAccessLogsHandler(w http.ResponseWriter, r *http.Request) {
+	// 获取查询参数
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	limit := 50 // 默认限制
+	offset := 0 // 默认偏移
+
+	if limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 && parsedLimit <= 1000 {
+			limit = parsedLimit
+		}
+	}
+
+	if offsetStr != "" {
+		if parsedOffset, err := strconv.Atoi(offsetStr); err == nil && parsedOffset >= 0 {
+			offset = parsedOffset
+		}
+	}
+
+	// 从数据库查询日志
+	l := logger.GetLogger()
+	if l == nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "日志系统未初始化")
+		return
+	}
+
+	logs, err := l.GetAccessLogs(limit, offset)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "查询日志失败")
+		return
+	}
+
+	response := Response{
+		Success: true,
+		Message: "访问日志查询成功",
+		Data: map[string]interface{}{
+			"logs":   logs,
+			"limit":  limit,
+			"offset": offset,
+			"count":  len(logs),
+		},
+	}
+
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// getSystemLogsHandler 获取系统日志处理器
+func getSystemLogsHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: 从SQLite数据库查询系统日志
+	response := Response{
+		Success: true,
+		Message: "系统日志查询功能即将推出",
+		Data: map[string]interface{}{
+			"note": "此功能正在开发中，将从SQLite数据库查询结构化日志",
+		},
+	}
+
+	writeJSONResponse(w, http.StatusOK, response)
 }
 
 // getContentType 根据文件扩展名确定内容类型

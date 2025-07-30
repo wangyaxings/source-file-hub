@@ -10,6 +10,10 @@
 - ✅ **多租户支持**: tenantid + username 认证模式
 - ✅ **Token-based认证**: 24小时长效token
 - ✅ **RESTful API设计**: 符合REST规范
+- ✅ **API信息页面**: 类似GitHub API的根信息页面，提供完整的API文档
+- ✅ **结构化日志**: 基于最佳实践的结构化日志记录系统
+- ✅ **SQLite日志存储**: 持久化日志数据，支持查询和分析
+- ✅ **访问日志API**: 提供RESTful API查询访问日志
 - ✅ **路径安全**: 防路径遍历攻击
 - ✅ **文件类型支持**: 配置、证书、文档等多类型文件
 - ✅ **请求日志记录**: 详细的访问和下载日志
@@ -23,7 +27,8 @@ FileServer/
 ├── internal/           # 内部包
 │   ├── auth/           # 用户认证模块
 │   ├── handler/        # HTTP处理器 (统一文件下载)
-│   ├── middleware/     # 认证中间件
+│   ├── logger/         # 结构化日志系统
+│   ├── middleware/     # 认证、日志记录中间件
 │   └── server/         # HTTPS服务器配置
 ├── configs/            # 原始配置文件
 ├── certs/              # SSL证书目录
@@ -41,6 +46,7 @@ FileServer/
 │       └── api_guide.txt
 ├── scripts/            # 工具脚本
 │   └── generate_cert.go # SSL证书生成脚本
+├── logs.db             # SQLite日志数据库
 ├── .gitignore          # Git忽略文件
 ├── go.mod              # Go模块文件
 └── README.md           # 项目说明
@@ -277,9 +283,64 @@ curl -k -X POST https://localhost:8443/api/v1/auth/logout \
 
 以下是使用curl完整验证所有功能的命令，可以直接复制粘贴执行：
 
+#### 步骤0: API信息页面（无需认证）
+```bash
+# Bash/Linux/macOS
+curl -k -s https://localhost:8443/api/v1
+
+# PowerShell/Windows
+Invoke-WebRequest -Uri "https://localhost:8443/api/v1" -SkipCertificateCheck | Select-Object -ExpandProperty Content
+```
+
+**预期响应：**
+```json
+{
+  "success": true,
+  "message": "FileServer REST API Information",
+  "data": {
+    "name": "FileServer REST API",
+    "version": "v1.0.0",
+    "description": "A secure file server with user authentication and SSL support",
+    "base_url": "https://localhost:8443/api/v1",
+    "endpoints": {
+      "api_info": "https://localhost:8443/api/v1",
+      "health_check": "https://localhost:8443/api/v1/health",
+      "authentication": {
+        "login": "https://localhost:8443/api/v1/auth/login",
+        "logout": "https://localhost:8443/api/v1/auth/logout",
+        "default_users": "https://localhost:8443/api/v1/auth/users"
+      },
+      "file_downloads": {
+        "unified_download": "https://localhost:8443/api/v1/files/{path}",
+        "examples": [
+          "https://localhost:8443/api/v1/files/configs/config.json",
+          "https://localhost:8443/api/v1/files/certificates/server.crt"
+        ]
+      },
+      "logs": {
+        "access_logs": "https://localhost:8443/api/v1/logs/access",
+        "system_logs": "https://localhost:8443/api/v1/logs/system"
+      }
+    },
+    "features": [
+      "JWT Authentication",
+      "Multi-tenant Support",
+      "HTTPS Only",
+      "Path Traversal Protection",
+      "Structured Logging",
+      "SQLite Log Storage"
+    ]
+  }
+}
+```
+
 #### 步骤1: 健康检查（无需认证）
 ```bash
+# Bash/Linux/macOS
 curl -k -s https://localhost:8443/api/v1/health
+
+# PowerShell/Windows
+Invoke-WebRequest -Uri "https://localhost:8443/api/v1/health" -SkipCertificateCheck | Select-Object -ExpandProperty Content
 ```
 
 **预期响应：**
@@ -430,6 +491,7 @@ curl -k -s -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392
 
 ### 📋 快速验证脚本
 
+#### Bash脚本 (Linux/macOS/WSL)
 如果你想一次性运行所有验证，可以将以下脚本保存为 `verify.sh`：
 
 ```bash
@@ -437,6 +499,10 @@ curl -k -s -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392
 
 echo "🚀 FileServer 完整功能验证"
 echo "=============================="
+
+echo "0. API信息页面..."
+curl -k -s https://localhost:8443/api/v1
+echo -e "\n"
 
 echo "1. 健康检查..."
 curl -k -s https://localhost:8443/api/v1/health
@@ -458,6 +524,36 @@ echo -e "\n"
 
 echo "⚠️  请手动复制上面登录响应中的token，然后使用该token进行文件下载验证"
 echo "🎉 基础验证完成！"
+```
+
+#### PowerShell脚本 (Windows)
+对于Windows PowerShell用户，可以使用以下脚本：
+
+```powershell
+# verify.ps1
+Write-Host "🚀 FileServer 完整功能验证" -ForegroundColor Green
+Write-Host "==============================" -ForegroundColor Green
+
+Write-Host "0. API信息页面..." -ForegroundColor Yellow
+Invoke-WebRequest -Uri "https://localhost:8443/api/v1" -SkipCertificateCheck | Select-Object -ExpandProperty Content
+
+Write-Host "`n1. 健康检查..." -ForegroundColor Yellow
+Invoke-WebRequest -Uri "https://localhost:8443/api/v1/health" -SkipCertificateCheck | Select-Object -ExpandProperty Content
+
+Write-Host "`n2. 获取默认用户列表..." -ForegroundColor Yellow
+Invoke-WebRequest -Uri "https://localhost:8443/api/v1/auth/users" -SkipCertificateCheck | Select-Object -ExpandProperty Content
+
+Write-Host "`n3. 用户登录..." -ForegroundColor Yellow
+$loginData = @{
+    tenant_id = "demo"
+    username = "admin"
+    password = "admin123"
+} | ConvertTo-Json
+
+Invoke-WebRequest -Uri "https://localhost:8443/api/v1/auth/login" -Method POST -Body $loginData -ContentType "application/json" -SkipCertificateCheck | Select-Object -ExpandProperty Content
+
+Write-Host "`n⚠️  请手动复制上面登录响应中的token，然后使用该token进行文件下载验证" -ForegroundColor Red
+Write-Host "🎉 基础验证完成！" -ForegroundColor Green
 ```
 
 ### 🔍 验证要点

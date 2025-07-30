@@ -10,10 +10,33 @@ import (
 	"time"
 
 	"fileserver/internal/handler"
+	"fileserver/internal/logger"
 	"fileserver/internal/server"
 )
 
 func main() {
+	log.Println("Starting FileServer...")
+
+	// 初始化结构化日志系统
+	if err := logger.InitLogger(); err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+	defer func() {
+		if l := logger.GetLogger(); l != nil {
+			l.Close()
+		}
+	}()
+
+	// 记录系统启动日志
+	if l := logger.GetLogger(); l != nil {
+		details := map[string]interface{}{
+			"version": "v1.0.0",
+			"port":    8443,
+			"mode":    "production",
+		}
+		l.LogError("系统启动", nil, details)
+	}
+
 	// 创建服务器实例
 	srv := server.New()
 
