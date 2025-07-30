@@ -391,7 +391,7 @@ curl -k -s -X POST https://localhost:8443/api/v1/auth/login \
   "success": true,
   "message": "登录成功",
   "data": {
-    "token": "7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39",
+    "token": "a6d6ad593bbf44e8c84c2f5239f7479f0f158f5bce4717f0a91ac1e893b03959",
     "expires_in": 86400,
     "user": {
       "tenant_id": "demo",
@@ -403,31 +403,31 @@ curl -k -s -X POST https://localhost:8443/api/v1/auth/login \
 
 #### 步骤4: 下载配置文件（需要认证）
 ```bash
-curl -k -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+curl -k -H "Authorization: Bearer a6d6ad593bbf44e8c84c2f5239f7479f0f158f5bce4717f0a91ac1e893b03959" \
   -O -J https://localhost:8443/api/v1/files/configs/config.json
 ```
 
 #### 步骤5: 下载SSL证书（需要认证）
 ```bash
-curl -k -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+curl -k -H "Authorization: Bearer a6d6ad593bbf44e8c84c2f5239f7479f0f158f5bce4717f0a91ac1e893b03959" \
   -O -J https://localhost:8443/api/v1/files/certificates/server.crt
 ```
 
 #### 步骤6: 下载SSL私钥（需要认证）
 ```bash
-curl -k -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+curl -k -H "Authorization: Bearer a6d6ad593bbf44e8c84c2f5239f7479f0f158f5bce4717f0a91ac1e893b03959" \
   -O -J https://localhost:8443/api/v1/files/certificates/server.key
 ```
 
 #### 步骤7: 下载证书信息（需要认证）
 ```bash
-curl -k -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+curl -k -H "Authorization: Bearer a6d6ad593bbf44e8c84c2f5239f7479f0f158f5bce4717f0a91ac1e893b03959" \
   -O -J https://localhost:8443/api/v1/files/certificates/cert_info.json
 ```
 
 #### 步骤8: 下载API文档（需要认证）
 ```bash
-curl -k -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+curl -k -H "Authorization: Bearer a6d6ad593bbf44e8c84c2f5239f7479f0f158f5bce4717f0a91ac1e893b03959" \
   -O -J https://localhost:8443/api/v1/files/docs/api_guide.txt
 ```
 
@@ -463,7 +463,7 @@ curl -k -s -H "Authorization: Bearer invalid_token_12345" \
 #### 步骤11: 用户登出
 ```bash
 curl -k -s -X POST https://localhost:8443/api/v1/auth/logout \
-  -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39"
+  -H "Authorization: Bearer a6d6ad593bbf44e8c84c2f5239f7479f0f158f5bce4717f0a91ac1e893b03959"
 ```
 
 **预期响应：**
@@ -476,7 +476,7 @@ curl -k -s -X POST https://localhost:8443/api/v1/auth/logout \
 
 #### 步骤12: 验证登出后访问（应该失败）
 ```bash
-curl -k -s -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+curl -k -s -H "Authorization: Bearer a6d6ad593bbf44e8c84c2f5239f7479f0f158f5bce4717f0a91ac1e893b03959" \
   https://localhost:8443/api/v1/files/configs/config.json
 ```
 

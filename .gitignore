@@ -43,6 +43,12 @@ Thumbs.db
 *.log
 logs/
 
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+logs.db
+
 # 临时文件
 tmp/
 temp/
@@ -57,6 +63,14 @@ temp/
 # 构建目录
 build/
 dist/
+bin/
+releases/
+
+# 编译后的二进制文件
+fileserver
+fileserver.exe
+main.exe
+fileserver-ssl.exe
 
 # 配置文件的敏感副本（保留原config.json用于演示）
 configs/*.prod.json
@@ -75,3 +89,11 @@ certs/*.csr
 # 证书备份文件
 *.bak
 certs/*.bak
+
+# Docker相关
+.dockerignore
+
+# 测试脚本
+test_*.ps1
+simple_test.ps1
+quick_test.ps1
