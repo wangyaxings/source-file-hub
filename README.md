@@ -275,79 +275,198 @@ curl -k -X POST https://localhost:8443/api/v1/auth/logout \
 
 ### 🔧 完整的curl验证逻辑
 
-以下是使用curl完整验证所有功能的脚本：
+以下是使用curl完整验证所有功能的命令，可以直接复制粘贴执行：
+
+#### 步骤1: 健康检查（无需认证）
+```bash
+curl -k -s https://localhost:8443/api/v1/health
+```
+
+**预期响应：**
+```json
+{
+  "success": true,
+  "message": "服务运行正常",
+  "data": {
+    "status": "healthy",
+    "timestamp": "1640995200"
+  }
+}
+```
+
+#### 步骤2: 获取默认用户列表（无需认证）
+```bash
+curl -k -s https://localhost:8443/api/v1/auth/users
+```
+
+**预期响应：**
+```json
+{
+  "success": true,
+  "message": "默认测试用户列表",
+  "data": {
+    "users": [
+      {
+        "tenant_id": "demo",
+        "username": "admin",
+        "password": "admin123",
+        "desc": "管理员账户"
+      }
+    ]
+  }
+}
+```
+
+#### 步骤3: 用户登录获取token
+```bash
+curl -k -s -X POST https://localhost:8443/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id": "demo", "username": "admin", "password": "admin123"}'
+```
+
+**预期响应（复制token用于后续请求）：**
+```json
+{
+  "success": true,
+  "message": "登录成功",
+  "data": {
+    "token": "7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39",
+    "expires_in": 86400,
+    "user": {
+      "tenant_id": "demo",
+      "username": "admin"
+    }
+  }
+}
+```
+
+#### 步骤4: 下载配置文件（需要认证）
+```bash
+curl -k -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+  -O -J https://localhost:8443/api/v1/files/configs/config.json
+```
+
+#### 步骤5: 下载SSL证书（需要认证）
+```bash
+curl -k -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+  -O -J https://localhost:8443/api/v1/files/certificates/server.crt
+```
+
+#### 步骤6: 下载SSL私钥（需要认证）
+```bash
+curl -k -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+  -O -J https://localhost:8443/api/v1/files/certificates/server.key
+```
+
+#### 步骤7: 下载证书信息（需要认证）
+```bash
+curl -k -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+  -O -J https://localhost:8443/api/v1/files/certificates/cert_info.json
+```
+
+#### 步骤8: 下载API文档（需要认证）
+```bash
+curl -k -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+  -O -J https://localhost:8443/api/v1/files/docs/api_guide.txt
+```
+
+#### 步骤9: 测试无认证访问（应该失败）
+```bash
+curl -k -s https://localhost:8443/api/v1/files/configs/config.json
+```
+
+**预期响应（401错误）：**
+```json
+{
+  "success": false,
+  "error": "缺少Authorization header",
+  "code": "UNAUTHORIZED"
+}
+```
+
+#### 步骤10: 测试错误token（应该失败）
+```bash
+curl -k -s -H "Authorization: Bearer invalid_token_12345" \
+  https://localhost:8443/api/v1/files/configs/config.json
+```
+
+**预期响应（401错误）：**
+```json
+{
+  "success": false,
+  "error": "无效的token",
+  "code": "UNAUTHORIZED"
+}
+```
+
+#### 步骤11: 用户登出
+```bash
+curl -k -s -X POST https://localhost:8443/api/v1/auth/logout \
+  -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39"
+```
+
+**预期响应：**
+```json
+{
+  "success": true,
+  "message": "登出成功"
+}
+```
+
+#### 步骤12: 验证登出后访问（应该失败）
+```bash
+curl -k -s -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
+  https://localhost:8443/api/v1/files/configs/config.json
+```
+
+**预期响应（401错误）：**
+```json
+{
+  "success": false,
+  "error": "无效的token",
+  "code": "UNAUTHORIZED"
+}
+```
+
+### 📋 快速验证脚本
+
+如果你想一次性运行所有验证，可以将以下脚本保存为 `verify.sh`：
 
 ```bash
 #!/bin/bash
 
-# FileServer 完整功能验证脚本
-BASE_URL="https://localhost:8443/api/v1"
-
 echo "🚀 FileServer 完整功能验证"
 echo "=============================="
 
-# 1. 健康检查（无需认证）
 echo "1. 健康检查..."
-curl -k -s "$BASE_URL/health" | jq '.'
-echo
+curl -k -s https://localhost:8443/api/v1/health
+echo -e "\n"
 
-# 2. 获取默认用户列表（无需认证）
 echo "2. 获取默认用户列表..."
-curl -k -s "$BASE_URL/auth/users" | jq '.'
-echo
+curl -k -s https://localhost:8443/api/v1/auth/users
+echo -e "\n"
 
-# 3. 用户登录
 echo "3. 用户登录..."
-LOGIN_RESPONSE=$(curl -k -s -X POST "$BASE_URL/auth/login" \
+curl -k -s -X POST https://localhost:8443/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"tenant_id": "demo", "username": "admin", "password": "admin123"}')
-echo "$LOGIN_RESPONSE" | jq '.'
+  -d '{"tenant_id": "demo", "username": "admin", "password": "admin123"}'
+echo -e "\n"
 
-# 提取token
-TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.data.token')
-echo "Token: ${TOKEN:0:20}..."
-echo
+echo "4. 测试无认证访问（应该失败）..."
+curl -k -s https://localhost:8443/api/v1/files/configs/config.json
+echo -e "\n"
 
-# 4. 下载各类文件（需要认证）
-echo "4. 下载配置文件..."
-curl -k -H "Authorization: Bearer $TOKEN" \
-  -o "downloaded_config.json" \
-  "$BASE_URL/files/configs/config.json"
-echo "✅ 配置文件下载完成"
-
-echo "5. 下载SSL证书..."
-curl -k -H "Authorization: Bearer $TOKEN" \
-  -o "downloaded_server.crt" \
-  "$BASE_URL/files/certificates/server.crt"
-echo "✅ SSL证书下载完成"
-
-echo "6. 下载证书信息..."
-curl -k -H "Authorization: Bearer $TOKEN" \
-  -o "downloaded_cert_info.json" \
-  "$BASE_URL/files/certificates/cert_info.json"
-echo "✅ 证书信息下载完成"
-
-echo "7. 下载API文档..."
-curl -k -H "Authorization: Bearer $TOKEN" \
-  -o "downloaded_api_guide.txt" \
-  "$BASE_URL/files/docs/api_guide.txt"
-echo "✅ API文档下载完成"
-
-# 8. 测试无认证访问（应该失败）
-echo "8. 测试无认证访问..."
-curl -k -s "$BASE_URL/files/configs/config.json" | jq '.'
-echo
-
-# 9. 用户登出
-echo "9. 用户登出..."
-curl -k -s -X POST "$BASE_URL/auth/logout" \
-  -H "Authorization: Bearer $TOKEN" | jq '.'
-echo
-
-echo "🎉 验证完成！"
-echo "下载的文件："
-ls -la downloaded_*
+echo "⚠️  请手动复制上面登录响应中的token，然后使用该token进行文件下载验证"
+echo "🎉 基础验证完成！"
 ```
+
+### 🔍 验证要点
+
+1. **SSL警告**: `-k` 参数跳过SSL证书验证（因为使用自签名证书）
+2. **Token更新**: 每次登录都会产生新的token，请使用最新的token
+3. **文件下载**: `-O -J` 参数会保存文件到当前目录
+4. **错误验证**: 测试无认证和错误token访问，确保安全机制正常工作
+5. **完整流程**: 从登录到下载到登出的完整认证生命周期
 
 ### 💡 无感认证体验
 
