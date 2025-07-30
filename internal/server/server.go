@@ -16,11 +16,11 @@ type Server struct {
 // New 创建新的服务器实例
 func New() *Server {
 	router := mux.NewRouter()
-	
+
 	// 添加中间件
 	router.Use(loggingMiddleware)
 	router.Use(corsMiddleware)
-	
+
 	return &Server{
 		Router: router,
 	}
@@ -41,12 +41,12 @@ func corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		
+
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
