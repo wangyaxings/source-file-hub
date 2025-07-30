@@ -1,0 +1,21 @@
+{
+  "server": {
+    "host": "localhost",
+    "port": 8080,
+    "read_timeout": "30s",
+    "write_timeout": "30s"
+  },
+  "application": {
+    "name": "FileServer",
+    "version": "1.0.0",
+    "environment": "development"
+  },
+  "logging": {
+    "level": "info",
+    "format": "json"
+  },
+  "features": {
+    "download_enabled": true,
+    "cors_enabled": true
+  }
+}

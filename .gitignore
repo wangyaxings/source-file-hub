@@ -1,0 +1,64 @@
+# 编译输出
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 测试二进制文件，使用go test -c构建
+*.test
+
+# 输出的分析文件 使用go test -coverprofile
+*.out
+
+# Go workspace文件
+go.work
+
+# 依赖目录（不推荐）
+vendor/
+
+# Go模块代理缓存
+GOPROXY/
+
+# Go模块下载缓存
+GOMODCACHE/
+
+# IDE相关文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统相关
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+tmp/
+temp/
+
+# 环境配置文件
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# 构建目录
+build/
+dist/
+
+# 配置文件的敏感副本（保留原config.json用于演示）
+configs/*.prod.json
+configs/*.production.json
+configs/local.json
