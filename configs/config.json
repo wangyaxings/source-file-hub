@@ -1,14 +1,19 @@
 {
   "server": {
     "host": "localhost",
-    "port": 8080,
+    "https_port": 8443,
+    "http_port": 8080,
     "read_timeout": "30s",
-    "write_timeout": "30s"
+    "write_timeout": "30s",
+    "ssl_enabled": true,
+    "cert_file": "certs/server.crt",
+    "key_file": "certs/server.key"
   },
   "application": {
     "name": "FileServer",
-    "version": "2.0.0",
-    "environment": "development"
+    "version": "3.0.0",
+    "environment": "development",
+    "protocol": "https"
   },
   "logging": {
     "level": "info",
@@ -17,7 +22,9 @@
   "features": {
     "download_enabled": true,
     "cors_enabled": true,
-    "auth_enabled": true
+    "auth_enabled": true,
+    "ssl_enabled": true,
+    "certificate_download": true
   },
   "auth": {
     "token_expiry": "24h",
@@ -39,5 +46,14 @@
         "description": "测试账户"
       }
     ]
+  },
+  "ssl": {
+    "certificate_directory": "certs",
+    "certificate_file": "server.crt",
+    "private_key_file": "server.key",
+    "info_file": "cert_info.json",
+    "validity_period": "365 days",
+    "key_size": 2048,
+    "supported_formats": [".crt", ".pem", ".key", ".json"]
   }
 }

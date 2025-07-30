@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -35,6 +36,12 @@ func RegisterRoutes(router *mux.Router) {
 
 	// 健康检查路由（无需认证）
 	api.HandleFunc("/health", healthCheckHandler).Methods("GET")
+
+	// 证书相关路由（RESTful API）
+	certificatesRouter := api.PathPrefix("/certificates").Subrouter()
+	certificatesRouter.HandleFunc("", listCertificatesHandler).Methods("GET")
+	certificatesRouter.HandleFunc("/{cert_name}", getCertificateHandler).Methods("GET")
+	certificatesRouter.HandleFunc("/{cert_name}/info", getCertificateInfoHandler).Methods("GET")
 
 	// 需要认证的路由
 	api.HandleFunc("/config/download", downloadConfigHandler).Methods("GET")
@@ -201,4 +208,238 @@ func getDefaultUsersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// listCertificatesHandler 列出所有可用的证书（RESTful API）
+func listCertificatesHandler(w http.ResponseWriter, r *http.Request) {
+	certDir := "certs"
+
+	// 检查证书目录是否存在
+	if _, err := os.Stat(certDir); os.IsNotExist(err) {
+		writeErrorResponse(w, http.StatusNotFound, "证书目录不存在")
+		return
+	}
+
+	// 读取证书目录
+	files, err := os.ReadDir(certDir)
+	if err != nil {
+		log.Printf("Error reading certificates directory: %v", err)
+		writeErrorResponse(w, http.StatusInternalServerError, "无法读取证书目录")
+		return
+	}
+
+	// 构建证书列表
+	certificates := []map[string]interface{}{}
+
+	for _, file := range files {
+		if !file.IsDir() {
+			fileName := file.Name()
+			fileExt := filepath.Ext(fileName)
+
+			cert := map[string]interface{}{
+				"name": fileName,
+				"type": getCertificateType(fileExt),
+				"download_url": fmt.Sprintf("/api/v1/certificates/%s", fileName),
+			}
+
+			// 如果是证书文件，添加信息链接
+			if fileExt == ".crt" || fileExt == ".pem" {
+				cert["info_url"] = fmt.Sprintf("/api/v1/certificates/%s/info", fileName)
+			}
+
+			certificates = append(certificates, cert)
+		}
+	}
+
+	response := Response{
+		Success: true,
+		Message: "证书列表获取成功",
+		Data: map[string]interface{}{
+			"total_count": len(certificates),
+			"certificates": certificates,
+			"directory": certDir,
+		},
+	}
+
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// getCertificateHandler 下载指定的证书文件（RESTful API）
+func getCertificateHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	certName := vars["cert_name"]
+
+	if certName == "" {
+		writeErrorResponse(w, http.StatusBadRequest, "证书名称不能为空")
+		return
+	}
+
+	// 验证文件名，防止路径遍历攻击
+	if strings.Contains(certName, "..") || strings.Contains(certName, "/") || strings.Contains(certName, "\\") {
+		writeErrorResponse(w, http.StatusBadRequest, "无效的证书名称")
+		return
+	}
+
+	certPath := filepath.Join("certs", certName)
+
+	// 检查文件是否存在
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		writeErrorResponse(w, http.StatusNotFound, "证书文件不存在")
+		return
+	}
+
+	// 打开文件
+	file, err := os.Open(certPath)
+	if err != nil {
+		log.Printf("Error opening certificate file %s: %v", certPath, err)
+		writeErrorResponse(w, http.StatusInternalServerError, "无法打开证书文件")
+		return
+	}
+	defer file.Close()
+
+	// 获取文件信息
+	fileInfo, err := file.Stat()
+	if err != nil {
+		log.Printf("Error getting file info for %s: %v", certPath, err)
+		writeErrorResponse(w, http.StatusInternalServerError, "无法获取文件信息")
+		return
+	}
+
+	// 确定内容类型
+	contentType := getCertificateContentType(filepath.Ext(certName))
+
+	// 设置响应头
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", certName))
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	// 复制文件内容到响应
+	_, err = io.Copy(w, file)
+	if err != nil {
+		log.Printf("Error writing certificate file to response: %v", err)
+		return
+	}
+
+	log.Printf("Certificate %s downloaded successfully by %s", certName, r.RemoteAddr)
+}
+
+// getCertificateInfoHandler 获取证书信息（RESTful API）
+func getCertificateInfoHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	certName := vars["cert_name"]
+
+	if certName == "" {
+		writeErrorResponse(w, http.StatusBadRequest, "证书名称不能为空")
+		return
+	}
+
+	// 验证文件名
+	if strings.Contains(certName, "..") || strings.Contains(certName, "/") || strings.Contains(certName, "\\") {
+		writeErrorResponse(w, http.StatusBadRequest, "无效的证书名称")
+		return
+	}
+
+	// 检查是否为证书文件
+	ext := filepath.Ext(certName)
+	if ext != ".crt" && ext != ".pem" {
+		writeErrorResponse(w, http.StatusBadRequest, "只能查看证书文件(.crt, .pem)的信息")
+		return
+	}
+
+	// 先检查对应的info文件是否存在
+	infoPath := filepath.Join("certs", "cert_info.json")
+	if _, err := os.Stat(infoPath); err == nil {
+		// 读取JSON格式的证书信息
+		infoFile, err := os.Open(infoPath)
+		if err != nil {
+			log.Printf("Error opening certificate info file: %v", err)
+			writeErrorResponse(w, http.StatusInternalServerError, "无法读取证书信息")
+			return
+		}
+		defer infoFile.Close()
+
+		var certInfo map[string]interface{}
+		if err := json.NewDecoder(infoFile).Decode(&certInfo); err != nil {
+			log.Printf("Error decoding certificate info: %v", err)
+			writeErrorResponse(w, http.StatusInternalServerError, "证书信息格式错误")
+			return
+		}
+
+		response := Response{
+			Success: true,
+			Message: "证书信息获取成功",
+			Data: map[string]interface{}{
+				"certificate_name": certName,
+				"certificate_info": certInfo,
+			},
+		}
+
+		writeJSONResponse(w, http.StatusOK, response)
+		return
+	}
+
+	// 如果没有info文件，返回基本信息
+	certPath := filepath.Join("certs", certName)
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		writeErrorResponse(w, http.StatusNotFound, "证书文件不存在")
+		return
+	}
+
+	fileInfo, err := os.Stat(certPath)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "无法获取文件信息")
+		return
+	}
+
+	basicInfo := map[string]interface{}{
+		"name": certName,
+		"size": fileInfo.Size(),
+		"modified_time": fileInfo.ModTime().Format(time.RFC3339),
+		"type": getCertificateType(ext),
+	}
+
+	response := Response{
+		Success: true,
+		Message: "证书基本信息获取成功",
+		Data: map[string]interface{}{
+			"certificate_name": certName,
+			"basic_info": basicInfo,
+			"note": "详细的证书信息需要cert_info.json文件",
+		},
+	}
+
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// getCertificateType 根据文件扩展名确定证书类型
+func getCertificateType(ext string) string {
+	switch ext {
+	case ".crt":
+		return "X.509 Certificate"
+	case ".key":
+		return "Private Key"
+	case ".pem":
+		return "PEM Certificate"
+	case ".json":
+		return "Certificate Information"
+	default:
+		return "Unknown"
+	}
+}
+
+// getCertificateContentType 根据文件扩展名确定内容类型
+func getCertificateContentType(ext string) string {
+	switch ext {
+	case ".crt", ".pem":
+		return "application/x-x509-ca-cert"
+	case ".key":
+		return "application/pkcs8"
+	case ".json":
+		return "application/json"
+	default:
+		return "application/octet-stream"
+	}
 }

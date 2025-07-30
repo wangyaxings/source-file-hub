@@ -11,10 +11,11 @@ import (
 // AuthMiddleware 认证中间件
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 跳过登录接口和健康检查接口
+				// 跳过不需要认证的接口
 		if strings.Contains(r.URL.Path, "/auth/login") ||
 		   strings.Contains(r.URL.Path, "/health") ||
-		   strings.Contains(r.URL.Path, "/auth/users") { // 获取默认用户列表也跳过
+		   strings.Contains(r.URL.Path, "/auth/users") || // 获取默认用户列表
+		   strings.Contains(r.URL.Path, "/certificates") { // SSL证书相关接口
 			next.ServeHTTP(w, r)
 			return
 		}

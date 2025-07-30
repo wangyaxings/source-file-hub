@@ -62,3 +62,16 @@ dist/
 configs/*.prod.json
 configs/*.production.json
 configs/local.json
+
+# SSL证书私钥文件（出于安全考虑）
+# 注意：这里我们保留证书文件用于演示，生产环境应该忽略所有证书文件
+*.key
+certs/*.key
+
+# 证书签名请求文件
+*.csr
+certs/*.csr
+
+# 证书备份文件
+*.bak
+certs/*.bak
