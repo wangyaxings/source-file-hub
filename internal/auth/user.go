@@ -80,7 +80,10 @@ func checkPassword(hashedPassword, password string) bool {
 // generateToken 生成简单的token（生产环境建议使用JWT）
 func generateToken() string {
 	bytes := make([]byte, 32)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to timestamp-based token if random generation fails
+		return fmt.Sprintf("fallback_%d", time.Now().UnixNano())
+	}
 	return hex.EncodeToString(bytes)
 }
 

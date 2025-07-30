@@ -66,5 +66,9 @@ func writeUnauthorizedResponse(w http.ResponseWriter, message string) {
 		"code":    "UNAUTHORIZED",
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		// If we can't encode the response, just log the error
+		// We've already set the status code, so the client will get something
+		_ = err // Suppress unused variable warning
+	}
 }

@@ -308,7 +308,10 @@ func (l *Logger) GetAccessLogs(limit int, offset int) ([]StructuredLog, error) {
 
 		// 解析details JSON
 		if detailsJSON != "" {
-			json.Unmarshal([]byte(detailsJSON), &log.Details)
+			if err := json.Unmarshal([]byte(detailsJSON), &log.Details); err != nil {
+				// If we can't unmarshal details, just leave it nil
+				log.Details = nil
+			}
 		}
 
 		logs = append(logs, log)
