@@ -7,8 +7,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"fileserver/internal/auth"
 	"github.com/gorilla/mux"
 )
 
@@ -24,13 +26,18 @@ type Response struct {
 func RegisterRoutes(router *mux.Router) {
 	// API版本前缀
 	api := router.PathPrefix("/api/v1").Subrouter()
-
-	// 配置文件下载路由
-	api.HandleFunc("/config/download", downloadConfigHandler).Methods("GET")
-
-	// 健康检查路由
+	
+	// 认证相关路由（无需认证）
+	api.HandleFunc("/auth/login", loginHandler).Methods("POST")
+	api.HandleFunc("/auth/logout", logoutHandler).Methods("POST")
+	api.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
+	
+	// 健康检查路由（无需认证）
 	api.HandleFunc("/health", healthCheckHandler).Methods("GET")
-
+	
+	// 需要认证的路由
+	api.HandleFunc("/config/download", downloadConfigHandler).Methods("GET")
+	
 	// 静态文件服务路由（可选）
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
 }
@@ -111,6 +118,86 @@ func writeErrorResponse(w http.ResponseWriter, status int, message string) {
 		Success: false,
 		Error:   message,
 	}
-
+	
 	writeJSONResponse(w, status, response)
+}
+
+// loginHandler 用户登录处理器
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	var loginReq auth.LoginRequest
+	
+	// 解析请求体
+	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	
+	// 用户认证
+	loginResp, err := auth.Authenticate(&loginReq)
+	if err != nil {
+		log.Printf("Login failed for user %s@%s: %v", loginReq.Username, loginReq.TenantID, err)
+		writeErrorResponse(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	
+	log.Printf("User %s@%s logged in successfully", loginReq.Username, loginReq.TenantID)
+	
+	// 返回登录成功响应
+	response := Response{
+		Success: true,
+		Message: "登录成功",
+		Data:    loginResp,
+	}
+	
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// logoutHandler 用户登出处理器
+func logoutHandler(w http.ResponseWriter, r *http.Request) {
+	// 获取Authorization header
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		writeErrorResponse(w, http.StatusBadRequest, "缺少Authorization header")
+		return
+	}
+	
+	// 提取token
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		writeErrorResponse(w, http.StatusBadRequest, "Authorization header格式错误")
+		return
+	}
+	
+	token := parts[1]
+	
+	// 执行登出
+	if err := auth.Logout(token); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	
+	log.Printf("User logged out successfully")
+	
+	response := Response{
+		Success: true,
+		Message: "登出成功",
+	}
+	
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// getDefaultUsersHandler 获取默认测试用户列表
+func getDefaultUsersHandler(w http.ResponseWriter, r *http.Request) {
+	users := auth.GetDefaultUsers()
+	
+	response := Response{
+		Success: true,
+		Message: "默认测试用户列表",
+		Data: map[string]interface{}{
+			"users": users,
+			"note":  "这些是预设的测试用户，您可以使用这些账户进行登录测试",
+		},
+	}
+	
+	writeJSONResponse(w, http.StatusOK, response)
 }

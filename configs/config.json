@@ -7,7 +7,7 @@
   },
   "application": {
     "name": "FileServer",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "environment": "development"
   },
   "logging": {
@@ -16,6 +16,28 @@
   },
   "features": {
     "download_enabled": true,
-    "cors_enabled": true
+    "cors_enabled": true,
+    "auth_enabled": true
+  },
+  "auth": {
+    "token_expiry": "24h",
+    "require_auth": true,
+    "default_users": [
+      {
+        "tenant_id": "demo",
+        "username": "admin",
+        "description": "管理员账户"
+      },
+      {
+        "tenant_id": "demo", 
+        "username": "user1",
+        "description": "普通用户账户"
+      },
+      {
+        "tenant_id": "tenant1",
+        "username": "test",
+        "description": "测试账户"
+      }
+    ]
   }
 }
