@@ -36,7 +36,7 @@
         "description": "管理员账户"
       },
       {
-        "tenant_id": "demo",
+        "tenant_id": "demo", 
         "username": "user1",
         "description": "普通用户账户"
       },
