@@ -236,23 +236,23 @@ curl -k -X POST https://localhost:8443/api/v1/auth/login \
 TOKEN="your_token_here"
 
 # 下载配置文件
-curl -k -H "Authorization: Bearer $TOKEN" \
+curl -k -H "Authorization: Bearer 99cab419f558d453ea5177b36e200b9a458f97539375680b22f46884e4d0cb4b" \
   -O -J https://localhost:8443/api/v1/files/configs/config.json
 
 # 下载SSL证书
-curl -k -H "Authorization: Bearer $TOKEN" \
+curl -k -H "Authorization: Bearer 99cab419f558d453ea5177b36e200b9a458f97539375680b22f46884e4d0cb4b" \
   -O -J https://localhost:8443/api/v1/files/certificates/server.crt
 
 # 下载SSL私钥
-curl -k -H "Authorization: Bearer $TOKEN" \
+curl -k -H "Authorization: Bearer 99cab419f558d453ea5177b36e200b9a458f97539375680b22f46884e4d0cb4b" \
   -O -J https://localhost:8443/api/v1/files/certificates/server.key
 
 # 下载证书信息
-curl -k -H "Authorization: Bearer $TOKEN" \
+curl -k -H "Authorization: Bearer 99cab419f558d453ea5177b36e200b9a458f97539375680b22f46884e4d0cb4b" \
   -O -J https://localhost:8443/api/v1/files/certificates/cert_info.json
 
 # 下载API文档
-curl -k -H "Authorization: Bearer $TOKEN" \
+curl -k -H "Authorization: Bearer 99cab419f558d453ea5177b36e200b9a458f97539375680b22f46884e4d0cb4b" \
   -O -J https://localhost:8443/api/v1/files/docs/api_guide.txt
 ```
 
@@ -260,7 +260,7 @@ curl -k -H "Authorization: Bearer $TOKEN" \
 
 ```bash
 curl -k -X POST https://localhost:8443/api/v1/auth/logout \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer 99cab419f558d453ea5177b36e200b9a458f97539375680b22f46884e4d0cb4b"
 ```
 
 ### 🌐 浏览器使用
