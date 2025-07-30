@@ -45,7 +45,7 @@ var userStore = map[string]*User{
 		Password: hashPassword("admin123"), // 默认密码
 	},
 	"user1:demo@user1": {
-		TenantID: "demo", 
+		TenantID: "demo",
 		Username: "user1",
 		Password: hashPassword("password123"),
 	},
@@ -193,7 +193,7 @@ func GetDefaultUsers() []map[string]string {
 		{
 			"tenant_id": "demo",
 			"username":  "user1",
-			"password":  "password123", 
+			"password":  "password123",
 			"desc":      "普通用户账户",
 		},
 		{

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"fileserver/internal/middleware"
+
 	"github.com/gorilla/mux"
 )
 
@@ -17,12 +18,12 @@ type Server struct {
 // New 创建新的服务器实例
 func New() *Server {
 	router := mux.NewRouter()
-	
+
 	// 添加中间件（顺序很重要）
 	router.Use(loggingMiddleware)
 	router.Use(corsMiddleware)
 	router.Use(middleware.AuthMiddleware) // 认证中间件
-	
+
 	return &Server{
 		Router: router,
 	}

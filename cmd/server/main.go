@@ -22,7 +22,7 @@ func main() {
 
 	// 创建HTTP服务器
 	httpServer := &http.Server{
-		Addr:         ":8080",
+		Addr:         ":38080",
 		Handler:      srv.Router,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,

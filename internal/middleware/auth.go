@@ -12,7 +12,7 @@ import (
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 跳过登录接口和健康检查接口
-		if strings.Contains(r.URL.Path, "/auth/login") || 
+		if strings.Contains(r.URL.Path, "/auth/login") ||
 		   strings.Contains(r.URL.Path, "/health") ||
 		   strings.Contains(r.URL.Path, "/auth/users") { // 获取默认用户列表也跳过
 			next.ServeHTTP(w, r)
@@ -59,12 +59,12 @@ func AuthMiddleware(next http.Handler) http.Handler {
 func writeUnauthorizedResponse(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	
+
 	response := map[string]interface{}{
 		"success": false,
 		"error":   message,
 		"code":    "UNAUTHORIZED",
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
 }

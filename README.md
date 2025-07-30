@@ -5,7 +5,7 @@
 ## 功能特性
 
 - ✅ REST API接口
-- ✅ 配置文件下载功能  
+- ✅ 配置文件下载功能
 - ✅ 用户认证和授权
 - ✅ 多租户支持（tenantid + username）
 - ✅ Token-based认证（无感体验）
@@ -71,7 +71,7 @@ GET /api/v1/auth/users
     "users": [
       {
         "tenant_id": "demo",
-        "username": "admin", 
+        "username": "admin",
         "password": "admin123",
         "desc": "管理员账户"
       },
@@ -79,7 +79,7 @@ GET /api/v1/auth/users
         "tenant_id": "demo",
         "username": "user1",
         "password": "password123",
-        "desc": "普通用户账户"  
+        "desc": "普通用户账户"
       },
       {
         "tenant_id": "tenant1",
@@ -184,7 +184,7 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "tenant_id": "demo",
-    "username": "admin", 
+    "username": "admin",
     "password": "admin123"
   }'
 ```
@@ -193,8 +193,8 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
 
 ```bash
 # 使用上一步返回的token
-TOKEN="your_token_here"
-curl -H "Authorization: Bearer $TOKEN" \
+TOKEN=""
+curl -H "Authorization: Bearer 7304073a5931c42401c7ed29204942286b41df1f392294d280cc3233c53aac39" \
   -O -J http://localhost:8080/api/v1/config/download
 ```
 
@@ -253,7 +253,7 @@ curl -X POST http://localhost:8080/api/v1/auth/logout \
 
 1. **项目结构**: 使用标准的Go项目布局
 2. **认证架构**: Token-based认证，支持多租户
-3. **错误处理**: 完善的错误处理和日志记录  
+3. **错误处理**: 完善的错误处理和日志记录
 4. **HTTP中间件**: 分层中间件（日志、CORS、认证）
 5. **优雅关闭**: 支持优雅关闭服务器
 6. **安全性**: 密码哈希、token验证、适当的HTTP头部
