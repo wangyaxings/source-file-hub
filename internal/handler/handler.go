@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"secure-file-hub/internal/auth"
@@ -26,8 +28,201 @@ type Response struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+// FileMetadata 文件元数据结构
+type FileMetadata struct {
+	ID           string    `json:"id"`
+	OriginalName string    `json:"originalName"`
+	FileType     string    `json:"fileType"`
+	Description  string    `json:"description"`
+	Uploader     string    `json:"uploader"`
+	UploadTime   time.Time `json:"uploadTime"`
+	Version      int       `json:"version"`
+	VersionedName string   `json:"versionedName"`
+}
+
+// 全局文件元数据存储
+var (
+	fileMetadataStore = make(map[string]FileMetadata) // key: 文件路径
+	metadataMutex     sync.RWMutex
+	metadataFile      = "downloads/metadata.json"
+)
+
+// 元数据管理函数
+
+// initMetadata 初始化元数据存储
+func initMetadata() {
+	loadMetadata()
+	// 如果元数据为空，尝试迁移现有文件
+	if len(fileMetadataStore) == 0 {
+		migrateExistingFiles()
+	}
+}
+
+// migrateExistingFiles 迁移现有文件到元数据系统
+func migrateExistingFiles() {
+	log.Println("Migrating existing files to metadata system...")
+
+	types := []string{"config", "certificate", "docs"}
+	for _, fileType := range types {
+		baseDir := filepath.Join("downloads", fileType+"s")
+
+		if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+			continue
+		}
+
+		filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() || !isValidFileExtension(info.Name()) {
+				return nil
+			}
+
+			relPath, _ := filepath.Rel("downloads", path)
+			fileName := info.Name()
+
+			// 跳过已经有元数据的文件
+			if _, exists := getFileMetadata(relPath); exists {
+				return nil
+			}
+
+			// 判断是否为版本化文件
+			var originalName string
+			var version int
+			if strings.Contains(fileName, "_v") {
+				// 提取原始文件名和版本号
+				parts := strings.Split(fileName, "_v")
+				if len(parts) >= 2 {
+					originalName = parts[0] + filepath.Ext(fileName)
+					// 简单提取版本号
+					versionStr := strings.TrimSuffix(parts[1], filepath.Ext(fileName))
+					if v, parseErr := strconv.Atoi(versionStr); parseErr == nil {
+						version = v
+					} else {
+						version = 1
+					}
+				} else {
+					originalName = fileName
+					version = 1
+				}
+			} else {
+				originalName = fileName
+				version = 0 // 最新版本标记
+			}
+
+			// 创建迁移的元数据
+			metadata := FileMetadata{
+				ID:           generateFileID(),
+				OriginalName: originalName,
+				FileType:     fileType,
+				Description:  "历史文件（系统迁移）",
+				Uploader:     "system",
+				UploadTime:   info.ModTime(),
+				Version:      version,
+				VersionedName: fileName,
+			}
+
+			// 保存元数据
+			metadataMutex.Lock()
+			fileMetadataStore[relPath] = metadata
+			metadataMutex.Unlock()
+
+			log.Printf("Migrated file: %s (version %d)", relPath, version)
+			return nil
+		})
+	}
+
+	// 保存迁移后的元数据
+	saveMetadata()
+	log.Println("File migration completed")
+}
+
+// loadMetadata 从文件加载元数据
+func loadMetadata() {
+	metadataMutex.Lock()
+	defer metadataMutex.Unlock()
+
+	if _, err := os.Stat(metadataFile); os.IsNotExist(err) {
+		// 元数据文件不存在，创建空存储
+		fileMetadataStore = make(map[string]FileMetadata)
+		return
+	}
+
+	data, err := os.ReadFile(metadataFile)
+	if err != nil {
+		log.Printf("Warning: Failed to read metadata file: %v", err)
+		fileMetadataStore = make(map[string]FileMetadata)
+		return
+	}
+
+	if err := json.Unmarshal(data, &fileMetadataStore); err != nil {
+		log.Printf("Warning: Failed to parse metadata file: %v", err)
+		fileMetadataStore = make(map[string]FileMetadata)
+		return
+	}
+}
+
+// saveMetadata 保存元数据到文件（调用时应已持有锁）
+func saveMetadataLocked() {
+	data, err := json.MarshalIndent(fileMetadataStore, "", "  ")
+	if err != nil {
+		log.Printf("Error marshaling metadata: %v", err)
+		return
+	}
+
+	// 确保目录存在
+	os.MkdirAll(filepath.Dir(metadataFile), 0755)
+
+	if err := os.WriteFile(metadataFile, data, 0644); err != nil {
+		log.Printf("Error saving metadata: %v", err)
+	}
+}
+
+// saveMetadata 保存元数据到文件（安全版本，会获取锁）
+func saveMetadata() {
+	metadataMutex.RLock()
+	defer metadataMutex.RUnlock()
+	saveMetadataLocked()
+}
+
+// addFileMetadata 添加文件元数据
+func addFileMetadata(path string, metadata FileMetadata) {
+	metadataMutex.Lock()
+	fileMetadataStore[path] = metadata
+	saveMetadataLocked() // 直接调用不需要锁的版本
+	metadataMutex.Unlock()
+}
+
+// getFileMetadata 获取文件元数据
+func getFileMetadata(path string) (FileMetadata, bool) {
+	metadataMutex.RLock()
+	defer metadataMutex.RUnlock()
+	metadata, exists := fileMetadataStore[path]
+	return metadata, exists
+}
+
+// updateLatestVersion 更新最新版本的元数据
+func updateLatestVersion(fileType, originalName string, newMetadata FileMetadata) {
+	metadataMutex.Lock()
+	defer metadataMutex.Unlock()
+
+	// 找到同名文件的所有版本，更新最新版本的链接文件元数据
+	latestPath := filepath.Join(fileType+"s", originalName)
+	fileMetadataStore[latestPath] = FileMetadata{
+		ID:           newMetadata.ID,
+		OriginalName: newMetadata.OriginalName,
+		FileType:     newMetadata.FileType,
+		Description:  newMetadata.Description,
+		Uploader:     newMetadata.Uploader,
+		UploadTime:   newMetadata.UploadTime,
+		Version:      newMetadata.Version,
+		VersionedName: newMetadata.VersionedName,
+	}
+
+	saveMetadataLocked() // 使用不需要锁的版本
+}
+
 // RegisterRoutes 注册所有路由
 func RegisterRoutes(router *mux.Router) {
+	// 初始化元数据存储
+	initMetadata()
 	// API版本前缀
 	api := router.PathPrefix("/api/v1").Subrouter()
 
@@ -552,6 +747,25 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 保存文件元数据
+	metadata := FileMetadata{
+		ID:           fileInfo.ID,
+		OriginalName: header.Filename,
+		FileType:     fileType,
+		Description:  description,
+		Uploader:     uploader,
+		UploadTime:   time.Now(),
+		Version:      version,
+		VersionedName: versionedFileName,
+	}
+
+	// 保存版本化文件的元数据
+	versionedPath := filepath.Join(fileType+"s", versionedFileName)
+	addFileMetadata(versionedPath, metadata)
+
+	// 更新最新版本的元数据
+	updateLatestVersion(fileType, header.Filename, metadata)
+
 	// 记录上传日志
 	if l := logger.GetLogger(); l != nil {
 		l.LogFileUpload(fileInfo.Path, uploader, fileInfo.Size, map[string]interface{}{
@@ -687,39 +901,41 @@ func copyFile(src, dst string) error {
 // getFilesByType 根据类型获取文件列表
 func getFilesByType(fileType string) ([]FileInfo, error) {
 	var files []FileInfo
-	baseDir := filepath.Join("downloads", fileType+"s")
+	metadataMutex.RLock()
+	defer metadataMutex.RUnlock()
 
-	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
-		return files, nil // 目录不存在，返回空列表
+	// 从元数据中找到指定类型的文件，只显示最新版本（非版本化的文件名）
+	for path, metadata := range fileMetadataStore {
+		if metadata.FileType == fileType && !strings.Contains(filepath.Base(path), "_v") {
+			// 这是最新版本的文件
+			fullPath := filepath.Join("downloads", path)
+
+			// 检查文件是否存在
+			if info, err := os.Stat(fullPath); err == nil {
+				fileInfo := FileInfo{
+					ID:           metadata.ID,
+					FileName:     filepath.Base(path),
+					OriginalName: metadata.OriginalName,
+					FileType:     metadata.FileType,
+					Size:         info.Size(),
+					Description:  metadata.Description,
+					UploadTime:   metadata.UploadTime,
+					Version:      metadata.Version,
+					IsLatest:     true,
+					Uploader:     metadata.Uploader,
+					Path:         path,
+				}
+				files = append(files, fileInfo)
+			}
+		}
 	}
 
-	err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if !info.IsDir() && isValidFileExtension(info.Name()) {
-			relPath, _ := filepath.Rel("downloads", path)
-
-			// 判断是否为版本化文件
-			isVersioned := strings.Contains(info.Name(), "_v")
-
-			fileInfo := FileInfo{
-				FileName:   info.Name(),
-				FileType:   fileType,
-				Size:       info.Size(),
-				UploadTime: info.ModTime(),
-				Path:       relPath,
-				IsLatest:   !isVersioned, // 非版本化文件认为是最新的
-			}
-
-			files = append(files, fileInfo)
-		}
-
-		return nil
+	// 按上传时间倒序排序
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].UploadTime.After(files[j].UploadTime)
 	})
 
-	return files, err
+	return files, nil
 }
 
 // getAllFiles 获取所有文件
@@ -741,33 +957,41 @@ func getAllFiles() ([]FileInfo, error) {
 // getFileVersions 获取文件版本列表
 func getFileVersions(fileType, filename string) ([]FileInfo, error) {
 	var versions []FileInfo
-	baseDir := filepath.Join("downloads", fileType+"s")
+	metadataMutex.RLock()
+	defer metadataMutex.RUnlock()
 
-	baseName := strings.TrimSuffix(filename, filepath.Ext(filename))
-	ext := filepath.Ext(filename)
-	pattern := filepath.Join(baseDir, fmt.Sprintf("%s_v*%s", baseName, ext))
+	// 从元数据中找到指定文件的所有版本
+	for path, metadata := range fileMetadataStore {
+		if metadata.FileType == fileType && metadata.OriginalName == filename {
+			fullPath := filepath.Join("downloads", path)
 
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		return versions, err
-	}
+			// 检查文件是否存在
+			if info, err := os.Stat(fullPath); err == nil {
+				// 判断是否为最新版本（非版本化文件名）
+				isLatest := !strings.Contains(filepath.Base(path), "_v")
 
-	for _, filePath := range files {
-		if info, err := os.Stat(filePath); err == nil {
-			relPath, _ := filepath.Rel("downloads", filePath)
-
-			fileInfo := FileInfo{
-				FileName:   info.Name(),
-				FileType:   fileType,
-				Size:       info.Size(),
-				UploadTime: info.ModTime(),
-				Path:       relPath,
-				IsLatest:   false,
+				fileInfo := FileInfo{
+					ID:           metadata.ID,
+					FileName:     filepath.Base(path),
+					OriginalName: metadata.OriginalName,
+					FileType:     metadata.FileType,
+					Size:         info.Size(),
+					Description:  metadata.Description,
+					UploadTime:   metadata.UploadTime,
+					Version:      metadata.Version,
+					IsLatest:     isLatest,
+					Uploader:     metadata.Uploader,
+					Path:         path,
+				}
+				versions = append(versions, fileInfo)
 			}
-
-			versions = append(versions, fileInfo)
 		}
 	}
+
+	// 按版本号倒序排序（最新版本在前）
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i].Version > versions[j].Version
+	})
 
 	return versions, nil
 }

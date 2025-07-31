@@ -180,6 +180,9 @@ downloads/temp/
 downloads/*.tmp
 downloads/*.log
 
+# 文件元数据（包含敏感信息）
+downloads/metadata.json
+
 # 数据库文件
 *.db
 *.sqlite
