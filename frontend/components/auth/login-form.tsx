@@ -14,14 +14,14 @@ interface LoginFormProps {
 }
 
 const defaultUsers = [
-  { tenantID: "demo", username: "admin", description: "管理员账户" },
-  { tenantID: "demo", username: "user1", description: "普通用户账户" },
-  { tenantID: "tenant1", username: "test", description: "测试账户" }
+  { tenant_id: "demo", username: "admin", description: "管理员账户" },
+  { tenant_id: "demo", username: "user1", description: "普通用户账户" },
+  { tenant_id: "tenant1", username: "test", description: "测试账户" }
 ]
 
 export function LoginForm({ onLogin }: LoginFormProps) {
   const [formData, setFormData] = useState<LoginRequest>({
-    tenantID: "",
+    tenant_id: "",
     username: "",
     password: ""
   })
@@ -29,10 +29,10 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   const [error, setError] = useState("")
 
   const handleUserSelect = (value: string) => {
-    const [tenantID, username] = value.split(":")
+    const [tenant_id, username] = value.split(":")
     setFormData(prev => ({
       ...prev,
-      tenantID,
+      tenant_id,
       username
     }))
   }
@@ -71,11 +71,11 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               <SelectContent>
                 {defaultUsers.map((user) => (
                   <SelectItem
-                    key={`${user.tenantID}:${user.username}`}
-                    value={`${user.tenantID}:${user.username}`}
+                    key={`${user.tenant_id}:${user.username}`}
+                    value={`${user.tenant_id}:${user.username}`}
                   >
                     <div className="flex flex-col">
-                      <span>{user.username}@{user.tenantID}</span>
+                      <span>{user.username}@{user.tenant_id}</span>
                       <span className="text-xs text-muted-foreground">{user.description}</span>
                     </div>
                   </SelectItem>
@@ -90,8 +90,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               <Input
                 id="tenantId"
                 type="text"
-                value={formData.tenantID}
-                onChange={(e) => setFormData(prev => ({ ...prev, tenantID: e.target.value }))}
+                value={formData.tenant_id}
+                onChange={(e) => setFormData(prev => ({ ...prev, tenant_id: e.target.value }))}
                 placeholder="demo"
                 required
               />

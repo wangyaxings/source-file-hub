@@ -13,7 +13,7 @@ export interface FileInfo {
 }
 
 export interface LoginRequest {
-  tenantID: string
+  tenant_id: string
   username: string
   password: string
 }
@@ -22,9 +22,15 @@ export interface LoginResponse {
   token: string
   expiresIn: number
   user: {
-    tenantID: string
+    tenant_id: string
     username: string
   }
+}
+
+export interface UserInfo {
+  tenant_id: string
+  username: string
+  role?: string
 }
 
 export interface ApiResponse<T = any> {
@@ -37,10 +43,14 @@ export interface ApiResponse<T = any> {
 class ApiClient {
   private baseUrl = '/api'
   private token: string | null = null
+  private currentUser: UserInfo | null = null
 
   constructor() {
     // Check if we're running in the browser (client-side)
     this.token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    this.currentUser = typeof window !== 'undefined'
+      ? JSON.parse(localStorage.getItem('currentUser') || 'null')
+      : null
   }
 
   private async request<T>(
@@ -86,10 +96,23 @@ class ApiClient {
     }
   }
 
+  setUser(user: UserInfo) {
+    this.currentUser = user
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('currentUser', JSON.stringify(user))
+    }
+  }
+
+  getCurrentUser(): UserInfo | null {
+    return this.currentUser
+  }
+
   logout() {
     this.token = null
+    this.currentUser = null
     if (typeof window !== 'undefined') {
       localStorage.removeItem('token')
+      localStorage.removeItem('currentUser')
     }
   }
 
@@ -106,6 +129,10 @@ class ApiClient {
 
     if (response.success && response.data) {
       this.setToken(response.data.token)
+      this.setUser({
+        tenant_id: response.data.user.tenant_id,
+        username: response.data.user.username
+      })
       return response.data
     }
 

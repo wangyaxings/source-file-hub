@@ -4,10 +4,11 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { LoginForm } from "@/components/auth/login-form"
 import { FileUpload } from "@/components/file/file-upload"
 import { FileList } from "@/components/file/file-list"
-import { apiClient } from "@/lib/api"
+import { apiClient, type UserInfo } from "@/lib/api"
 import {
   LogOut,
   Upload,
@@ -23,6 +24,7 @@ export default function HomePage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [currentUser, setCurrentUser] = useState<UserInfo | null>(null)
   const [serverStatus, setServerStatus] = useState<{
     online: boolean
     message: string
@@ -31,7 +33,14 @@ export default function HomePage() {
   useEffect(() => {
     // 检查是否已登录
     const checkAuth = async () => {
-      setIsAuthenticated(apiClient.isAuthenticated())
+      const authenticated = apiClient.isAuthenticated()
+      setIsAuthenticated(authenticated)
+
+      if (authenticated) {
+        const user = apiClient.getCurrentUser()
+        setCurrentUser(user)
+      }
+
       setIsLoading(false)
 
       // 检查服务器状态
@@ -51,6 +60,8 @@ export default function HomePage() {
 
   const handleLogin = () => {
     setIsAuthenticated(true)
+    const user = apiClient.getCurrentUser()
+    setCurrentUser(user)
   }
 
   const handleLogout = async () => {
@@ -60,6 +71,7 @@ export default function HomePage() {
       console.error('Logout error:', error)
     } finally {
       setIsAuthenticated(false)
+      setCurrentUser(null)
     }
   }
 
@@ -131,6 +143,26 @@ export default function HomePage() {
                   <span className={serverStatus.online ? "text-green-600" : "text-red-600"}>
                     {serverStatus.online ? "在线" : "离线"}
                   </span>
+                </div>
+              )}
+
+              {/* 用户信息 */}
+              {currentUser && (
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src="" />
+                    <AvatarFallback className="bg-primary text-white text-sm">
+                      {currentUser.username.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="hidden sm:block">
+                    <div className="text-sm font-medium text-gray-900">
+                      {currentUser.username}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      @{currentUser.tenant_id}
+                    </div>
+                  </div>
                 </div>
               )}
 

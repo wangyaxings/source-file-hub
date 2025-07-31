@@ -481,9 +481,15 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取用户信息（从认证中间件设置的header中获取）
-	uploader := r.Header.Get("X-User-Username")
-	if uploader == "" {
+	// 获取用户信息（从认证中间件设置的上下文中获取）
+	var uploader string
+	if userCtx := r.Context().Value("user"); userCtx != nil {
+		if user, ok := userCtx.(*auth.User); ok {
+			uploader = user.Username + "@" + user.TenantID
+		} else {
+			uploader = "unknown"
+		}
+	} else {
 		uploader = "unknown"
 	}
 

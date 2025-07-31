@@ -216,18 +216,18 @@ export function FileList({ refreshTrigger }: FileListProps) {
         open={versionsDialog.isOpen}
         onOpenChange={(open) => setVersionsDialog(prev => ({ ...prev, isOpen: open }))}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
               版本历史 - {versionsDialog.file?.originalName || versionsDialog.file?.fileName}
             </DialogTitle>
             <DialogDescription>
-              查看和下载此文件的所有版本
+              查看和下载此文件的所有版本，共 {versionsDialog.versions.length} 个版本
             </DialogDescription>
           </DialogHeader>
 
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-[60vh] overflow-y-auto">
             <FileTable
               files={versionsDialog.versions}
               onDownload={handleDownload}
@@ -264,53 +264,53 @@ function FileTable({ files, onDownload, onViewVersions, downloadingFile, showVer
       <table className="w-full">
         <thead>
           <tr className="border-b text-left text-sm text-gray-500">
-            <th className="pb-3 font-medium">文件名</th>
-            <th className="pb-3 font-medium">大小</th>
-            <th className="pb-3 font-medium">上传时间</th>
-            <th className="pb-3 font-medium">上传者</th>
-            {showVersions && <th className="pb-3 font-medium">版本</th>}
-            <th className="pb-3 font-medium">操作</th>
+            <th className="pb-4 font-medium w-1/3">文件名</th>
+            <th className="pb-4 font-medium w-20">大小</th>
+            <th className="pb-4 font-medium w-32">上传时间</th>
+            <th className="pb-4 font-medium w-24">上传者</th>
+            {showVersions && <th className="pb-4 font-medium w-16">版本</th>}
+            <th className="pb-4 font-medium w-32">操作</th>
           </tr>
         </thead>
         <tbody>
           {files.map((file) => (
-            <tr key={file.id || file.path} className="border-b last:border-0">
-              <td className="py-3">
+            <tr key={file.id || file.path} className="border-b last:border-0 hover:bg-gray-50">
+              <td className="py-4">
                 <div className="flex items-center gap-3">
                   <div className="flex-shrink-0">
                     <FileText className="h-5 w-5 text-gray-400" />
                   </div>
                   <div>
-                    <div className="font-medium">
+                    <div className="font-medium text-gray-900">
                       {file.originalName || file.fileName}
                     </div>
                     {file.description && (
-                      <div className="text-sm text-gray-500">{file.description}</div>
+                      <div className="text-sm text-gray-500 mt-1">{file.description}</div>
                     )}
                   </div>
                 </div>
               </td>
-              <td className="py-3 text-sm text-gray-600">
+              <td className="py-4 text-sm text-gray-600">
                 {formatFileSize(file.size)}
               </td>
-              <td className="py-3 text-sm text-gray-600">
-                <div className="flex items-center gap-1">
+              <td className="py-4 text-sm text-gray-600">
+                <div className="flex items-center gap-2">
                   <Clock className="h-3 w-3" />
-                  {formatDate(file.uploadTime)}
+                  <span>{formatDate(file.uploadTime)}</span>
                 </div>
               </td>
-              <td className="py-3 text-sm text-gray-600">
-                <div className="flex items-center gap-1">
+              <td className="py-4 text-sm text-gray-600">
+                <div className="flex items-center gap-2">
                   <User className="h-3 w-3" />
-                  {file.uploader || "unknown"}
+                  <span>{file.uploader || "unknown"}</span>
                 </div>
               </td>
               {showVersions && (
-                <td className="py-3 text-sm text-gray-600">
+                <td className="py-4 text-sm text-gray-600 font-mono">
                   v{file.version}
                 </td>
               )}
-              <td className="py-3">
+              <td className="py-4">
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"

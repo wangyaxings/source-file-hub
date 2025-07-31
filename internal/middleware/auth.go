@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -42,9 +43,9 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// 将用户信息添加到请求上下文中（可选）
-		// ctx := context.WithValue(r.Context(), "user", user)
-		// r = r.WithContext(ctx)
+		// 将用户信息添加到请求上下文中
+		ctx := context.WithValue(r.Context(), "user", user)
+		r = r.WithContext(ctx)
 
 		// 在响应头中添加用户信息（方便调试）
 		w.Header().Set("X-User-TenantID", user.TenantID)

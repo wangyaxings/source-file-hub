@@ -143,9 +143,7 @@ Icon
 *.temp
 *.cache
 
-# 下载的临时文件
-downloads/temp/
-downloads/*.tmp
+# 下载的临时文件（具体规则见下方"项目特定"部分）
 
 # 备份文件
 *.bak
@@ -169,14 +167,18 @@ coverage/
 # ================
 # 项目特定
 # ================
-# 用户上传的文件（保留目录结构）
-downloads/*
-!downloads/configs/
-!downloads/certificates/
-!downloads/docs/
+# 用户上传的文件（保留目录结构，忽略文件内容）
+downloads/configs/*
 !downloads/configs/.gitkeep
+downloads/certificates/*
 !downloads/certificates/.gitkeep
+downloads/docs/*
 !downloads/docs/.gitkeep
+
+# 忽略其他可能的上传目录内容
+downloads/temp/
+downloads/*.tmp
+downloads/*.log
 
 # 数据库文件
 *.db
@@ -229,3 +231,5 @@ api.key
 
 # 文档生成
 docs/generated/
+logs.db
+logs.db
