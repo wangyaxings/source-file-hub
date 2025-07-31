@@ -43,6 +43,11 @@ func RegisterRoutes(router *mux.Router) {
 	// 健康检查路由（无需认证）
 	api.HandleFunc("/health", healthCheckHandler).Methods("GET")
 
+	// 文件上传路由（需要认证）
+	api.HandleFunc("/upload", uploadFileHandler).Methods("POST")
+	api.HandleFunc("/files/list", listFilesHandler).Methods("GET")
+	api.HandleFunc("/files/versions/{type}/{filename}", getFileVersionsHandler).Methods("GET")
+
 	// 统一文件下载路由（需要认证）
 	filesRouter := api.PathPrefix("/files").Subrouter()
 	filesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
@@ -415,6 +420,350 @@ func getSystemLogsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// FileUploadRequest 文件上传请求结构
+type FileUploadRequest struct {
+	FileType    string `form:"fileType" json:"fileType"`       // config, certificate, docs
+	Description string `form:"description" json:"description"` // 文件描述
+}
+
+// FileInfo 文件信息结构
+type FileInfo struct {
+	ID          string    `json:"id"`
+	FileName    string    `json:"fileName"`
+	OriginalName string   `json:"originalName"`
+	FileType    string    `json:"fileType"`
+	Size        int64     `json:"size"`
+	Description string    `json:"description"`
+	UploadTime  time.Time `json:"uploadTime"`
+	Version     int       `json:"version"`
+	IsLatest    bool      `json:"isLatest"`
+	Uploader    string    `json:"uploader"`
+	Path        string    `json:"path"`
+}
+
+// uploadFileHandler 文件上传处理器
+func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
+	// 解析multipart form
+	err := r.ParseMultipartForm(32 << 20) // 32MB
+	if err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "解析表单失败: "+err.Error())
+		return
+	}
+
+	// 获取文件
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "获取文件失败: "+err.Error())
+		return
+	}
+	defer file.Close()
+
+	// 获取上传参数
+	fileType := r.FormValue("fileType")
+	description := r.FormValue("description")
+
+	// 验证文件类型
+	allowedTypes := map[string]bool{
+		"config":      true,
+		"certificate": true,
+		"docs":        true,
+	}
+	if !allowedTypes[fileType] {
+		writeErrorResponse(w, http.StatusBadRequest, "不支持的文件类型")
+		return
+	}
+
+	// 验证文件扩展名
+	if !isValidFileExtension(header.Filename) {
+		writeErrorResponse(w, http.StatusBadRequest, "不支持的文件格式")
+		return
+	}
+
+	// 获取用户信息（从认证中间件设置的header中获取）
+	uploader := r.Header.Get("X-User-Username")
+	if uploader == "" {
+		uploader = "unknown"
+	}
+
+	// 创建文件信息
+	fileInfo := &FileInfo{
+		ID:           generateFileID(),
+		FileName:     header.Filename,
+		OriginalName: header.Filename,
+		FileType:     fileType,
+		Size:         header.Size,
+		Description:  description,
+		UploadTime:   time.Now(),
+		Uploader:     uploader,
+	}
+
+	// 生成版本化的文件名和路径
+	versionedFileName, version, err := generateVersionedFileName(fileType, header.Filename)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "生成文件名失败: "+err.Error())
+		return
+	}
+
+	fileInfo.FileName = versionedFileName
+	fileInfo.Version = version
+	fileInfo.IsLatest = true
+
+	// 创建目标目录
+	targetDir := filepath.Join("downloads", fileType+"s")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "创建目录失败: "+err.Error())
+		return
+	}
+
+	// 保存文件
+	targetPath := filepath.Join(targetDir, versionedFileName)
+	fileInfo.Path = targetPath
+
+	dst, err := os.Create(targetPath)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "创建文件失败: "+err.Error())
+		return
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, file)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "保存文件失败: "+err.Error())
+		return
+	}
+
+	// 更新最新版本链接
+	latestPath := filepath.Join(targetDir, header.Filename)
+	os.Remove(latestPath) // 删除旧的链接（如果存在）
+
+	// 创建硬链接指向最新版本
+	if err := os.Link(targetPath, latestPath); err != nil {
+		// 如果硬链接失败，复制文件
+		if copyErr := copyFile(targetPath, latestPath); copyErr != nil {
+			log.Printf("Warning: Failed to create latest version link: %v", copyErr)
+		}
+	}
+
+	// 记录上传日志
+	if l := logger.GetLogger(); l != nil {
+		l.LogFileUpload(fileInfo.Path, uploader, fileInfo.Size, map[string]interface{}{
+			"fileType":    fileType,
+			"version":     version,
+			"description": description,
+		})
+	}
+
+	response := Response{
+		Success: true,
+		Message: "文件上传成功",
+		Data:    fileInfo,
+	}
+
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// listFilesHandler 文件列表处理器
+func listFilesHandler(w http.ResponseWriter, r *http.Request) {
+	fileType := r.URL.Query().Get("type")
+
+	var files []FileInfo
+	var err error
+
+	if fileType != "" {
+		files, err = getFilesByType(fileType)
+	} else {
+		files, err = getAllFiles()
+	}
+
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "获取文件列表失败: "+err.Error())
+		return
+	}
+
+	response := Response{
+		Success: true,
+		Message: "获取文件列表成功",
+		Data: map[string]interface{}{
+			"files": files,
+			"count": len(files),
+		},
+	}
+
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// getFileVersionsHandler 获取文件版本处理器
+func getFileVersionsHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	fileType := vars["type"]
+	filename := vars["filename"]
+
+	versions, err := getFileVersions(fileType, filename)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "获取文件版本失败: "+err.Error())
+		return
+	}
+
+	response := Response{
+		Success: true,
+		Message: "获取文件版本成功",
+		Data: map[string]interface{}{
+			"versions": versions,
+			"count":    len(versions),
+		},
+	}
+
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// 辅助函数
+
+// generateFileID 生成文件ID
+func generateFileID() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+// generateVersionedFileName 生成版本化的文件名
+func generateVersionedFileName(fileType, originalName string) (string, int, error) {
+	baseDir := filepath.Join("downloads", fileType+"s")
+
+	// 获取现有版本号
+	version := 1
+	pattern := fmt.Sprintf("%s_v*%s", strings.TrimSuffix(originalName, filepath.Ext(originalName)), filepath.Ext(originalName))
+
+	if files, err := filepath.Glob(filepath.Join(baseDir, pattern)); err == nil {
+		version = len(files) + 1
+	}
+
+	// 生成版本化文件名
+	ext := filepath.Ext(originalName)
+	baseName := strings.TrimSuffix(originalName, ext)
+	versionedName := fmt.Sprintf("%s_v%d%s", baseName, version, ext)
+
+	return versionedName, version, nil
+}
+
+// isValidFileExtension 验证文件扩展名
+func isValidFileExtension(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	validExts := map[string]bool{
+		".json": true,
+		".crt":  true,
+		".key":  true,
+		".pem":  true,
+		".txt":  true,
+		".log":  true,
+		".zip":  true,
+	}
+	return validExts[ext]
+}
+
+// copyFile 复制文件
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
+}
+
+// getFilesByType 根据类型获取文件列表
+func getFilesByType(fileType string) ([]FileInfo, error) {
+	var files []FileInfo
+	baseDir := filepath.Join("downloads", fileType+"s")
+
+	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+		return files, nil // 目录不存在，返回空列表
+	}
+
+	err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() && isValidFileExtension(info.Name()) {
+			relPath, _ := filepath.Rel("downloads", path)
+
+			// 判断是否为版本化文件
+			isVersioned := strings.Contains(info.Name(), "_v")
+
+			fileInfo := FileInfo{
+				FileName:   info.Name(),
+				FileType:   fileType,
+				Size:       info.Size(),
+				UploadTime: info.ModTime(),
+				Path:       relPath,
+				IsLatest:   !isVersioned, // 非版本化文件认为是最新的
+			}
+
+			files = append(files, fileInfo)
+		}
+
+		return nil
+	})
+
+	return files, err
+}
+
+// getAllFiles 获取所有文件
+func getAllFiles() ([]FileInfo, error) {
+	var allFiles []FileInfo
+
+	types := []string{"config", "certificate", "docs"}
+	for _, fileType := range types {
+		files, err := getFilesByType(fileType)
+		if err != nil {
+			return nil, err
+		}
+		allFiles = append(allFiles, files...)
+	}
+
+	return allFiles, nil
+}
+
+// getFileVersions 获取文件版本列表
+func getFileVersions(fileType, filename string) ([]FileInfo, error) {
+	var versions []FileInfo
+	baseDir := filepath.Join("downloads", fileType+"s")
+
+	baseName := strings.TrimSuffix(filename, filepath.Ext(filename))
+	ext := filepath.Ext(filename)
+	pattern := filepath.Join(baseDir, fmt.Sprintf("%s_v*%s", baseName, ext))
+
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return versions, err
+	}
+
+	for _, filePath := range files {
+		if info, err := os.Stat(filePath); err == nil {
+			relPath, _ := filepath.Rel("downloads", filePath)
+
+			fileInfo := FileInfo{
+				FileName:   info.Name(),
+				FileType:   fileType,
+				Size:       info.Size(),
+				UploadTime: info.ModTime(),
+				Path:       relPath,
+				IsLatest:   false,
+			}
+
+			versions = append(versions, fileInfo)
+		}
+	}
+
+	return versions, nil
 }
 
 // getContentType 根据文件扩展名确定内容类型

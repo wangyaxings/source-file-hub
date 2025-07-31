@@ -33,6 +33,7 @@ const (
 	EventLogin          EventCode = "USER_LOGIN"
 	EventLogout         EventCode = "USER_LOGOUT"
 	EventFileDownload   EventCode = "FILE_DOWNLOAD"
+	EventFileUpload     EventCode = "FILE_UPLOAD"
 	EventAuthError      EventCode = "AUTH_ERROR"
 	EventSystemStart    EventCode = "SYSTEM_START"
 	EventSystemStop     EventCode = "SYSTEM_STOP"
@@ -188,6 +189,24 @@ func (l *Logger) LogFileDownload(filePath, remoteAddr string, fileSize int64, us
 	}
 
 	l.log(LogLevelINFO, EventFileDownload, fmt.Sprintf("文件下载: %s (%d bytes)", filePath, fileSize), details)
+}
+
+// LogFileUpload 记录文件上传日志
+func (l *Logger) LogFileUpload(filePath, uploader string, fileSize int64, details map[string]interface{}) {
+	uploadDetails := map[string]interface{}{
+		"file_path": filePath,
+		"uploader":  uploader,
+		"file_size": fileSize,
+	}
+
+	// 合并额外的详细信息
+	if details != nil {
+		for k, v := range details {
+			uploadDetails[k] = v
+		}
+	}
+
+	l.log(LogLevelINFO, EventFileUpload, fmt.Sprintf("文件上传: %s (%d bytes) by %s", filePath, fileSize, uploader), uploadDetails)
 }
 
 // LogError 记录错误日志

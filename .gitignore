@@ -1,99 +1,231 @@
-# 编译输出
+# ==========================
+# FileServer Project .gitignore
+# ==========================
+
+# ================
+# Go 相关
+# ================
+# 编译的二进制文件
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+file-server
+file-server.exe
+main
+main.exe
 
-# 测试二进制文件，使用go test -c构建
+# 测试二进制文件
 *.test
 
-# 输出的分析文件 使用go test -coverprofile
+# 输出覆盖率文件
 *.out
 
-# Go workspace文件
-go.work
-
-# 依赖目录（不推荐）
+# Go vendor 目录
 vendor/
 
-# Go模块代理缓存
-GOPROXY/
+# Go 模块下载缓存
+go.sum.backup
 
-# Go模块下载缓存
-GOMODCACHE/
+# ================
+# Node.js 相关
+# ================
+# 依赖目录
+node_modules/
+frontend/node_modules/
 
-# IDE相关文件
+# Next.js 构建输出
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+
+# 运行时数据
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Yarn 相关
+frontend/.yarn/
+frontend/.pnp.*
+
+# ================
+# 日志文件
+# ================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+frontend/logs/
+
+# ================
+# 证书和密钥文件
+# ================
+# SSL 证书（保留示例，忽略实际使用的）
+certs/*.pem
+certs/*.key
+certs/*.crt
+certs/*.p12
+certs/*.pfx
+# 保留证书信息文件
+!certs/cert_info.json
+
+# Next.js 自动生成的证书
+frontend/certificates/
+
+# ================
+# 环境变量和配置
+# ================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 私有配置文件
+configs/private.json
+*.private.*
+
+# ================
+# IDE 和编辑器
+# ================
+# Visual Studio Code
 .vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# GoLand / IntelliJ
 .idea/
+*.iml
+*.ipr
+*.iws
+
+# Vim
 *.swp
 *.swo
 *~
 
-# 操作系统相关
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
 
-# 日志文件
-*.log
-logs/
+# ================
+# 操作系统
+# ================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+# Linux
+*~
+
+# ================
+# 临时文件和缓存
+# ================
+# 临时文件
+*.tmp
+*.temp
+*.cache
+
+# 下载的临时文件
+downloads/temp/
+downloads/*.tmp
+
+# 备份文件
+*.bak
+*.backup
+*.old
+
+# ================
+# 构建和部署
+# ================
+# Docker 相关
+*.dockerignore
+
+# 部署相关
+deploy/
+release/
+
+# 测试覆盖率
+coverage/
+*.coverage
+
+# ================
+# 项目特定
+# ================
+# 用户上传的文件（保留目录结构）
+downloads/*
+!downloads/configs/
+!downloads/certificates/
+!downloads/docs/
+!downloads/configs/.gitkeep
+!downloads/certificates/.gitkeep
+!downloads/docs/.gitkeep
 
 # 数据库文件
 *.db
 *.sqlite
 *.sqlite3
-logs.db
 
-# 临时文件
-tmp/
-temp/
+# 会话和缓存
+sessions/
+cache/
 
-# 环境配置文件
-.env
-.env.local
-.env.development
-.env.test
-.env.production
+# 监控和性能分析
+*.prof
+*.trace
 
-# 构建目录
-build/
-dist/
-bin/
-releases/
+# ================
+# 开发工具
+# ================
+# 热重载
+*.hot-update.*
 
-# 编译后的二进制文件
-fileserver
-fileserver.exe
-main.exe
-fileserver-ssl.exe
+# Source maps
+*.map
 
-# 配置文件的敏感副本（保留原config.json用于演示）
-configs/*.prod.json
-configs/*.production.json
-configs/local.json
+# Bundle analyzer
+bundle-analyzer-report.html
 
-# SSL证书私钥文件（出于安全考虑）
-# 注意：这里我们保留证书文件用于演示，生产环境应该忽略所有证书文件
+# ================
+# 安全相关
+# ================
+# 私钥和密钥
 *.key
-certs/*.key
+*.pem
+id_rsa
+id_dsa
 
-# 证书签名请求文件
-*.csr
-certs/*.csr
+# JWT 密钥
+jwt.secret
 
-# 证书备份文件
-*.bak
-certs/*.bak
+# API 密钥
+api.key
 
-# Docker相关
-.dockerignore
+# ================
+# 其他
+# ================
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar
+*.7z
 
-# 测试脚本
-test_*.ps1
-simple_test.ps1
-quick_test.ps1
+# 文档生成
+docs/generated/

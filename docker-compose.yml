@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # 后端服务
+  fileserver-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./downloads:/app/downloads
+      - ./configs:/app/configs
+      - ./certs:/app/certs
+      - ./logs:/app/logs
+    environment:
+      - GO_ENV=production
+    restart: unless-stopped
+    networks:
+      - fileserver-network
+
+  # 前端服务
+  fileserver-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=https://fileserver-backend:8443
+    depends_on:
+      - fileserver-backend
+    restart: unless-stopped
+    networks:
+      - fileserver-network
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./certs:/etc/nginx/certs
+    depends_on:
+      - fileserver-frontend
+      - fileserver-backend
+    restart: unless-stopped
+    networks:
+      - fileserver-network
+
+networks:
+  fileserver-network:
+    driver: bridge
+
+volumes:
+  downloads:
+  logs:
