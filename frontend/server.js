@@ -17,11 +17,16 @@ const handle = app.getRequestHandler()
 const apiProxy = createProxyMiddleware({
   target: 'https://localhost:8443',
   changeOrigin: true,
-  pathRewrite: {
-    '^/api': '/api/v1'
-  },
+  // 修复路径重写问题 - 不需要重写，直接转发
   secure: false, // Ignore SSL certificate errors
-  logLevel: 'debug'
+  logLevel: 'debug',
+  onError: (err, req, res) => {
+    console.error('Proxy error:', err)
+    res.writeHead(500, {
+      'Content-Type': 'text/plain',
+    })
+    res.end('Proxy error: ' + err.message)
+  }
 })
 
 app.prepare().then(() => {
@@ -30,8 +35,9 @@ app.prepare().then(() => {
       const parsedUrl = parse(req.url, true)
       const { pathname } = parsedUrl
 
-      // Handle API proxy
+      // Handle API proxy - 直接转发所有 /api 开头的请求
       if (pathname.startsWith('/api')) {
+        console.log(`Proxying request: ${pathname}`)
         apiProxy(req, res)
         return
       }
@@ -46,5 +52,6 @@ app.prepare().then(() => {
   }).listen(port, (err) => {
     if (err) throw err
     console.log(`> Ready on http://${hostname}:${port}`)
+    console.log(`> API proxy target: https://localhost:8443`)
   })
 })

@@ -57,6 +57,7 @@ if not exist "downloads\certificates" mkdir downloads\certificates
 if not exist "downloads\docs" mkdir downloads\docs
 if not exist "logs" mkdir logs
 if not exist "pids" mkdir pids
+if not exist "data" mkdir data
 echo [OK] Directories created
 
 echo.
@@ -99,27 +100,67 @@ cd ..
 
 echo.
 
+REM 检查证书文件，如果不存在则启用开发模式
+set "DEV_MODE=false"
+if not exist "certs\server.crt" (
+    echo [INFO] SSL certificates not found, enabling development mode
+    set "DEV_MODE=true"
+)
+if not exist "certs\server.key" (
+    echo [INFO] SSL certificates not found, enabling development mode
+    set "DEV_MODE=true"
+)
+
+REM 设置环境变量
+set "GO_ENV=development"
+if "%DEV_MODE%"=="true" (
+    set "DEV_MODE=true"
+    echo [INFO] Starting in development mode (HTTP only)
+) else (
+    echo [INFO] Starting in production mode (HTTPS)
+)
+
 REM Start backend service
 echo [INFO] Starting backend service...
-start "FileServer Backend" /min cmd /c "file-server.exe > logs\backend.log 2>&1"
+start "FileServer Backend" /min cmd /c "set DEV_MODE=%DEV_MODE% && set GO_ENV=%GO_ENV% && file-server.exe > logs\backend.log 2>&1"
 echo [INFO] Waiting for backend to start...
 timeout /t 5 /nobreak >nul
 
-REM Check if backend is running
+REM Check backend status (try both HTTP and HTTPS)
 echo [INFO] Checking backend status...
-for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "backend_status=%%i"
-if "%backend_status%"=="200" (
-    echo [OK] Backend service is running
-) else (
-    echo [WARNING] Backend may still be starting... (Status: %backend_status%)
-    echo [INFO] Waiting additional 5 seconds for backend...
-    timeout /t 5 /nobreak >nul
-    for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "backend_status=%%i"
+set "backend_status=0"
+
+if "%DEV_MODE%"=="true" (
+    REM 开发模式检查 HTTP
+    for /f %%i in ('powershell -Command "try { (Invoke-WebRequest -Uri 'http://localhost:8080/api/v1/health' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "backend_status=%%i"
     if "%backend_status%"=="200" (
-        echo [OK] Backend service is now running
+        echo [OK] Backend service is running (HTTP mode)
     ) else (
-        echo [ERROR] Backend service failed to start properly
-        echo [INFO] Check logs\backend.log for details
+        echo [WARNING] Backend may still be starting... (Status: %backend_status%)
+        timeout /t 5 /nobreak >nul
+        for /f %%i in ('powershell -Command "try { (Invoke-WebRequest -Uri 'http://localhost:8080/api/v1/health' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "backend_status=%%i"
+        if "%backend_status%"=="200" (
+            echo [OK] Backend service is now running (HTTP mode)
+        ) else (
+            echo [ERROR] Backend service failed to start properly
+            echo [INFO] Check logs\backend.log for details
+        )
+    )
+) else (
+    REM 生产模式检查 HTTPS
+    for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "backend_status=%%i"
+    if "%backend_status%"=="200" (
+        echo [OK] Backend service is running (HTTPS mode)
+    ) else (
+        echo [WARNING] Backend may still be starting... (Status: %backend_status%)
+        timeout /t 5 /nobreak >nul
+        for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "backend_status=%%i"
+        if "%backend_status%"=="200" (
+            echo [OK] Backend service is now running (HTTPS mode)
+        ) else (
+            echo [ERROR] Backend service failed to start properly
+            echo [INFO] Check logs\backend.log for details
+        )
     )
 )
 
@@ -155,8 +196,13 @@ echo       Services Started!
 echo ================================
 echo.
 echo Frontend URL: http://localhost:3000
-echo Backend URL:  https://localhost:8443
-echo API Info:    https://localhost:8443/api/v1
+if "%DEV_MODE%"=="true" (
+    echo Backend URL:  http://localhost:8080
+    echo API Info:    http://localhost:8080/api/v1/health
+) else (
+    echo Backend URL:  https://localhost:8443
+    echo API Info:    https://localhost:8443/api/v1/health
+)
 echo.
 echo Default Users:
 echo - admin@demo     (Administrator)
@@ -171,7 +217,6 @@ echo.
 
 REM Open main interface in browser
 echo [INFO] Preparing to open main interface...
-REM Final check before opening browser
 for /f %%i in ('powershell -Command "try { (Invoke-WebRequest -Uri 'http://localhost:3000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "final_check=%%i"
 if "%final_check%"=="200" (
     echo [INFO] Opening main interface in browser...
@@ -188,12 +233,6 @@ if "%final_check%"=="200" (
 echo.
 echo [SUCCESS] FileServer is now running!
 echo [SUCCESS] Main interface opened in your default browser
-echo.
-echo ================================
-echo         Service Status
-echo ================================
-echo Frontend: http://localhost:3000
-echo Backend:  https://localhost:8443
 echo.
 echo To stop services:
 echo - Close the "FileServer Backend" window

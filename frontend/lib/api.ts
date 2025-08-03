@@ -59,32 +59,56 @@ class ApiClient {
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`
 
+    // 确保headers存在
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers as Record<string, string>
+      ...((options.headers as Record<string, string>) || {})
     }
 
+    // 添加认证header
     if (this.token) {
       headers.Authorization = `Bearer ${this.token}`
     }
 
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers
-      })
+    const config: RequestInit = {
+      ...options,
+      headers
+    }
 
+    try {
+      console.log(`Making request to: ${url}`)
+      const response = await fetch(url, config)
+
+      // 检查响应状态
       if (!response.ok) {
         if (response.status === 401) {
           this.logout()
-          throw new Error('登录已过期，请重新登录')
+          throw new Error('认证已过期，请重新登录')
         }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+        // 尝试解析错误响应
+        try {
+          const errorData = await response.json()
+          throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`)
+        } catch (parseError) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
       }
 
-      return await response.json()
+      const data = await response.json()
+
+      if (!data.success) {
+        throw new Error(data.error || data.message || '请求失败')
+      }
+
+      return data
     } catch (error) {
-      console.error('API request failed:', error)
+      console.error(`Request failed for ${url}:`, error)
+
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error('网络连接失败，请检查服务器状态')
+      }
+
       throw error
     }
   }
@@ -337,10 +361,21 @@ class ApiClient {
     }
   }
 
-  // 健康检查
+  // 健康检查 - 使用正确的端点
   async healthCheck(): Promise<any> {
-    const response = await this.request('/health')
-    return response.data
+    try {
+      // 使用后端的健康检查端点
+      const response = await fetch('/api/v1/health')
+
+      if (!response.ok) {
+        throw new Error(`健康检查失败: ${response.status}`)
+      }
+
+      return await response.json()
+    } catch (error) {
+      console.error('Health check failed:', error)
+      throw new Error('服务器连接失败')
+    }
   }
 }
 
