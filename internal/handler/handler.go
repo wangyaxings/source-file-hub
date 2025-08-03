@@ -78,42 +78,56 @@ func convertToFileInfo(record database.FileRecord) FileInfo {
 
 // RegisterRoutes 注册所有路由
 func RegisterRoutes(router *mux.Router) {
-	// API版本前缀
-	api := router.PathPrefix("/api/v1").Subrouter()
+	// Web API版本前缀 (原有的Web界面API)
+	webAPI := router.PathPrefix("/api/v1/web").Subrouter()
 
 	// 认证相关路由（无需认证）
-	api.HandleFunc("/auth/login", loginHandler).Methods("POST")
-	api.HandleFunc("/auth/logout", logoutHandler).Methods("POST")
-	api.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
+	webAPI.HandleFunc("/auth/login", loginHandler).Methods("POST")
+	webAPI.HandleFunc("/auth/logout", logoutHandler).Methods("POST")
+	webAPI.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
 
-	// API根信息页面（无需认证）
-	api.HandleFunc("", apiInfoHandler).Methods("GET")
-	api.HandleFunc("/", apiInfoHandler).Methods("GET")
+	// Web API根信息页面（无需认证）
+	webAPI.HandleFunc("", apiInfoHandler).Methods("GET")
+	webAPI.HandleFunc("/", apiInfoHandler).Methods("GET")
 
 	// 健康检查路由（无需认证）
-	api.HandleFunc("/health", healthCheckHandler).Methods("GET")
+	webAPI.HandleFunc("/health", healthCheckHandler).Methods("GET")
 
-	// 文件管理路由（需要认证）
-	api.HandleFunc("/upload", uploadFileHandler).Methods("POST")
-	api.HandleFunc("/files/list", listFilesHandler).Methods("GET")
-	api.HandleFunc("/files/versions/{type}/{filename}", getFileVersionsHandler).Methods("GET")
-	api.HandleFunc("/files/{id}/delete", deleteFileHandler).Methods("DELETE")
-	api.HandleFunc("/files/{id}/restore", restoreFileHandler).Methods("POST")
-	api.HandleFunc("/files/{id}/purge", purgeFileHandler).Methods("DELETE")
+	// 文件管理路由（需要Web认证）
+	webAPI.HandleFunc("/upload", uploadFileHandler).Methods("POST")
+	webAPI.HandleFunc("/files/list", listFilesHandler).Methods("GET")
+	webAPI.HandleFunc("/files/versions/{type}/{filename}", getFileVersionsHandler).Methods("GET")
+	webAPI.HandleFunc("/files/{id}/delete", deleteFileHandler).Methods("DELETE")
+	webAPI.HandleFunc("/files/{id}/restore", restoreFileHandler).Methods("POST")
+	webAPI.HandleFunc("/files/{id}/purge", purgeFileHandler).Methods("DELETE")
 
 	// 回收站管理
-	api.HandleFunc("/recycle-bin", getRecycleBinHandler).Methods("GET")
-	api.HandleFunc("/recycle-bin/clear", clearRecycleBinHandler).Methods("DELETE")
+	webAPI.HandleFunc("/recycle-bin", getRecycleBinHandler).Methods("GET")
+	webAPI.HandleFunc("/recycle-bin/clear", clearRecycleBinHandler).Methods("DELETE")
 
-	// 统一文件下载路由（需要认证）
-	filesRouter := api.PathPrefix("/files").Subrouter()
-	filesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
+	// 统一文件下载路由（需要Web认证）
+	webFilesRouter := webAPI.PathPrefix("/files").Subrouter()
+	webFilesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
 
-	// 日志查询路由（需要认证）
-	api.HandleFunc("/logs/access", getAccessLogsHandler).Methods("GET")
-	api.HandleFunc("/logs/system", getSystemLogsHandler).Methods("GET")
+	// 日志查询路由（需要Web认证）
+	webAPI.HandleFunc("/logs/access", getAccessLogsHandler).Methods("GET")
+	webAPI.HandleFunc("/logs/system", getSystemLogsHandler).Methods("GET")
 
-	// 静态文件服务路由（可选）
+		// =============================================================================
+	// Public API Routes (require API key authentication) - 注册在更具体的路径
+	// =============================================================================
+	RegisterAPIRoutes(router)
+
+	// =============================================================================
+	// Admin API Routes (require admin authentication)
+	// =============================================================================
+	RegisterAdminRoutes(router)
+
+	// =============================================================================
+	// Static Files
+	// =============================================================================
+
+	// 静态文件服务路由
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
 }
 

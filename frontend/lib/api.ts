@@ -41,7 +41,7 @@ export interface ApiResponse<T = any> {
 }
 
 class ApiClient {
-  private baseUrl = '/api'
+  private baseUrl = '/api/v1/web'
   private token: string | null = null
   private currentUser: UserInfo | null = null
 

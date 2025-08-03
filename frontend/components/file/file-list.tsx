@@ -119,7 +119,6 @@ export function FileList({ refreshTrigger }: FileListProps) {
     try {
       await apiClient.deleteFile(deleteDialog.file.id)
       toast({
-        variant: "success",
         title: "Success",
         description: 'File moved to recycle bin successfully'
       })

@@ -9,6 +9,7 @@ import { LoginForm } from "@/components/auth/login-form"
 import { FileUpload } from "@/components/file/file-upload"
 import { FileList } from "@/components/file/file-list"
 import { RecycleBin } from "@/components/file/recycle-bin"
+import { APIKeyManagement } from "@/components/admin/api-key-management"
 import { Toaster } from "@/components/ui/toaster"
 import { apiClient, type UserInfo } from "@/lib/api"
 import {
@@ -20,7 +21,9 @@ import {
   Server,
   CheckCircle,
   AlertTriangle,
-  Trash2
+  Trash2,
+  Settings,
+  Key
 } from "lucide-react"
 
 export default function HomePage() {
@@ -179,9 +182,9 @@ export default function HomePage() {
       </header>
 
       {/* 主要内容 */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+            <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Tabs defaultValue="upload" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 max-w-lg">
+          <TabsList className={`grid w-full ${currentUser?.username === 'admin' ? 'grid-cols-5 max-w-2xl' : 'grid-cols-3 max-w-lg'}`}>
             <TabsTrigger value="upload" className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
               Upload
@@ -194,6 +197,18 @@ export default function HomePage() {
               <Trash2 className="h-4 w-4" />
               Recycle
             </TabsTrigger>
+            {currentUser?.username === 'admin' && (
+              <>
+                <TabsTrigger value="admin" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Admin
+                </TabsTrigger>
+                <TabsTrigger value="api" className="flex items-center gap-2">
+                  <Key className="h-4 w-4" />
+                  API Keys
+                </TabsTrigger>
+              </>
+            )}
           </TabsList>
 
           <TabsContent value="upload" className="space-y-6">
@@ -207,6 +222,31 @@ export default function HomePage() {
           <TabsContent value="recycle" className="space-y-6">
             <RecycleBin />
           </TabsContent>
+
+          {currentUser?.username === 'admin' && (
+            <>
+              <TabsContent value="admin" className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="bg-white p-6 rounded-lg border">
+                    <h3 className="font-semibold mb-2">System Status</h3>
+                    <p className="text-sm text-gray-600">All systems operational</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-lg border">
+                    <h3 className="font-semibold mb-2">Total Files</h3>
+                    <p className="text-2xl font-bold">156</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-lg border">
+                    <h3 className="font-semibold mb-2">Active Users</h3>
+                    <p className="text-2xl font-bold">25</p>
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="api" className="space-y-6">
+                <APIKeyManagement />
+              </TabsContent>
+            </>
+          )}
         </Tabs>
       </main>
 

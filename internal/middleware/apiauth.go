@@ -1,0 +1,265 @@
+package middleware
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"strings"
+	"time"
+
+	"secure-file-hub/internal/apikey"
+	"secure-file-hub/internal/database"
+)
+
+// APIAuthContext key for storing API authentication info in request context
+type APIAuthContext struct {
+	APIKey     *database.APIKey
+	UserID     string
+	KeyID      string
+	HasPermission func(permission string) bool
+}
+
+const APIAuthContextKey = "api_auth"
+
+// APIKeyAuthMiddleware validates API key authentication
+func APIKeyAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract API key from Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			writeAPIErrorResponse(w, http.StatusUnauthorized, "MISSING_API_KEY", "API key is required")
+			return
+		}
+
+		// Parse Bearer token or API key directly
+		var apiKeyValue string
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			apiKeyValue = strings.TrimPrefix(authHeader, "Bearer ")
+		} else if strings.HasPrefix(authHeader, "ApiKey ") {
+			apiKeyValue = strings.TrimPrefix(authHeader, "ApiKey ")
+		} else {
+			// Try direct API key
+			apiKeyValue = authHeader
+		}
+
+		// Validate API key format
+		if !apikey.ValidateAPIKeyFormat(apiKeyValue) {
+			writeAPIErrorResponse(w, http.StatusUnauthorized, "INVALID_API_KEY_FORMAT", "Invalid API key format")
+			return
+		}
+
+		// Get database instance
+		db := database.GetDatabase()
+		if db == nil {
+			writeAPIErrorResponse(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+			return
+		}
+
+		// Hash the API key for lookup
+		keyHash := apikey.HashAPIKey(apiKeyValue)
+
+		// Retrieve API key from database
+		apiKeyRecord, err := db.GetAPIKeyByHash(keyHash)
+		if err != nil {
+			writeAPIErrorResponse(w, http.StatusUnauthorized, "INVALID_API_KEY", "Invalid or expired API key")
+			return
+		}
+
+		// Check if API key is active
+		if apiKeyRecord.Status != "active" {
+			writeAPIErrorResponse(w, http.StatusUnauthorized, "API_KEY_DISABLED", "API key is disabled")
+			return
+		}
+
+		// Check if API key is expired
+		if apiKeyRecord.ExpiresAt != nil && apiKeyRecord.ExpiresAt.Before(time.Now()) {
+			writeAPIErrorResponse(w, http.StatusUnauthorized, "API_KEY_EXPIRED", "API key has expired")
+			return
+		}
+
+		// Get user role and permissions
+		userRole, err := db.GetUserRole(apiKeyRecord.UserID)
+		if err != nil {
+			writeAPIErrorResponse(w, http.StatusForbidden, "USER_ROLE_ERROR", "Unable to verify user permissions")
+			return
+		}
+
+		// Check if user is active
+		if userRole.Status != "active" {
+			writeAPIErrorResponse(w, http.StatusForbidden, "USER_SUSPENDED", "User account is suspended")
+			return
+		}
+
+		// Create permission checker function
+		hasPermission := func(permission string) bool {
+			// Check API key permissions
+			if apikey.HasPermission(apiKeyRecord.Permissions, permission) {
+				return true
+			}
+			// Check user role permissions
+			if apikey.HasPermission(userRole.Permissions, permission) {
+				return true
+			}
+			return false
+		}
+
+		// Update API key usage (async)
+		go func() {
+			db.UpdateAPIKeyUsage(apiKeyRecord.ID)
+		}()
+
+		// Create auth context
+		authContext := &APIAuthContext{
+			APIKey:        apiKeyRecord,
+			UserID:        apiKeyRecord.UserID,
+			KeyID:         apiKeyRecord.ID,
+			HasPermission: hasPermission,
+		}
+
+		// Add auth context to request
+		ctx := context.WithValue(r.Context(), APIAuthContextKey, authContext)
+		r = r.WithContext(ctx)
+
+		// Continue to next handler
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequirePermission middleware that requires specific permission
+func RequirePermission(permission string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Get auth context
+			authCtx := GetAPIAuthContext(r)
+			if authCtx == nil {
+				writeAPIErrorResponse(w, http.StatusUnauthorized, "AUTH_REQUIRED", "Authentication required")
+				return
+			}
+
+			// Check permission
+			if !authCtx.HasPermission(permission) {
+				writeAPIErrorResponse(w, http.StatusForbidden, "INSUFFICIENT_PERMISSIONS",
+					"Insufficient permissions for this operation")
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// GetAPIAuthContext retrieves API auth context from request
+func GetAPIAuthContext(r *http.Request) *APIAuthContext {
+	if ctx := r.Context().Value(APIAuthContextKey); ctx != nil {
+		if authCtx, ok := ctx.(*APIAuthContext); ok {
+			return authCtx
+		}
+	}
+	return nil
+}
+
+// APILoggingMiddleware logs API requests
+func APILoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Create a response recorder to capture status code and size
+		recorder := &ResponseRecorder{
+			ResponseWriter: w,
+			StatusCode:     http.StatusOK,
+			Size:          0,
+		}
+
+		// Process request
+		next.ServeHTTP(recorder, r)
+
+		// Log the API usage
+		go func() {
+			authCtx := GetAPIAuthContext(r)
+			if authCtx != nil {
+				db := database.GetDatabase()
+				if db != nil {
+					logEntry := &database.APIUsageLog{
+						APIKeyID:       authCtx.KeyID,
+						UserID:         authCtx.UserID,
+						Endpoint:       r.URL.Path,
+						Method:         r.Method,
+						IPAddress:      GetClientIP(r),
+						UserAgent:      r.Header.Get("User-Agent"),
+						StatusCode:     recorder.StatusCode,
+						ResponseSize:   recorder.Size,
+						ResponseTimeMs: time.Since(start).Milliseconds(),
+						RequestTime:    start,
+					}
+
+					// Extract file ID from request if applicable
+					if fileID := r.URL.Query().Get("file_id"); fileID != "" {
+						logEntry.FileID = fileID
+					}
+					if filePath := r.URL.Query().Get("file_path"); filePath != "" {
+						logEntry.FilePath = filePath
+					}
+
+					db.LogAPIUsage(logEntry)
+				}
+			}
+		}()
+	})
+}
+
+// ResponseRecorder captures response data for logging
+type ResponseRecorder struct {
+	http.ResponseWriter
+	StatusCode int
+	Size       int64
+}
+
+func (r *ResponseRecorder) WriteHeader(statusCode int) {
+	r.StatusCode = statusCode
+	r.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (r *ResponseRecorder) Write(data []byte) (int, error) {
+	size, err := r.ResponseWriter.Write(data)
+	r.Size += int64(size)
+	return size, err
+}
+
+// GetClientIP extracts client IP from request
+func GetClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take first IP from comma-separated list
+		if idx := strings.Index(xff, ","); idx != -1 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Fall back to RemoteAddr
+	if idx := strings.LastIndex(r.RemoteAddr, ":"); idx != -1 {
+		return r.RemoteAddr[:idx]
+	}
+	return r.RemoteAddr
+}
+
+// writeAPIErrorResponse writes a JSON error response
+func writeAPIErrorResponse(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+
+	response := map[string]interface{}{
+		"error": map[string]interface{}{
+			"code":    code,
+			"message": message,
+		},
+		"success": false,
+	}
+
+	json.NewEncoder(w).Encode(response)
+}

@@ -88,7 +88,6 @@ export function RecycleBin() {
     try {
       await apiClient.restoreFile(restoreDialog.item.id)
       toast({
-        variant: "success",
         title: "Success",
         description: 'File restored successfully'
       })
@@ -111,7 +110,6 @@ export function RecycleBin() {
     try {
       await apiClient.clearRecycleBin()
       toast({
-        variant: "success",
         title: "Success",
         description: 'Recycle bin cleared successfully'
       })
