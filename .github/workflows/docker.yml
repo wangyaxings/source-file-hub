@@ -53,6 +53,7 @@ jobs:
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
+      id: build
       with:
         context: .
         platforms: linux/amd64,linux/arm64
@@ -61,6 +62,9 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        build-args: |
+          VERSION=${{ github.ref_name }}
+          BUILD_TIME=${{ steps.meta.outputs.labels }}
 
     - name: Generate artifact attestation
       if: github.event_name != 'pull_request'

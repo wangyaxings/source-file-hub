@@ -65,41 +65,10 @@ type Logger struct {
 var defaultLogger *Logger
 
 // InitLogger 初始化日志系统
-func InitLogger() error {
+func InitLogger(db *sql.DB) error {
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = "unknown"
-	}
-
-	// 创建SQLite数据库连接
-	db, err := sql.Open("sqlite3", "logs.db")
-	if err != nil {
-		return fmt.Errorf("failed to open database: %v", err)
-	}
-
-	// 创建日志表
-	createTableSQL := `
-	CREATE TABLE IF NOT EXISTS access_logs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		timestamp TEXT NOT NULL,
-		level TEXT NOT NULL,
-		ciid TEXT NOT NULL,
-		gbid TEXT NOT NULL,
-		event_code TEXT NOT NULL,
-		message TEXT NOT NULL,
-		details TEXT,
-		hostname TEXT NOT NULL,
-		source_location TEXT NOT NULL,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_timestamp ON access_logs(timestamp);
-	CREATE INDEX IF NOT EXISTS idx_event_code ON access_logs(event_code);
-	CREATE INDEX IF NOT EXISTS idx_level ON access_logs(level);
-	`
-
-	if _, err := db.Exec(createTableSQL); err != nil {
-		return fmt.Errorf("failed to create tables: %v", err)
 	}
 
 	defaultLogger = &Logger{

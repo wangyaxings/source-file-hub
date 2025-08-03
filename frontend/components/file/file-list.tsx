@@ -4,9 +4,10 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { apiClient, type FileInfo } from "@/lib/api"
 import { formatFileSize, formatDate } from "@/lib/utils"
+import { useToast } from "@/lib/use-toast"
 import {
   Files,
   Download,
@@ -18,7 +19,9 @@ import {
   BookOpen,
   Loader2,
   RefreshCw,
-  History
+  History,
+  Trash2,
+  AlertTriangle
 } from "lucide-react"
 
 const fileTypeIcons = {
@@ -28,9 +31,9 @@ const fileTypeIcons = {
 }
 
 const fileTypeLabels = {
-  config: "配置文件",
-  certificate: "证书文件",
-  docs: "文档文件"
+  config: "Configuration Files",
+  certificate: "Certificate Files",
+  docs: "Document Files"
 }
 
 interface FileListProps {
@@ -38,11 +41,19 @@ interface FileListProps {
 }
 
 export function FileList({ refreshTrigger }: FileListProps) {
+  const { toast } = useToast()
   const [files, setFiles] = useState<FileInfo[]>([])
   const [filteredFiles, setFilteredFiles] = useState<FileInfo[]>([])
   const [selectedType, setSelectedType] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(true)
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null)
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean
+    file: FileInfo | null
+  }>({
+    isOpen: false,
+    file: null
+  })
   const [versionsDialog, setVersionsDialog] = useState<{
     isOpen: boolean
     file: FileInfo | null
@@ -85,9 +96,43 @@ export function FileList({ refreshTrigger }: FileListProps) {
       await apiClient.downloadFile(file.path)
     } catch (error) {
       console.error('Download failed:', error)
-      alert(error instanceof Error ? error.message : '下载失败')
+      toast({
+        variant: "destructive",
+        title: "Download Failed",
+        description: error instanceof Error ? error.message : 'Download failed'
+      })
     } finally {
       setDownloadingFile(null)
+    }
+  }
+
+  const handleDelete = (file: FileInfo) => {
+    setDeleteDialog({
+      isOpen: true,
+      file: file
+    })
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteDialog.file) return
+
+    try {
+      await apiClient.deleteFile(deleteDialog.file.id)
+      toast({
+        variant: "success",
+        title: "Success",
+        description: 'File moved to recycle bin successfully'
+      })
+      loadFiles() // Refresh the file list
+    } catch (error) {
+      console.error('Delete failed:', error)
+      toast({
+        variant: "destructive",
+        title: "Delete Failed",
+        description: error instanceof Error ? error.message : 'Delete failed'
+      })
+    } finally {
+      setDeleteDialog({ isOpen: false, file: null })
     }
   }
 
@@ -101,7 +146,11 @@ export function FileList({ refreshTrigger }: FileListProps) {
       })
     } catch (error) {
       console.error('Failed to load versions:', error)
-      alert(error instanceof Error ? error.message : '获取版本列表失败')
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : 'Failed to load file versions'
+      })
     }
   }
 
@@ -115,7 +164,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
         <CardContent className="flex items-center justify-center py-12">
           <div className="flex items-center gap-2 text-gray-500">
             <Loader2 className="h-5 w-5 animate-spin" />
-            加载文件列表...
+            Loading file list...
           </div>
         </CardContent>
       </Card>
@@ -141,10 +190,10 @@ export function FileList({ refreshTrigger }: FileListProps) {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Files className="h-5 w-5" />
-                文件管理
+                File Management
               </CardTitle>
               <CardDescription>
-                管理已上传的配置文件、证书文件和文档
+                Manage uploaded configuration files, certificates, and documents
               </CardDescription>
             </div>
             <div className="flex items-center gap-4">
@@ -153,15 +202,15 @@ export function FileList({ refreshTrigger }: FileListProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">所有文件</SelectItem>
-                  <SelectItem value="config">配置文件</SelectItem>
-                  <SelectItem value="certificate">证书文件</SelectItem>
-                  <SelectItem value="docs">文档文件</SelectItem>
+                  <SelectItem value="all">All Files</SelectItem>
+                  <SelectItem value="config">Configuration Files</SelectItem>
+                  <SelectItem value="certificate">Certificate Files</SelectItem>
+                  <SelectItem value="docs">Document Files</SelectItem>
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={loadFiles}>
                 <RefreshCw className="h-4 w-4 mr-2" />
-                刷新
+                Refresh
               </Button>
             </div>
           </div>
@@ -181,7 +230,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
                     <Icon className="h-5 w-5" />
                     {fileTypeLabels[type as keyof typeof fileTypeLabels]}
                     <span className="text-sm font-normal text-gray-500">
-                      ({typeFiles.length} 个文件)
+                      ({typeFiles.length} files)
                     </span>
                   </CardTitle>
                 </CardHeader>
@@ -190,6 +239,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
                     files={typeFiles}
                     onDownload={handleDownload}
                     onViewVersions={handleViewVersions}
+                    onDelete={handleDelete}
                     downloadingFile={downloadingFile}
                   />
                 </CardContent>
@@ -205,6 +255,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
               files={filteredFiles.filter(f => f.isLatest)}
               onDownload={handleDownload}
               onViewVersions={handleViewVersions}
+              onDelete={handleDelete}
               downloadingFile={downloadingFile}
             />
           </CardContent>
@@ -220,10 +271,10 @@ export function FileList({ refreshTrigger }: FileListProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
-              版本历史 - {versionsDialog.file?.originalName || versionsDialog.file?.fileName}
+              Version History - {versionsDialog.file?.originalName || versionsDialog.file?.fileName}
             </DialogTitle>
             <DialogDescription>
-              查看和下载此文件的所有版本，共 {versionsDialog.versions.length} 个版本
+              View and download all versions of this file, {versionsDialog.versions.length} versions total
             </DialogDescription>
           </DialogHeader>
 
@@ -237,6 +288,38 @@ export function FileList({ refreshTrigger }: FileListProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialog.isOpen} onOpenChange={(open) => setDeleteDialog({ isOpen: open, file: null })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Confirm Delete
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "<strong>{deleteDialog.file?.originalName}</strong>"?
+              The file will be moved to the recycle bin and can be restored later.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialog({ isOpen: false, file: null })}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Move to Recycle Bin
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -245,16 +328,17 @@ interface FileTableProps {
   files: FileInfo[]
   onDownload: (file: FileInfo) => void
   onViewVersions?: (file: FileInfo) => void
+  onDelete?: (file: FileInfo) => void
   downloadingFile: string | null
   showVersions?: boolean
 }
 
-function FileTable({ files, onDownload, onViewVersions, downloadingFile, showVersions = false }: FileTableProps) {
+function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFile, showVersions = false }: FileTableProps) {
   if (files.length === 0) {
     return (
       <div className="text-center py-8 text-gray-500">
         <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-        <p>暂无文件</p>
+        <p>No files</p>
       </div>
     )
   }
@@ -264,12 +348,12 @@ function FileTable({ files, onDownload, onViewVersions, downloadingFile, showVer
       <table className="w-full">
         <thead>
           <tr className="border-b text-left text-sm text-gray-500">
-            <th className="pb-4 font-medium w-1/3">文件名</th>
-            <th className="pb-4 font-medium w-20">大小</th>
-            <th className="pb-4 font-medium w-32">上传时间</th>
-            <th className="pb-4 font-medium w-24">上传者</th>
-            {showVersions && <th className="pb-4 font-medium w-16">版本</th>}
-            <th className="pb-4 font-medium w-32">操作</th>
+            <th className="pb-4 font-medium w-1/3">File Name</th>
+            <th className="pb-4 font-medium w-20">Size</th>
+            <th className="pb-4 font-medium w-32">Upload Time</th>
+            <th className="pb-4 font-medium w-24">Uploader</th>
+            {showVersions && <th className="pb-4 font-medium w-16">Version</th>}
+            <th className="pb-4 font-medium w-32">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -329,8 +413,20 @@ function FileTable({ files, onDownload, onViewVersions, downloadingFile, showVer
                       variant="ghost"
                       size="sm"
                       onClick={() => onViewVersions(file)}
+                      title="View Version History"
                     >
                       <History className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {!showVersions && onDelete && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onDelete(file)}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      title="Delete File"
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   )}
                 </div>

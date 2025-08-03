@@ -35,12 +35,12 @@ WORKDIR /app
 # Copy binary from builder stage
 COPY --from=builder /app/fileserver .
 
-# Copy necessary directories
-COPY --chown=fileserver:fileserver downloads/ downloads/
-COPY --chown=fileserver:fileserver configs/ configs/
+# Create necessary directories
+RUN mkdir -p data downloads configs certs && \
+    chown -R fileserver:fileserver data downloads configs certs
 
-# Create certs directory
-RUN mkdir -p certs && chown fileserver:fileserver certs
+# Copy default configurations (will be overridden by volume mounts)
+COPY --chown=fileserver:fileserver configs/ configs/
 
 # Switch to non-root user
 USER fileserver

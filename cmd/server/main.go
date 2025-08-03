@@ -9,21 +9,60 @@ import (
 	"syscall"
 	"time"
 
+	"secure-file-hub/internal/database"
 	"secure-file-hub/internal/handler"
 	"secure-file-hub/internal/logger"
+	"secure-file-hub/internal/migration"
 	"secure-file-hub/internal/server"
 )
 
 func main() {
 	log.Println("Starting Secure File Hub...")
 
+	// 初始化数据库系统
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "data/fileserver.db"
+	}
+	if err := database.InitDatabase(dbPath); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer func() {
+		if db := database.GetDatabase(); db != nil {
+			db.Close()
+		}
+	}()
+
 	// 初始化结构化日志系统
-	if err := logger.InitLogger(); err != nil {
+	if err := logger.InitLogger(database.GetDatabase().GetDB()); err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 	defer func() {
 		if l := logger.GetLogger(); l != nil {
 			l.Close()
+		}
+	}()
+
+	// 运行数据迁移
+	log.Println("Running data migration...")
+	if err := migration.MigrateFromJSON("downloads/metadata.json"); err != nil {
+		log.Printf("Warning: Migration failed: %v", err)
+	}
+
+	// 启动自动清理任务
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour) // 每24小时运行一次
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if db := database.GetDatabase(); db != nil {
+					if err := db.AutoCleanupRecycleBin(); err != nil {
+						log.Printf("Auto cleanup failed: %v", err)
+					}
+				}
+			}
 		}
 	}()
 
@@ -34,7 +73,7 @@ func main() {
 			"port":    8443,
 			"mode":    "production",
 		}
-		l.LogError("系统启动", nil, details)
+		l.LogError("System Started", nil, details)
 	}
 
 	// 创建服务器实例

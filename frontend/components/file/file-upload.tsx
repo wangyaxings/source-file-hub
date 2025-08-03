@@ -17,9 +17,9 @@ interface FileUploadProps {
 }
 
 const fileTypes = [
-  { value: "config", label: "配置文件", extensions: [".json"], icon: "⚙️" },
-  { value: "certificate", label: "证书文件", extensions: [".crt", ".key", ".pem"], icon: "🔐" },
-  { value: "docs", label: "文档文件", extensions: [".txt", ".log"], icon: "📄" }
+  { value: "config", label: "Configuration Files", extensions: [".json"], icon: "⚙️" },
+  { value: "certificate", label: "Certificate Files", extensions: [".crt", ".key", ".pem"], icon: "🔐" },
+  { value: "docs", label: "Document Files", extensions: [".txt", ".log"], icon: "📄" }
 ]
 
 export function FileUpload({ onUploadComplete }: FileUploadProps) {
@@ -69,7 +69,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
       const result = await apiClient.uploadFile(selectedFile, fileType, description)
       setUploadResult({
         success: true,
-        message: "文件上传成功！",
+        message: "File uploaded successfully!",
         file: result
       })
       onUploadComplete?.(result)
@@ -81,7 +81,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
     } catch (error) {
       setUploadResult({
         success: false,
-        message: error instanceof Error ? error.message : "上传失败"
+        message: error instanceof Error ? error.message : "Upload failed"
       })
     } finally {
       setIsUploading(false)
@@ -99,10 +99,10 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
-            文件上传
+            File Upload
           </CardTitle>
           <CardDescription>
-            支持上传配置文件、证书文件和文档文件
+            Upload configuration files, certificates, and documents
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -133,10 +133,10 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
               ) : (
                 <div className="space-y-2">
                   <p className="text-lg font-medium">
-                    {isDragActive ? "放下文件以上传" : "点击或拖拽文件到此处"}
+                    {isDragActive ? "Drop file to upload" : "Click or drag file here"}
                   </p>
                   <p className="text-sm text-gray-500">
-                    支持 .json, .crt, .key, .pem, .txt, .log 格式
+                    Supports .json, .crt, .key, .pem, .txt, .log formats
                   </p>
                 </div>
               )}
@@ -145,10 +145,10 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
 
           {/* 文件类型选择 */}
           <div className="space-y-2">
-            <Label htmlFor="fileType">文件类型</Label>
+            <Label htmlFor="fileType">File Type</Label>
             <Select value={fileType} onValueChange={setFileType}>
               <SelectTrigger id="fileType">
-                <SelectValue placeholder="选择文件类型" />
+                <SelectValue placeholder="Select file type" />
               </SelectTrigger>
               <SelectContent>
                 {fileTypes.map((type) => (
@@ -170,12 +170,12 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
 
           {/* 文件描述 */}
           <div className="space-y-2">
-            <Label htmlFor="description">文件描述 (可选)</Label>
+            <Label htmlFor="description">File Description (Optional)</Label>
             <Input
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="输入文件描述信息"
+              placeholder="Enter file description"
             />
           </div>
 
@@ -188,12 +188,12 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
             {isUploading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                上传中...
+                Uploading...
               </>
             ) : (
               <>
                 <Upload className="mr-2 h-4 w-4" />
-                上传文件
+                Upload File
               </>
             )}
           </Button>
@@ -201,7 +201,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
           {!isValidFile && selectedFile && (
             <div className="text-sm text-red-500 bg-red-50 p-3 rounded-md border border-red-200">
               <AlertCircle className="inline mr-2 h-4 w-4" />
-              请选择正确的文件类型，或者检查文件扩展名是否正确
+              Please select the correct file type or check if the file extension is valid
             </div>
           )}
         </CardContent>
@@ -211,25 +211,25 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
       <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>确认上传</DialogTitle>
+            <DialogTitle>Confirm Upload</DialogTitle>
             <DialogDescription>
-              请确认以下文件信息是否正确：
+              Please confirm the file information is correct:
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <strong>文件名:</strong> {selectedFile?.name}
+                <strong>File Name:</strong> {selectedFile?.name}
               </div>
               <div>
-                <strong>文件大小:</strong> {selectedFile && formatFileSize(selectedFile.size)}
+                <strong>File Size:</strong> {selectedFile && formatFileSize(selectedFile.size)}
               </div>
               <div>
-                <strong>文件类型:</strong> {fileTypes.find(t => t.value === fileType)?.label}
+                <strong>File Type:</strong> {fileTypes.find(t => t.value === fileType)?.label}
               </div>
               <div>
-                <strong>描述:</strong> {description || "无"}
+                <strong>Description:</strong> {description || "None"}
               </div>
             </div>
           </div>
@@ -240,16 +240,16 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
               onClick={() => setShowConfirmDialog(false)}
               disabled={isUploading}
             >
-              取消
+              Cancel
             </Button>
             <Button onClick={handleUpload} disabled={isUploading}>
               {isUploading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  上传中...
+                  Uploading...
                 </>
               ) : (
-                "确认上传"
+                "Confirm Upload"
               )}
             </Button>
           </DialogFooter>
@@ -282,7 +282,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
 
             {uploadResult.success && uploadResult.file && (
               <div className="mt-3 text-sm text-green-700">
-                文件已保存为: {uploadResult.file.fileName}
+                File saved as: {uploadResult.file.fileName}
               </div>
             )}
           </CardContent>

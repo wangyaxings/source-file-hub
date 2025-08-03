@@ -14,9 +14,9 @@ interface LoginFormProps {
 }
 
 const defaultUsers = [
-  { tenant_id: "demo", username: "admin", description: "管理员账户" },
-  { tenant_id: "demo", username: "user1", description: "普通用户账户" },
-  { tenant_id: "tenant1", username: "test", description: "测试账户" }
+  { tenant_id: "demo", username: "admin", description: "Administrator Account" },
+  { tenant_id: "demo", username: "user1", description: "Regular User Account" },
+  { tenant_id: "tenant1", username: "test", description: "Test Account" }
 ]
 
 export function LoginForm({ onLogin }: LoginFormProps) {
@@ -46,7 +46,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
       await apiClient.login(formData)
       onLogin()
     } catch (error) {
-      setError(error instanceof Error ? error.message : "登录失败")
+      setError(error instanceof Error ? error.message : "Login failed")
     } finally {
       setIsLoading(false)
     }
@@ -55,18 +55,18 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold">登录系统</CardTitle>
+        <CardTitle className="text-2xl font-bold">System Login</CardTitle>
         <CardDescription>
-          选择用户账户或手动输入凭据
+          Select user account or manually enter credentials
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="user-select">选择用户</Label>
+            <Label htmlFor="user-select">Select User</Label>
             <Select onValueChange={handleUserSelect}>
               <SelectTrigger id="user-select">
-                <SelectValue placeholder="选择预设用户" />
+                <SelectValue placeholder="Select preset user" />
               </SelectTrigger>
               <SelectContent>
                 {defaultUsers.map((user) => (
@@ -86,7 +86,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="tenantId">租户ID</Label>
+              <Label htmlFor="tenantId">Tenant ID</Label>
               <Input
                 id="tenantId"
                 type="text"
@@ -97,7 +97,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="username">用户名</Label>
+              <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
                 type="text"
@@ -110,13 +110,13 @@ export function LoginForm({ onLogin }: LoginFormProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="password">密码</Label>
+            <Label htmlFor="password">Password</Label>
             <Input
               id="password"
               type="password"
               value={formData.password}
               onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-              placeholder="输入密码"
+              placeholder="Enter password"
               required
             />
           </div>
@@ -132,12 +132,12 @@ export function LoginForm({ onLogin }: LoginFormProps) {
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                登录中...
+                Logging in...
               </>
             ) : (
               <>
                 <LogIn className="mr-2 h-4 w-4" />
-                登录
+                Login
               </>
             )}
           </Button>

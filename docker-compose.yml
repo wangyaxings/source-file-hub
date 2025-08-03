@@ -5,16 +5,17 @@ services:
   fileserver-backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
     ports:
       - "8443:8443"
     volumes:
-      - ./downloads:/app/downloads
-      - ./configs:/app/configs
-      - ./certs:/app/certs
-      - ./logs:/app/logs
+      - fileserver_data:/app/data          # Database and persistent data
+      - fileserver_uploads:/app/downloads  # Upload files
+      - ./configs:/app/configs             # Configuration files
+      - ./certs:/app/certs                 # SSL certificates
     environment:
       - GO_ENV=production
+      - DB_PATH=/app/data/fileserver.db    # Database path
     restart: unless-stopped
     networks:
       - fileserver-network
@@ -56,5 +57,7 @@ networks:
     driver: bridge
 
 volumes:
-  downloads:
-  logs:
+  fileserver_data:
+    driver: local
+  fileserver_uploads:
+    driver: local

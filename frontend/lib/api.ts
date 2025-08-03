@@ -181,7 +181,7 @@ class ApiClient {
 
     const result = await response.json()
     if (!result.success) {
-      throw new Error(result.error || '上传失败')
+      throw new Error(result.error || 'Upload failed')
     }
 
     return result.data
@@ -210,9 +210,9 @@ class ApiClient {
     if (!response.ok) {
       if (response.status === 401) {
         this.logout()
-        throw new Error('登录已过期，请重新登录')
+        throw new Error('Login expired, please login again')
       }
-      throw new Error(`下载失败: ${response.statusText}`)
+      throw new Error(`Download failed: ${response.statusText}`)
     }
 
     const blob = await response.blob()
@@ -224,6 +224,117 @@ class ApiClient {
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(downloadUrl)
+  }
+
+  async deleteFile(fileId: string): Promise<void> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`
+    }
+
+    const response = await fetch(`${this.baseUrl}/files/${fileId}/delete`, {
+      method: 'DELETE',
+      headers
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.logout()
+        throw new Error('Login expired, please login again')
+      }
+      const errorData = await response.json().catch(() => ({ error: response.statusText }))
+      throw new Error(errorData.error || `Delete failed: ${response.statusText}`)
+    }
+
+    const result = await response.json()
+    if (!result.success) {
+      throw new Error(result.error || 'Delete failed')
+    }
+  }
+
+  async restoreFile(fileId: string): Promise<void> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`
+    }
+
+    const response = await fetch(`${this.baseUrl}/files/${fileId}/restore`, {
+      method: 'POST',
+      headers
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.logout()
+        throw new Error('Login expired, please login again')
+      }
+      const errorData = await response.json().catch(() => ({ error: response.statusText }))
+      throw new Error(errorData.error || `Restore failed: ${response.statusText}`)
+    }
+
+    const result = await response.json()
+    if (!result.success) {
+      throw new Error(result.error || 'Restore failed')
+    }
+  }
+
+  async getRecycleBin(): Promise<any[]> {
+    const headers: Record<string, string> = {}
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`
+    }
+
+    const response = await fetch(`${this.baseUrl}/recycle-bin`, {
+      method: 'GET',
+      headers
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.logout()
+        throw new Error('Login expired, please login again')
+      }
+      throw new Error(`Failed to get recycle bin: ${response.statusText}`)
+    }
+
+    const result = await response.json()
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to get recycle bin')
+    }
+
+    return result.data.items || []
+  }
+
+  async clearRecycleBin(): Promise<void> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`
+    }
+
+    const response = await fetch(`${this.baseUrl}/recycle-bin/clear`, {
+      method: 'DELETE',
+      headers
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.logout()
+        throw new Error('Login expired, please login again')
+      }
+      const errorData = await response.json().catch(() => ({ error: response.statusText }))
+      throw new Error(errorData.error || `Clear recycle bin failed: ${response.statusText}`)
+    }
+
+    const result = await response.json()
+    if (!result.success) {
+      throw new Error(result.error || 'Clear recycle bin failed')
+    }
   }
 
   // 健康检查

@@ -8,6 +8,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { LoginForm } from "@/components/auth/login-form"
 import { FileUpload } from "@/components/file/file-upload"
 import { FileList } from "@/components/file/file-list"
+import { RecycleBin } from "@/components/file/recycle-bin"
+import { Toaster } from "@/components/ui/toaster"
 import { apiClient, type UserInfo } from "@/lib/api"
 import {
   LogOut,
@@ -17,7 +19,8 @@ import {
   User,
   Server,
   CheckCircle,
-  AlertTriangle
+  AlertTriangle,
+  Trash2
 } from "lucide-react"
 
 export default function HomePage() {
@@ -31,7 +34,7 @@ export default function HomePage() {
   } | null>(null)
 
   useEffect(() => {
-    // 检查是否已登录
+    // Check if already logged in
     const checkAuth = async () => {
       const authenticated = apiClient.isAuthenticated()
       setIsAuthenticated(authenticated)
@@ -43,14 +46,14 @@ export default function HomePage() {
 
       setIsLoading(false)
 
-      // 检查服务器状态
+      // Check server status
       try {
         await apiClient.healthCheck()
-        setServerStatus({ online: true, message: "服务器连接正常" })
+        setServerStatus({ online: true, message: "Server connection normal" })
       } catch (error) {
         setServerStatus({
           online: false,
-          message: error instanceof Error ? error.message : "服务器连接失败"
+          message: error instanceof Error ? error.message : "Server connection failed"
         })
       }
     }
@@ -76,7 +79,7 @@ export default function HomePage() {
   }
 
   const handleUploadComplete = () => {
-    // 触发文件列表刷新
+    // Trigger file list refresh
     setRefreshTrigger(prev => prev + 1)
   }
 
@@ -85,7 +88,7 @@ export default function HomePage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-gray-500">正在加载...</p>
+          <p className="text-gray-500">Loading...</p>
         </div>
       </div>
     )
@@ -119,8 +122,8 @@ export default function HomePage() {
     )
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
+    return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* 头部导航 */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -130,8 +133,8 @@ export default function HomePage() {
                 <Shield className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">文件管理系统</h1>
-                <p className="text-sm text-gray-500">安全文件上传与管理平台</p>
+                <h1 className="text-xl font-bold text-gray-900">File Management System</h1>
+                <p className="text-sm text-gray-500">Secure File Upload and Management Platform</p>
               </div>
             </div>
 
@@ -141,7 +144,7 @@ export default function HomePage() {
                 <div className="flex items-center gap-2 text-sm">
                   <Server className="h-4 w-4 text-gray-400" />
                   <span className={serverStatus.online ? "text-green-600" : "text-red-600"}>
-                    {serverStatus.online ? "在线" : "离线"}
+                    {serverStatus.online ? "Online" : "Offline"}
                   </span>
                 </div>
               )}
@@ -168,7 +171,7 @@ export default function HomePage() {
 
               <Button variant="outline" size="sm" onClick={handleLogout}>
                 <LogOut className="h-4 w-4 mr-2" />
-                退出登录
+                Logout
               </Button>
             </div>
           </div>
@@ -176,16 +179,20 @@ export default function HomePage() {
       </header>
 
       {/* 主要内容 */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Tabs defaultValue="upload" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsList className="grid w-full grid-cols-3 max-w-lg">
             <TabsTrigger value="upload" className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
-              文件上传
+              Upload
             </TabsTrigger>
             <TabsTrigger value="manage" className="flex items-center gap-2">
               <Files className="h-4 w-4" />
-              文件管理
+              Files
+            </TabsTrigger>
+            <TabsTrigger value="recycle" className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4" />
+              Recycle
             </TabsTrigger>
           </TabsList>
 
@@ -196,18 +203,24 @@ export default function HomePage() {
           <TabsContent value="manage" className="space-y-6">
             <FileList refreshTrigger={refreshTrigger} />
           </TabsContent>
+
+          <TabsContent value="recycle" className="space-y-6">
+            <RecycleBin />
+          </TabsContent>
         </Tabs>
       </main>
 
-      {/* 页脚 */}
-      <footer className="bg-white border-t border-gray-200 mt-16">
+      {/* 页脚 - 固定在底部 */}
+      <footer className="bg-white border-t border-gray-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-sm text-gray-500">
-            <p>© 2024 File Manager. 安全文件管理系统</p>
-            <p className="mt-2">支持配置文件、证书文件和文档的版本化管理</p>
+            <p>© 2024 File Manager. Secure File Management System</p>
+            <p className="mt-2">Supports versioned management of configuration files, certificates and documents</p>
           </div>
         </div>
       </footer>
+
+      <Toaster />
     </div>
   )
 }
