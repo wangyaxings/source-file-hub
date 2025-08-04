@@ -1,5 +1,3 @@
-'use client'
-
 import { useState, useEffect, useMemo } from "react"
 import ReactECharts from 'echarts-for-react'
 import { Button } from "@/components/ui/button"
@@ -21,8 +19,23 @@ import {
   AlertCircle,
   CheckCircle2,
   XCircle,
-  Loader2
+  Loader2,
+  Key
 } from "lucide-react"
+
+// 颜色辅助函数
+function adjustColorBrightness(color: string, amount: number): string {
+  const usePound = color[0] === "#"
+  const col = usePound ? color.slice(1) : color
+  const num = parseInt(col, 16)
+  let r = (num >> 16) + amount
+  let g = (num >> 8 & 0x00FF) + amount
+  let b = (num & 0x0000FF) + amount
+  r = r > 255 ? 255 : r < 0 ? 0 : r
+  g = g > 255 ? 255 : g < 0 ? 0 : g
+  b = b > 255 ? 255 : b < 0 ? 0 : b
+  return (usePound ? "#" : "") + (r << 16 | g << 8 | b).toString(16).padStart(6, '0')
+}
 
 interface AnalyticsData {
   timeRange: {
@@ -45,17 +58,13 @@ interface AnalyticsData {
     avgResponseTime: number
   }[]
   apiKeyUsage: {
-    apiKeyId: string
     apiKeyName: string
-    userId: string
     requests: number
-    successRate: number
     lastUsed: string
   }[]
   operationTypes: {
     operation: string
     count: number
-    percentage: number
   }[]
   hourlyDistribution: {
     hour: number
@@ -95,8 +104,8 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
     try {
       const params = new URLSearchParams({
         timeRange,
-        apiKey: selectedApiKey,
-        user: selectedUser
+        ...(selectedApiKey !== 'all' && { apiKey: selectedApiKey }),
+        ...(selectedUser !== 'all' && { user: selectedUser })
       })
 
       if (timeRange === 'custom') {
@@ -107,18 +116,21 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
       const response = await fetch(`/api/v1/web/admin/analytics/data?${params}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
         }
       })
 
-      if (!response.ok) throw new Error('Failed to fetch analytics data')
-
-      const result = await response.json()
-      setAnalyticsData(result.data)
+      if (response.ok) {
+        const data = await response.json()
+        setAnalyticsData(data.data)
+      } else {
+        throw new Error(`HTTP ${response.status}`)
+      }
     } catch (error) {
       toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to load analytics data'
+        title: "Failed to fetch analytics data",
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        variant: "destructive"
       })
       // Fallback to local processing
       setAnalyticsData(processLocalAnalyticsData())
@@ -127,91 +139,91 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
     }
   }
 
-  // Fallback: Process data locally (simplified version)
+  // Process local analytics data as fallback
   const processLocalAnalyticsData = (): AnalyticsData => {
-    let filtered = [...usageLogs]
+    if (!usageLogs || usageLogs.length === 0) {
+      return {
+        timeRange: { start: new Date().toISOString(), end: new Date().toISOString() },
+        overview: { totalRequests: 0, totalApiKeys: 0, activeUsers: 0, avgResponseTime: 0, successRate: 0, errorRate: 0 },
+        trends: [], apiKeyUsage: [], operationTypes: [], hourlyDistribution: [], errorTypes: []
+      }
+    }
+
     const now = new Date()
-    let startDate = new Date()
+    const cutoffTime = new Date(now.getTime() - getDaysInMs(timeRange))
 
-    // Apply time range filter
-    switch (timeRange) {
-      case '1d':
-        startDate.setDate(now.getDate() - 1)
-        break
-      case '7d':
-        startDate.setDate(now.getDate() - 7)
-        break
-      case '30d':
-        startDate.setDate(now.getDate() - 30)
-        break
-      case 'custom':
-        if (customDateStart) startDate = new Date(customDateStart)
-        break
-    }
+    let filteredLogs = usageLogs.filter(log => {
+      const logDate = new Date(log.timestamp)
+      let includeByTime = true
 
-    if (timeRange !== 'custom' || customDateStart) {
-      filtered = filtered.filter(log => new Date(log.requestTime) >= startDate)
-    }
+      if (timeRange !== 'custom' || customDateStart) {
+        includeByTime = logDate >= cutoffTime
+      }
 
-    if (timeRange === 'custom' && customDateEnd) {
-      const endDate = new Date(customDateEnd)
-      filtered = filtered.filter(log => new Date(log.requestTime) <= endDate)
-    }
+      if (timeRange === 'custom' && customDateEnd) {
+        const endDate = new Date(customDateEnd)
+        includeByTime = includeByTime && logDate <= endDate
+      }
 
-    // Apply filters
-    if (selectedApiKey !== 'all') {
-      filtered = filtered.filter(log => log.apiKeyId === selectedApiKey)
-    }
+      if (selectedApiKey !== 'all') {
+        includeByTime = includeByTime && log.apiKeyId === selectedApiKey
+      }
 
-    if (selectedUser !== 'all') {
-      filtered = filtered.filter(log => log.userId === selectedUser)
-    }
+      if (selectedUser !== 'all') {
+        includeByTime = includeByTime && log.userId === selectedUser
+      }
 
-    const totalRequests = filtered.length
-    const successCount = filtered.filter(log => log.statusCode >= 200 && log.statusCode < 300).length
+      return includeByTime
+    })
+
+    const totalRequests = filteredLogs.length
+    const successCount = filteredLogs.filter(log => log.statusCode >= 200 && log.statusCode < 400).length
     const errorCount = totalRequests - successCount
-    const avgResponseTime = totalRequests > 0
-      ? filtered.reduce((sum, log) => sum + log.responseTimeMs, 0) / totalRequests
-      : 0
+    const avgResponseTime = totalRequests > 0 ? filteredLogs.reduce((sum, log) => sum + (log.responseTime || 0), 0) / totalRequests : 0
 
     return {
       timeRange: {
-        start: customDateStart || new Date(Date.now() - getDaysInMs(timeRange)).toISOString(),
-        end: customDateEnd || new Date().toISOString()
+        start: cutoffTime.toISOString(),
+        end: now.toISOString()
       },
       overview: {
         totalRequests,
-        totalApiKeys: new Set(filtered.map(log => log.apiKeyId)).size,
-        activeUsers: new Set(filtered.map(log => log.userId)).size,
+        totalApiKeys: apiKeys.length,
+        activeUsers: Array.from(new Set(filteredLogs.map(log => log.userId))).length,
         avgResponseTime,
-        successRate: totalRequests > 0 ? (successCount / totalRequests) * 100 : 0,
+        successRate: totalRequests > 0 ? (successCount / totalRequests) * 100 : 100,
         errorRate: totalRequests > 0 ? (errorCount / totalRequests) * 100 : 0
       },
       trends: [],
       apiKeyUsage: [],
       operationTypes: [],
-      hourlyDistribution: Array(24).fill(0).map((_, hour) => ({ hour, requests: 0 })),
+      hourlyDistribution: [],
       errorTypes: []
     }
   }
 
-  // Fetch data when filters change
+  // Auto-fetch data when component mounts and filters change
   useEffect(() => {
-    fetchAnalyticsData()
-  }, [timeRange, selectedApiKey, selectedUser, customDateStart, customDateEnd])
+    if (isMounted) {
+      fetchAnalyticsData()
+    }
+  }, [isMounted, timeRange, selectedApiKey, selectedUser, customDateStart, customDateEnd])
 
-  // Initial load
-  useEffect(() => {
-    fetchAnalyticsData()
-  }, [])
+  // Process filter options
+  const uniqueApiKeys = useMemo(() => {
+    return Array.from(new Set(usageLogs.map(log => log.apiKeyId))).filter(Boolean)
+  }, [usageLogs])
+
+  const uniqueUsers = useMemo(() => {
+    return Array.from(new Set(usageLogs.map(log => log.userId))).filter(Boolean)
+  }, [usageLogs])
 
   const handleExportData = async () => {
     try {
       const params = new URLSearchParams({
         timeRange,
-        apiKey: selectedApiKey,
-        user: selectedUser,
-        format: 'json'
+        ...(selectedApiKey !== 'all' && { apiKey: selectedApiKey }),
+        ...(selectedUser !== 'all' && { user: selectedUser })
       })
 
       if (timeRange === 'custom') {
@@ -222,27 +234,29 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
       const response = await fetch(`/api/v1/web/admin/analytics/export?${params}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
         }
       })
 
-      if (!response.ok) throw new Error('Failed to export analytics data')
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `analytics-${timeRange}-${new Date().toISOString().split('T')[0]}.json`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
 
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `api-analytics-${new Date().toISOString().split('T')[0]}.json`
-      link.click()
-      URL.revokeObjectURL(url)
-
-      toast({
-        title: "Export Successful",
-        description: "Analytics data has been exported successfully"
-      })
+        toast({
+          title: "Export successful",
+          description: "Analytics data has been exported"
+        })
+      }
     } catch (error) {
       toast({
-        variant: "destructive",
-        title: "Export Failed",
+        title: "Export failed",
         description: error instanceof Error ? error.message : 'Failed to export data'
       })
     }
@@ -295,57 +309,102 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
     )
   }
 
-  // 请求趋势图表配置
-  const trendChartOption = {
-    title: {
-      text: 'API Usage Trends',
-      textStyle: { fontSize: 16, fontWeight: 'normal' }
+  // 高级主题配置
+  const chartTheme = {
+    color: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ef4444'],
+    backgroundColor: 'transparent',
+    textStyle: {
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      color: '#0f172a'
     },
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'cross' }
+    title: {
+      textStyle: {
+        color: '#0f172a',
+        fontWeight: 600,
+        fontSize: 16
+      }
     },
     legend: {
-      data: ['Total Requests', 'Success', 'Errors', 'Avg Response Time (ms)']
+      textStyle: {
+        color: '#64748b',
+        fontSize: 12
+      }
     },
-    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    grid: {
+      borderColor: '#e2e8f0'
+    }
+  }
+
+  // 请求趋势图表配置 - 多轴线图
+  const trendChartOption = {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      borderColor: '#e2e8f0',
+      textStyle: { color: '#0f172a', fontSize: 12 }
+    },
+    legend: {
+      data: ['Total Requests', 'Successful', 'Errors', 'Avg Response Time (ms)'],
+      bottom: 0,
+      textStyle: { fontSize: 12 }
+    },
+    grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
     xAxis: {
       type: 'category',
-      data: analyticsData?.trends?.map(t => t.date) || []
+      boundaryGap: false,
+      data: analyticsData?.trends?.map(t => t.date) || [],
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisLabel: { color: '#64748b', fontSize: 12 }
     },
     yAxis: [
       {
         type: 'value',
         name: 'Requests',
-        position: 'left'
+        position: 'left',
+        axisLine: { lineStyle: { color: '#e2e8f0' } },
+        axisLabel: { color: '#64748b', fontSize: 12 },
+        splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } }
       },
       {
         type: 'value',
         name: 'Response Time (ms)',
-        position: 'right'
+        position: 'right',
+        axisLine: { lineStyle: { color: '#e2e8f0' } },
+        axisLabel: { color: '#64748b', fontSize: 12 }
       }
     ],
     series: [
       {
         name: 'Total Requests',
         type: 'line',
+        yAxisIndex: 0,
         data: analyticsData?.trends?.map(t => t.requests) || [],
         smooth: true,
-        itemStyle: { color: '#3b82f6' }
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { width: 3 },
+        areaStyle: { opacity: 0.1 }
       },
       {
-        name: 'Success',
+        name: 'Successful',
         type: 'line',
+        yAxisIndex: 0,
         data: analyticsData?.trends?.map(t => t.successCount) || [],
         smooth: true,
-        itemStyle: { color: '#10b981' }
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { width: 3 }
       },
       {
         name: 'Errors',
         type: 'line',
+        yAxisIndex: 0,
         data: analyticsData?.trends?.map(t => t.errorCount) || [],
         smooth: true,
-        itemStyle: { color: '#ef4444' }
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { width: 3 }
       },
       {
         name: 'Avg Response Time (ms)',
@@ -353,403 +412,554 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
         yAxisIndex: 1,
         data: analyticsData?.trends?.map(t => Math.round(t.avgResponseTime)) || [],
         smooth: true,
-        itemStyle: { color: '#8b5cf6' }
+        symbol: 'diamond',
+        symbolSize: 6,
+        lineStyle: { width: 2, type: 'dashed' }
       }
     ]
   }
 
-  // API Key使用量图表配置
+  // API Key使用量图表配置 - 水平条形图
   const apiKeyUsageChartOption = {
-    title: {
-      text: 'API Key Usage Distribution',
-      textStyle: { fontSize: 16, fontWeight: 'normal' }
-    },
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'shadow' }
+      axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      borderColor: '#e2e8f0',
+      textStyle: { color: '#0f172a', fontSize: 12 }
     },
-    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    grid: { left: '15%', right: '10%', bottom: '10%', top: '10%', containLabel: true },
     xAxis: {
-      type: 'category',
-      data: analyticsData?.apiKeyUsage?.slice(0, 10).map(item => item.apiKeyName) || [],
-      axisLabel: {
-        rotate: 45,
-        formatter: (value: string) => value.length > 12 ? value.substring(0, 12) + '...' : value
-      }
+      type: 'value',
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisLabel: { color: '#64748b', fontSize: 12 },
+      splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } }
     },
-    yAxis: { type: 'value', name: 'Requests' },
-    series: [
-      {
-        name: 'Requests',
-        type: 'bar',
-        data: analyticsData?.apiKeyUsage?.slice(0, 10).map(item => item.requests) || [],
+    yAxis: {
+      type: 'category',
+      data: analyticsData?.apiKeyUsage?.slice(0, 10).map(item =>
+        item.apiKeyName.length > 15 ? item.apiKeyName.substring(0, 15) + '...' : item.apiKeyName
+      ) || [],
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisLabel: { color: '#64748b', fontSize: 12 }
+    },
+    series: [{
+      name: 'Requests',
+      type: 'bar',
+      data: analyticsData?.apiKeyUsage?.slice(0, 10).map(item => item.requests) || [],
+      itemStyle: {
+        borderRadius: [0, 6, 6, 0],
+        color: {
+          type: 'linear',
+          x: 0,
+          y: 0,
+          x2: 1,
+          y2: 0,
+          colorStops: [
+            { offset: 0, color: '#3b82f6' },
+            { offset: 1, color: '#06b6d4' }
+          ]
+        }
+      },
+      emphasis: {
         itemStyle: {
           color: {
             type: 'linear',
             x: 0,
             y: 0,
-            x2: 0,
-            y2: 1,
+            x2: 1,
+            y2: 0,
             colorStops: [
-              { offset: 0, color: '#3b82f6' },
-              { offset: 1, color: '#1e40af' }
+              { offset: 0, color: '#2563eb' },
+              { offset: 1, color: '#0891b2' }
             ]
           }
         }
-      }
-    ]
+      },
+      barWidth: '60%'
+    }]
   }
 
-  // 操作类型分布饼图配置
+  // 操作类型分布饼图配置 - 环形图
   const operationPieChartOption = {
-    title: {
-      text: 'Operation Types Distribution',
-      textStyle: { fontSize: 16, fontWeight: 'normal' }
-    },
     tooltip: {
       trigger: 'item',
-      formatter: '{a} <br/>{b}: {c} ({d}%)'
+      formatter: '{a} <br/>{b}: {c} ({d}%)',
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      borderColor: '#e2e8f0',
+      textStyle: { color: '#0f172a', fontSize: 12 }
     },
     legend: {
-      orient: 'vertical',
-      left: 'left'
+      bottom: 0,
+      textStyle: { fontSize: 12 }
     },
-    series: [
-      {
-        name: 'Operations',
-        type: 'pie',
-        radius: '50%',
-        data: analyticsData?.operationTypes?.slice(0, 8).map(item => ({
-          value: item.count,
-          name: item.operation
-        })) || [],
-        emphasis: {
-          itemStyle: {
-            shadowBlur: 10,
-            shadowOffsetX: 0,
-            shadowColor: 'rgba(0, 0, 0, 0.5)'
+    series: [{
+      name: 'Operations',
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['50%', '45%'],
+      avoidLabelOverlap: false,
+      label: { show: false, position: 'center' },
+      emphasis: {
+        label: { show: true, fontSize: 14, fontWeight: 'bold' },
+        itemStyle: {
+          shadowBlur: 10,
+          shadowOffsetX: 0,
+          shadowColor: 'rgba(0, 0, 0, 0.5)'
+        }
+      },
+      labelLine: { show: false },
+      data: analyticsData?.operationTypes?.slice(0, 8).map((item, index) => ({
+        value: item.count,
+        name: item.operation,
+        itemStyle: {
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 1,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: chartTheme.color[index % chartTheme.color.length] },
+              { offset: 1, color: adjustColorBrightness(chartTheme.color[index % chartTheme.color.length], -20) }
+            ]
           }
         }
-      }
-    ]
+      })) || []
+    }]
   }
 
-  // 小时分布热力图配置
-  const hourlyHeatmapOption = {
-    title: {
-      text: 'Hourly Request Distribution',
-      textStyle: { fontSize: 16, fontWeight: 'normal' }
-    },
+  // 小时分布面积图配置
+  const hourlyDistributionChartOption = {
     tooltip: {
-      position: 'top',
-      formatter: (params: any) => `${params.data[0]}:00 - ${params.data[1]} requests`
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      borderColor: '#e2e8f0',
+      textStyle: { color: '#0f172a', fontSize: 12 }
     },
-    grid: { height: '50%', top: '10%' },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'category',
-      data: Array.from({ length: 24 }, (_, i) => `${i}:00`),
-      splitArea: { show: true }
+      boundaryGap: false,
+      data: analyticsData?.hourlyDistribution?.map(h => `${h.hour.toString().padStart(2, '0')}:00`) ||
+            Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`),
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisLabel: { color: '#64748b', fontSize: 12 }
     },
     yAxis: {
-      type: 'category',
-      data: ['Requests'],
-      splitArea: { show: true }
+      type: 'value',
+      name: 'Requests',
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisLabel: { color: '#64748b', fontSize: 12 },
+      splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } }
     },
-    visualMap: {
-      min: 0,
-      max: Math.max(...(analyticsData?.hourlyDistribution?.map(h => h.requests) || [0])),
-      calculable: true,
-      orient: 'horizontal',
-      left: 'center',
-      bottom: '15%',
-      inRange: {
-        color: ['#f0f9ff', '#3b82f6']
-      }
-    },
-    series: [
-      {
-        name: 'Requests',
-        type: 'heatmap',
-        data: analyticsData?.hourlyDistribution?.map((hour, index) => [index, 0, hour.requests]) || [],
-        label: {
-          show: true
-        },
-        emphasis: {
-          itemStyle: {
-            shadowBlur: 10,
-            shadowColor: 'rgba(0, 0, 0, 0.5)'
-          }
+    series: [{
+      name: 'Requests',
+      type: 'line',
+      data: analyticsData?.hourlyDistribution?.map(h => h.requests) ||
+            Array.from({ length: 24 }, () => 0),
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 8,
+      lineStyle: { width: 3, color: '#3b82f6' },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0,
+          y: 0,
+          x2: 0,
+          y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(59, 130, 246, 0.3)' },
+            { offset: 1, color: 'rgba(59, 130, 246, 0.05)' }
+          ]
+        }
+      },
+      emphasis: {
+        focus: 'series',
+        itemStyle: {
+          shadowBlur: 10,
+          shadowColor: 'rgba(59, 130, 246, 0.5)'
         }
       }
-    ]
+    }]
   }
 
   return (
-    <div className="space-y-6">
-      {/* 筛选控制栏 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" />
-            Analytics Dashboard
-          </CardTitle>
-          <CardDescription>
-            Comprehensive API usage analytics and insights
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex-1 min-w-[200px]">
-              <Label htmlFor="timeRange">Time Range</Label>
-              <Select value={timeRange} onValueChange={setTimeRange}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select time range" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1d">Last 24 Hours</SelectItem>
-                  <SelectItem value="7d">Last 7 Days</SelectItem>
-                  <SelectItem value="30d">Last 30 Days</SelectItem>
-                  <SelectItem value="custom">Custom Range</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {timeRange === 'custom' && (
-              <>
-                <div className="flex-1 min-w-[150px]">
-                  <Label htmlFor="startDate">Start Date</Label>
-                  <Input
-                    id="startDate"
-                    type="datetime-local"
-                    value={customDateStart}
-                    onChange={(e) => setCustomDateStart(e.target.value)}
-                  />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+      <div className="space-y-8 p-6">
+        {/* Header Section */}
+        <div className="flex flex-col gap-6">
+          <div className="flex justify-between items-start flex-wrap gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-blue-500 rounded-lg">
+                  <BarChart3 className="h-6 w-6 text-white" />
                 </div>
-                <div className="flex-1 min-w-[150px]">
-                  <Label htmlFor="endDate">End Date</Label>
-                  <Input
-                    id="endDate"
-                    type="datetime-local"
-                    value={customDateEnd}
-                    onChange={(e) => setCustomDateEnd(e.target.value)}
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="flex-1 min-w-[200px]">
-              <Label htmlFor="apiKey">API Key</Label>
-              <Select value={selectedApiKey} onValueChange={setSelectedApiKey}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All API Keys" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All API Keys</SelectItem>
-                  {apiKeys.map(key => (
-                    <SelectItem key={key.id} value={key.id}>
-                      {key.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Analytics Dashboard</h1>
+              </div>
+              <p className="text-gray-600 dark:text-gray-400">Comprehensive API usage analytics and insights</p>
             </div>
 
-            <div className="flex-1 min-w-[200px]">
-              <Label htmlFor="user">User</Label>
-              <Select value={selectedUser} onValueChange={setSelectedUser}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Users" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Users</SelectItem>
-                  {Array.from(new Set(usageLogs.map(log => log.userId))).map(userId => (
-                    <SelectItem key={userId} value={userId}>
-                      {userId}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs font-medium text-gray-500">Time Range</Label>
+                <Select value={timeRange} onValueChange={setTimeRange}>
+                  <SelectTrigger className="w-36 h-9 bg-white border-gray-200 hover:border-blue-400 transition-colors">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="24h">Last 24 Hours</SelectItem>
+                    <SelectItem value="7d">Last 7 Days</SelectItem>
+                    <SelectItem value="30d">Last 30 Days</SelectItem>
+                    <SelectItem value="custom">Custom Range</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <Button variant="outline" onClick={handleExportData}>
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs font-medium text-gray-500">API Key</Label>
+                <Select value={selectedApiKey} onValueChange={setSelectedApiKey}>
+                  <SelectTrigger className="w-36 h-9 bg-white border-gray-200 hover:border-blue-400 transition-colors">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All API Keys</SelectItem>
+                    {uniqueApiKeys.map(key => (
+                      <SelectItem key={key} value={key}>{key}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs font-medium text-gray-500">User</Label>
+                <Select value={selectedUser} onValueChange={setSelectedUser}>
+                  <SelectTrigger className="w-36 h-9 bg-white border-gray-200 hover:border-blue-400 transition-colors">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Users</SelectItem>
+                    {uniqueUsers.map(user => (
+                      <SelectItem key={user} value={user}>{user}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-end gap-2 mt-5">
+                <Button onClick={handleExportData} size="sm" className="bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:border-blue-400 transition-colors">
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </div>
+            </div>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* 概览指标卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <Activity className="h-8 w-8 text-blue-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Total Requests</p>
+          {timeRange === 'custom' && (
+            <div className="flex gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm">
+              <div className="flex flex-col gap-2">
+                <Label className="text-sm font-medium text-gray-700">Start Date</Label>
+                <Input
+                  type="datetime-local"
+                  value={customDateStart}
+                  onChange={(e) => setCustomDateStart(e.target.value)}
+                  className="w-48 border-gray-200 focus:border-blue-400"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label className="text-sm font-medium text-gray-700">End Date</Label>
+                <Input
+                  type="datetime-local"
+                  value={customDateEnd}
+                  onChange={(e) => setCustomDateEnd(e.target.value)}
+                  className="w-48 border-gray-200 focus:border-blue-400"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 概览指标卡片 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
+          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-blue-600"></div>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-center mb-3">
+                <p className="text-sm font-medium text-gray-500">Total Requests</p>
+                <div className="p-2 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
+                  <TrendingUp className="h-5 w-5 text-blue-600" />
+                </div>
+              </div>
+              <div className="space-y-2">
                 <p className="text-2xl font-bold text-gray-900">
                   {analyticsData?.overview?.totalRequests?.toLocaleString() || '0'}
                 </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">API requests in period</p>
+                  <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full font-medium">+0%</span>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <Users className="h-8 w-8 text-green-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Active Users</p>
+          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500 to-green-600"></div>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-center mb-3">
+                <p className="text-sm font-medium text-gray-500">Active Users</p>
+                <div className="p-2 bg-green-50 rounded-lg group-hover:bg-green-100 transition-colors">
+                  <Users className="h-5 w-5 text-green-600" />
+                </div>
+              </div>
+              <div className="space-y-2">
                 <p className="text-2xl font-bold text-gray-900">
                   {analyticsData?.overview?.activeUsers || '0'}
                 </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">Unique users making requests</p>
+                  <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full font-medium">+0%</span>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <CheckCircle2 className="h-8 w-8 text-emerald-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Success Rate</p>
+          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-emerald-600"></div>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-center mb-3">
+                <p className="text-sm font-medium text-gray-500">Success Rate</p>
+                <div className="p-2 bg-emerald-50 rounded-lg group-hover:bg-emerald-100 transition-colors">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                </div>
+              </div>
+              <div className="space-y-2">
                 <p className="text-2xl font-bold text-gray-900">
                   {analyticsData?.overview?.successRate?.toFixed(1) || '0.0'}%
                 </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">Successful API responses</p>
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">Perfect</span>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <XCircle className="h-8 w-8 text-red-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Error Rate</p>
+          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 to-red-600"></div>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-center mb-3">
+                <p className="text-sm font-medium text-gray-500">Error Rate</p>
+                <div className="p-2 bg-red-50 rounded-lg group-hover:bg-red-100 transition-colors">
+                  <XCircle className="h-5 w-5 text-red-600" />
+                </div>
+              </div>
+              <div className="space-y-2">
                 <p className="text-2xl font-bold text-gray-900">
                   {analyticsData?.overview?.errorRate?.toFixed(1) || '0.0'}%
                 </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">Failed API responses</p>
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">Excellent</span>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <Clock className="h-8 w-8 text-purple-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Avg Response</p>
+          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 to-purple-600"></div>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-center mb-3">
+                <p className="text-sm font-medium text-gray-500">Avg Response</p>
+                <div className="p-2 bg-purple-50 rounded-lg group-hover:bg-purple-100 transition-colors">
+                  <Clock className="h-5 w-5 text-purple-600" />
+                </div>
+              </div>
+              <div className="space-y-2">
                 <p className="text-2xl font-bold text-gray-900">
                   {Math.round(analyticsData?.overview?.avgResponseTime || 0)}ms
                 </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">Average response time</p>
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">-5ms</span>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <TrendingUp className="h-8 w-8 text-orange-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">API Keys</p>
+          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-500 to-orange-600"></div>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-center mb-3">
+                <p className="text-sm font-medium text-gray-500">API Keys</p>
+                <div className="p-2 bg-orange-50 rounded-lg group-hover:bg-orange-100 transition-colors">
+                  <Key className="h-5 w-5 text-orange-600" />
+                </div>
+              </div>
+              <div className="space-y-2">
                 <p className="text-2xl font-bold text-gray-900">
                   {analyticsData?.overview?.totalApiKeys || '0'}
                 </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">Active API keys</p>
+                  <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full font-medium">+0</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* 主要趋势图表 */}
+        <Card className="bg-white border-0 shadow-lg">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-50 rounded-lg">
+                <Activity className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-semibold text-gray-900">API Usage Trends</CardTitle>
+                <CardDescription className="text-gray-600">Request volume, success rate, and response times over time</CardDescription>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 图表展示区域 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* 请求趋势图 */}
-        <Card className="lg:col-span-2">
-          <CardContent className="p-6">
+          </CardHeader>
+          <CardContent className="pt-0">
             <ReactECharts
               option={trendChartOption}
-              style={{ height: '400px' }}
-              opts={{ renderer: 'canvas' }}
-            />
-          </CardContent>
-        </Card>
-
-        {/* API Key使用量 */}
-        <Card>
-          <CardContent className="p-6">
-            <ReactECharts
-              option={apiKeyUsageChartOption}
               style={{ height: '350px' }}
-              opts={{ renderer: 'canvas' }}
+              theme={chartTheme}
             />
           </CardContent>
         </Card>
 
-        {/* 操作类型分布 */}
-        <Card>
-          <CardContent className="p-6">
-            <ReactECharts
-              option={operationPieChartOption}
-              style={{ height: '350px' }}
-              opts={{ renderer: 'canvas' }}
-            />
-          </CardContent>
-        </Card>
+        {/* 次要图表行 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* API Key使用分布 */}
+          <Card className="bg-white border-0 shadow-lg">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-50 rounded-lg">
+                  <Key className="h-5 w-5 text-emerald-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg font-semibold text-gray-900">API Key Usage Distribution</CardTitle>
+                  <CardDescription className="text-gray-600">Request distribution across different API keys</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <ReactECharts
+                option={apiKeyUsageChartOption}
+                style={{ height: '300px' }}
+                theme={chartTheme}
+              />
+            </CardContent>
+          </Card>
 
-        {/* 小时分布热力图 */}
-        <Card className="lg:col-span-2">
-          <CardContent className="p-6">
-            <ReactECharts
-              option={hourlyHeatmapOption}
-              style={{ height: '300px' }}
-              opts={{ renderer: 'canvas' }}
-            />
-          </CardContent>
-        </Card>
-      </div>
+          {/* 操作类型分布 */}
+          <Card className="bg-white border-0 shadow-lg">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-50 rounded-lg">
+                  <PieChart className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg font-semibold text-gray-900">Operation Types Distribution</CardTitle>
+                  <CardDescription className="text-gray-600">Breakdown of API operation types</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <ReactECharts
+                option={operationPieChartOption}
+                style={{ height: '300px' }}
+                theme={chartTheme}
+              />
+            </CardContent>
+          </Card>
+        </div>
 
-      {/* 详细数据表格 */}
-      {analyticsData?.errorTypes && analyticsData.errorTypes.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-red-600" />
-              Error Analysis
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left p-2">Status Code</th>
-                    <th className="text-left p-2">Message</th>
-                    <th className="text-left p-2">Count</th>
-                    <th className="text-left p-2">Percentage</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {analyticsData.errorTypes.map((error, index) => (
-                    <tr key={index} className="border-b">
-                      <td className="p-2 font-mono">{error.statusCode}</td>
-                      <td className="p-2">{error.message}</td>
-                      <td className="p-2">{error.count}</td>
-                      <td className="p-2">
-                        {((error.count / analyticsData.overview.totalRequests) * 100).toFixed(2)}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* 小时分布图表 */}
+        <Card className="bg-white border-0 shadow-lg">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-orange-50 rounded-lg">
+                <Clock className="h-5 w-5 text-orange-600" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-semibold text-gray-900">Hourly Request Distribution</CardTitle>
+                <CardDescription className="text-gray-600">Request volume pattern throughout the day</CardDescription>
+              </div>
             </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <ReactECharts
+              option={hourlyDistributionChartOption}
+              style={{ height: '280px' }}
+              theme={chartTheme}
+            />
           </CardContent>
         </Card>
-      )}
+
+        {/* 错误分析表格 */}
+        {analyticsData?.errorTypes && analyticsData.errorTypes.length > 0 && (
+          <Card className="bg-white border-0 shadow-lg">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-red-50 rounded-lg">
+                  <AlertCircle className="h-5 w-5 text-red-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg font-semibold text-gray-900">Error Analysis</CardTitle>
+                  <CardDescription className="text-gray-600">Detailed breakdown of API errors and their frequency</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-3 px-4 font-medium text-gray-700">Status Code</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-700">Message</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-700">Count</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-700">Percentage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analyticsData.errorTypes.map((error, index) => (
+                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                        <td className="py-3 px-4">
+                          <span className="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full font-mono">
+                            {error.statusCode}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-gray-900">{error.message}</td>
+                        <td className="py-3 px-4 font-medium text-gray-900">{error.count}</td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-gray-200 rounded-full h-2">
+                              <div
+                                className="bg-red-600 h-2 rounded-full"
+                                style={{
+                                  width: `${((error.count / analyticsData.overview.totalRequests) * 100).toFixed(1)}%`
+                                }}
+                              ></div>
+                            </div>
+                            <span className="text-sm font-medium text-gray-700">
+                              {((error.count / analyticsData.overview.totalRequests) * 100).toFixed(2)}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   )
 }
@@ -762,17 +972,4 @@ function getDaysInMs(timeRange: string): number {
     case '30d': return 30 * 24 * 60 * 60 * 1000
     default: return 7 * 24 * 60 * 60 * 1000
   }
-}
-
-function getStatusMessage(statusCode: number): string {
-  const messages: { [key: number]: string } = {
-    400: 'Bad Request',
-    401: 'Unauthorized',
-    403: 'Forbidden',
-    404: 'Not Found',
-    500: 'Internal Server Error',
-    502: 'Bad Gateway',
-    503: 'Service Unavailable'
-  }
-  return messages[statusCode] || 'Unknown Error'
 }
