@@ -26,7 +26,9 @@ import {
   XCircle,
   AlertTriangle,
   Loader2,
-  Download
+  Download,
+  Calendar,
+  X
 } from "lucide-react"
 
 interface APIKey {
@@ -68,6 +70,8 @@ export function APIKeyManagement() {
   const [showKeyDialog, setShowKeyDialog] = useState(false)
   const [selectedKey, setSelectedKey] = useState<APIKey | null>(null)
   const [newKey, setNewKey] = useState("")
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const [tempExpiryDate, setTempExpiryDate] = useState("")
 
   // Create API Key Form State
   const [createForm, setCreateForm] = useState({
@@ -140,25 +144,56 @@ export function APIKeyManagement() {
       return
     }
 
+    // Validate expiration time
+    if (createForm.expiresAt) {
+      const expiryDate = new Date(createForm.expiresAt)
+      if (expiryDate <= new Date()) {
+        toast({
+          variant: "destructive",
+          title: "Invalid Expiration Date",
+          description: "Expiration date must be in the future"
+        })
+        return
+      }
+    }
+
     try {
+      const requestBody = {
+        name: createForm.name,
+        description: createForm.description,
+        user_id: createForm.userId,
+        permissions: createForm.permissions,
+        expires_at: createForm.expiresAt || undefined
+      }
+
+      console.log('Creating API key with data:', requestBody) // Debug log
+
       const response = await fetch('/api/v1/web/admin/api-keys', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          name: createForm.name,
-          description: createForm.description,
-          user_id: createForm.userId,
-          permissions: createForm.permissions,
-          expires_at: createForm.expiresAt || undefined
-        })
+        body: JSON.stringify(requestBody)
       })
 
-      if (!response.ok) throw new Error('Failed to create API key')
-
       const result = await response.json()
+
+      if (!response.ok) {
+        // Provide more friendly error messages based on specific errors
+        let errorMessage = result.message || 'Failed to create API key'
+
+        if (response.status === 400) {
+          if (errorMessage.includes('expiration date')) {
+            errorMessage = 'Invalid expiration date format. Please select a valid future date.'
+          } else if (errorMessage.includes('permissions')) {
+            errorMessage = 'Invalid permissions selected. Please check your selections.'
+          }
+        }
+
+        throw new Error(errorMessage)
+      }
+
       const createdKey = result.data
 
       setNewKey(createdKey.key)
@@ -182,6 +217,7 @@ export function APIKeyManagement() {
         description: "API key created successfully"
       })
     } catch (error) {
+      console.error('API key creation error:', error) // Debug log
       toast({
         variant: "destructive",
         title: "Error",
@@ -254,6 +290,23 @@ export function APIKeyManagement() {
       title: "Copied",
       description: "API key copied to clipboard"
     })
+  }
+
+  // Format date for display
+  const formatDisplayDate = (isoString: string) => {
+    if (!isoString) return ""
+    try {
+      const date = new Date(isoString)
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    } catch (error) {
+      return isoString
+    }
   }
 
   useEffect(() => {
@@ -612,12 +665,93 @@ export function APIKeyManagement() {
 
             <div>
               <Label htmlFor="expiresAt">Expires At (optional)</Label>
-              <Input
-                id="expiresAt"
-                type="datetime-local"
-                value={createForm.expiresAt}
-                onChange={(e) => setCreateForm(prev => ({ ...prev, expiresAt: e.target.value }))}
-              />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="expiresAt"
+                    value={createForm.expiresAt ? formatDisplayDate(createForm.expiresAt) : "No expiration"}
+                    readOnly
+                    placeholder="Click to set expiration date"
+                    className="cursor-pointer"
+                    onClick={() => setShowDatePicker(true)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowDatePicker(true)}
+                  >
+                    <Calendar className="h-4 w-4" />
+                  </Button>
+                  {createForm.expiresAt && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCreateForm(prev => ({ ...prev, expiresAt: "" }))}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+
+                {/* Date picker popup */}
+                {showDatePicker && (
+                  <div className="border rounded-lg p-4 bg-white shadow-lg">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-medium">Set Expiration Date</Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowDatePicker(false)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <Input
+                        type="datetime-local"
+                        value={tempExpiryDate}
+                        onChange={(e) => setTempExpiryDate(e.target.value)}
+                        min={new Date().toISOString().slice(0, 16)} // Prevent selecting past dates
+                      />
+
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setShowDatePicker(false)
+                            setTempExpiryDate("")
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            if (tempExpiryDate) {
+                              // Convert to ISO format for backend
+                              const isoDate = new Date(tempExpiryDate).toISOString()
+                              setCreateForm(prev => ({ ...prev, expiresAt: isoDate }))
+                            } else {
+                              setCreateForm(prev => ({ ...prev, expiresAt: "" }))
+                            }
+                            setShowDatePicker(false)
+                            setTempExpiryDate("")
+                          }}
+                        >
+                          OK
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

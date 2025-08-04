@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -141,10 +142,41 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse expiration date if provided
 	var expiresAt *time.Time
 	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
-		if expTime, err := time.Parse(time.RFC3339, *req.ExpiresAt); err == nil {
-			expiresAt = &expTime
-		} else {
-			writeErrorResponse(w, http.StatusBadRequest, "Invalid expiration date format")
+		// Support multiple date formats
+		dateFormats := []string{
+			time.RFC3339,           // "2006-01-02T15:04:05Z07:00"
+			"2006-01-02T15:04:05",  // "2024-12-25T14:30:00"
+			"2006-01-02T15:04",     // "2024-12-25T14:30" (datetime-local format)
+			"2006-01-02 15:04:05",  // "2024-12-25 14:30:00"
+			"2006-01-02 15:04",     // "2024-12-25 14:30"
+		}
+
+		var parseErr error
+		for _, format := range dateFormats {
+			if expTime, err := time.Parse(format, *req.ExpiresAt); err == nil {
+				// If parsed time has no timezone info, default to server local timezone
+				if expTime.Location() == time.UTC && format != time.RFC3339 {
+					expTime = time.Date(expTime.Year(), expTime.Month(), expTime.Day(),
+						expTime.Hour(), expTime.Minute(), expTime.Second(),
+						expTime.Nanosecond(), time.Local)
+				}
+
+				// Validate expiration time is not in the past
+				if expTime.Before(time.Now()) {
+					writeErrorResponse(w, http.StatusBadRequest, "Expiration date cannot be in the past")
+					return
+				}
+
+				expiresAt = &expTime
+				break
+			} else {
+				parseErr = err
+			}
+		}
+
+		if expiresAt == nil {
+			writeErrorResponse(w, http.StatusBadRequest,
+				fmt.Sprintf("Invalid expiration date format. Expected formats: YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS. Error: %v", parseErr))
 			return
 		}
 	}

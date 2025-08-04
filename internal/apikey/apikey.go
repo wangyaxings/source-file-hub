@@ -40,8 +40,8 @@ func ValidateAPIKeyFormat(key string) bool {
 	prefix := parts[0]
 	keyPart := parts[1]
 
-	// Check prefix (should be 3-10 alphanumeric characters)
-	if len(prefix) < 3 || len(prefix) > 10 {
+	// Check prefix (should be 2-10 alphanumeric characters)
+	if len(prefix) < 2 || len(prefix) > 10 {
 		return false
 	}
 
