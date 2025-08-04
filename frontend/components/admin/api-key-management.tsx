@@ -88,7 +88,7 @@ export function APIKeyManagement() {
   const loadAPIKeys = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/v1/admin/api-keys', {
+      const response = await fetch('/api/v1/web/admin/api-keys', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
         }
@@ -111,7 +111,7 @@ export function APIKeyManagement() {
 
   const loadUsageLogs = async () => {
     try {
-      const response = await fetch('/api/v1/admin/usage/logs?limit=100', {
+      const response = await fetch('/api/v1/web/admin/usage/logs?limit=100', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
         }
@@ -141,7 +141,7 @@ export function APIKeyManagement() {
     }
 
     try {
-      const response = await fetch('/api/v1/admin/api-keys', {
+      const response = await fetch('/api/v1/web/admin/api-keys', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -192,7 +192,7 @@ export function APIKeyManagement() {
 
   const updateAPIKeyStatus = async (keyId: string, status: string) => {
     try {
-      const response = await fetch(`/api/v1/admin/api-keys/${keyId}/status`, {
+      const response = await fetch(`/api/v1/web/admin/api-keys/${keyId}/status`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -224,7 +224,7 @@ export function APIKeyManagement() {
     }
 
     try {
-      const response = await fetch(`/api/v1/admin/api-keys/${keyId}`, {
+      const response = await fetch(`/api/v1/web/admin/api-keys/${keyId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -562,12 +562,20 @@ export function APIKeyManagement() {
 
             <div>
               <Label htmlFor="userId">User ID *</Label>
-              <Input
-                id="userId"
-                value={createForm.userId}
-                onChange={(e) => setCreateForm(prev => ({ ...prev, userId: e.target.value }))}
-                placeholder="admin"
-              />
+              <Select value={createForm.userId} onValueChange={(value) => setCreateForm(prev => ({ ...prev, userId: value }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a user ID" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">admin (Administrator)</SelectItem>
+                  <SelectItem value="api_user">api_user (API Access User)</SelectItem>
+                  <SelectItem value="demo_user">demo_user (Demo User)</SelectItem>
+                  <SelectItem value="system">system (System User)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500 mt-1">
+                Select the user ID that will own this API key. Use 'admin' for administrative access.
+              </p>
             </div>
 
             <div>

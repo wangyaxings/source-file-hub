@@ -83,7 +83,7 @@ class ApiClient {
       if (!response.ok) {
         if (response.status === 401) {
           this.logout()
-          throw new Error('认证已过期，请重新登录')
+          throw new Error('Authentication expired, please log in again')
         }
 
         // 尝试解析错误响应
@@ -98,7 +98,7 @@ class ApiClient {
       const data = await response.json()
 
       if (!data.success) {
-        throw new Error(data.error || data.message || '请求失败')
+        throw new Error(data.error || data.message || 'Request failed')
       }
 
       return data
@@ -106,7 +106,7 @@ class ApiClient {
       console.error(`Request failed for ${url}:`, error)
 
       if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error('网络连接失败，请检查服务器状态')
+        throw new Error('Network connection failed, please check server status')
       }
 
       throw error
@@ -160,7 +160,7 @@ class ApiClient {
       return response.data
     }
 
-    throw new Error(response.error || '登录失败')
+    throw new Error(response.error || 'Login failed')
   }
 
   async logoutUser(): Promise<void> {
@@ -197,10 +197,10 @@ class ApiClient {
     if (!response.ok) {
       if (response.status === 401) {
         this.logout()
-        throw new Error('登录已过期，请重新登录')
+        throw new Error('Login expired, please log in again')
       }
       const errorData = await response.json().catch(() => ({ error: response.statusText }))
-      throw new Error(errorData.error || `上传失败: ${response.statusText}`)
+      throw new Error(errorData.error || `Upload failed: ${response.statusText}`)
     }
 
     const result = await response.json()
@@ -368,13 +368,13 @@ class ApiClient {
       const response = await fetch('/api/v1/health')
 
       if (!response.ok) {
-        throw new Error(`健康检查失败: ${response.status}`)
+        throw new Error(`Health check failed: ${response.status}`)
       }
 
       return await response.json()
     } catch (error) {
       console.error('Health check failed:', error)
-      throw new Error('服务器连接失败')
+      throw new Error('Server connection failed')
     }
   }
 }

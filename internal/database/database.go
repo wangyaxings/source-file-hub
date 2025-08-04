@@ -836,6 +836,66 @@ func (d *Database) GetAPIKeysByUserID(userID string) ([]APIKey, error) {
 	return apiKeys, nil
 }
 
+// GetAllAPIKeys retrieves all API keys
+func (d *Database) GetAllAPIKeys() ([]APIKey, error) {
+	query := `
+	SELECT id, name, description, user_id, permissions, status,
+		   expires_at, usage_count, last_used_at, created_at, updated_at
+	FROM api_keys
+	ORDER BY created_at DESC
+	`
+
+	rows, err := d.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var apiKeys []APIKey
+	for rows.Next() {
+		var apiKey APIKey
+		var permissionsJSON string
+		var expiresAtStr, lastUsedAtStr sql.NullString
+		var createdAtStr, updatedAtStr string
+
+		err := rows.Scan(
+			&apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.UserID,
+			&permissionsJSON, &apiKey.Status, &expiresAtStr, &apiKey.UsageCount,
+			&lastUsedAtStr, &createdAtStr, &updatedAtStr,
+		)
+
+		if err != nil {
+			log.Printf("Error scanning API key record: %v", err)
+			continue
+		}
+
+		// Parse JSON permissions
+		json.Unmarshal([]byte(permissionsJSON), &apiKey.Permissions)
+
+		// Parse time strings
+		if createdAt, parseErr := time.Parse(time.RFC3339, createdAtStr); parseErr == nil {
+			apiKey.CreatedAt = createdAt
+		}
+		if updatedAt, parseErr := time.Parse(time.RFC3339, updatedAtStr); parseErr == nil {
+			apiKey.UpdatedAt = updatedAt
+		}
+		if expiresAtStr.Valid {
+			if expiresAt, parseErr := time.Parse(time.RFC3339, expiresAtStr.String); parseErr == nil {
+				apiKey.ExpiresAt = &expiresAt
+			}
+		}
+		if lastUsedAtStr.Valid {
+			if lastUsedAt, parseErr := time.Parse(time.RFC3339, lastUsedAtStr.String); parseErr == nil {
+				apiKey.LastUsedAt = &lastUsedAt
+			}
+		}
+
+		apiKeys = append(apiKeys, apiKey)
+	}
+
+	return apiKeys, nil
+}
+
 // UpdateAPIKeyUsage updates the usage count and last used time for an API key
 func (d *Database) UpdateAPIKeyUsage(keyID string) error {
 	query := `

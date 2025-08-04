@@ -114,7 +114,9 @@ func RegisterRoutes(router *mux.Router) {
 
 	// 日志查询路由（需要Web认证）
 	webAPI.HandleFunc("/logs/access", getAccessLogsHandler).Methods("GET")
-	webAPI.HandleFunc("/logs/system", getSystemLogsHandler).Methods("GET")
+
+	// Admin API routes (under web API for frontend)
+	RegisterWebAdminRoutes(webAPI)
 
 		// =============================================================================
 	// Public API Routes (require API key authentication) - 注册在更具体的路径

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"secure-file-hub/internal/apikey"
+	"secure-file-hub/internal/auth"
 	"secure-file-hub/internal/database"
 
 	"github.com/gorilla/mux"
@@ -35,6 +36,58 @@ func RegisterAdminRoutes(router *mux.Router) {
 	admin.HandleFunc("/users/{userId}/role", updateUserRoleHandler).Methods("PUT")
 	admin.HandleFunc("/users/{userId}/api-keys", getUserAPIKeysHandler).Methods("GET")
 	admin.HandleFunc("/users/{userId}/usage", getUserUsageHandler).Methods("GET")
+}
+
+// RegisterWebAdminRoutes registers admin routes under web API
+func RegisterWebAdminRoutes(router *mux.Router) {
+	// Admin API routes (require web authentication + admin role)
+	admin := router.PathPrefix("/admin").Subrouter()
+
+	// API Key Management
+	admin.HandleFunc("/api-keys", requireAdminAuth(listAPIKeysHandler)).Methods("GET")
+	admin.HandleFunc("/api-keys", requireAdminAuth(createAPIKeyHandler)).Methods("POST")
+	admin.HandleFunc("/api-keys/{keyId}", requireAdminAuth(getAPIKeyHandler)).Methods("GET")
+	admin.HandleFunc("/api-keys/{keyId}", requireAdminAuth(updateAPIKeyHandler)).Methods("PUT")
+	admin.HandleFunc("/api-keys/{keyId}", requireAdminAuth(deleteAPIKeyHandler)).Methods("DELETE")
+	admin.HandleFunc("/api-keys/{keyId}/status", requireAdminAuth(updateAPIKeyStatusHandler)).Methods("PATCH")
+
+	// Usage Analytics
+	admin.HandleFunc("/usage/logs", requireAdminAuth(getUsageLogsHandler)).Methods("GET")
+	admin.HandleFunc("/usage/stats", requireAdminAuth(getUsageStatsHandler)).Methods("GET")
+	admin.HandleFunc("/usage/summary", requireAdminAuth(getUsageSummaryHandler)).Methods("GET")
+
+	// User Management
+	admin.HandleFunc("/users", requireAdminAuth(listUsersHandler)).Methods("GET")
+	admin.HandleFunc("/users/{userId}/role", requireAdminAuth(updateUserRoleHandler)).Methods("PUT")
+	admin.HandleFunc("/users/{userId}/api-keys", requireAdminAuth(getUserAPIKeysHandler)).Methods("GET")
+	admin.HandleFunc("/users/{userId}/usage", requireAdminAuth(getUserUsageHandler)).Methods("GET")
+}
+
+// requireAdminAuth checks if the user has admin privileges
+func requireAdminAuth(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get user from context (set by AuthMiddleware)
+		userCtx := r.Context().Value("user")
+		if userCtx == nil {
+			writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
+			return
+		}
+
+		user, ok := userCtx.(*auth.User)
+		if !ok {
+			writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
+			return
+		}
+
+		// Check if user is admin
+		if user.Username != "admin" {
+			writeErrorResponse(w, http.StatusForbidden, "Admin privileges required")
+			return
+		}
+
+		// User is admin, proceed with the request
+		handler.ServeHTTP(w, r)
+	}
 }
 
 // =============================================================================
@@ -147,9 +200,8 @@ func listAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
 	if userID != "" {
 		apiKeys, err = db.GetAPIKeysByUserID(userID)
 	} else {
-		// Get all API keys (this would require a new database method)
-		// For now, return empty list
-		apiKeys = []database.APIKey{}
+		// Get all API keys
+		apiKeys, err = db.GetAllAPIKeys()
 	}
 
 	if err != nil {

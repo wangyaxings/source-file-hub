@@ -15,7 +15,8 @@ func AuthMiddleware(next http.Handler) http.Handler {
 						// 跳过不需要认证的接口
 		if strings.Contains(r.URL.Path, "/auth/login") ||
 		   strings.Contains(r.URL.Path, "/health") ||
-		   strings.Contains(r.URL.Path, "/auth/users") { // 获取默认用户列表
+		   strings.Contains(r.URL.Path, "/auth/users") || // 获取默认用户列表
+		   strings.Contains(r.URL.Path, "/api/v1/public") { // Public API 使用API key认证
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -23,14 +24,14 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		// 获取Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			writeUnauthorizedResponse(w, "缺少Authorization header")
+			writeUnauthorizedResponse(w, "Missing Authorization header")
 			return
 		}
 
 		// 检查Bearer token格式
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			writeUnauthorizedResponse(w, "Authorization header格式错误，应为: Bearer <token>")
+			writeUnauthorizedResponse(w, "Invalid Authorization header format, should be: Bearer <token>")
 			return
 		}
 

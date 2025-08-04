@@ -93,7 +93,7 @@ func main() {
 	_, certErr := os.Stat(certFile)
 	_, keyErr := os.Stat(keyFile)
 
-	if os.Getenv("DEV_MODE") == "true" || certErr != nil || keyErr != nil {
+	if os.Getenv("DEV_MODE") == "true" || (certErr != nil || keyErr != nil) {
 		// 开发模式：启动HTTP服务器
 		httpServer = &http.Server{
 			Addr:         ":8080",
