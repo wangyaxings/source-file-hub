@@ -47,139 +47,77 @@ class FileServerAPIClient:
 
     Supports two authentication methods:
     1. API Key authentication (for programmatic access)
-    2. Username/password authentication (for interactive use)
+    2. Username/Password authentication (for interactive use)
     """
 
-    def __init__(self, base_url: str, api_key: Optional[str] = None,
-                 username: Optional[str] = None, password: Optional[str] = None,
-                 tenant_id: str = "demo"):
+    def __init__(self, base_url: str, api_key: str = None, username: str = None,
+                 password: str = None, tenant_id: str = "demo"):
         """
         Initialize the API client
 
         Args:
-            base_url: Base URL of the file server
-            api_key: API key for authentication (optional)
-            username: Username for login authentication (optional)
-            password: Password for login authentication (optional)
-            tenant_id: Tenant ID for multi-tenant environments
+            base_url: Base URL of the File Server API
+            api_key: API key for authentication (preferred)
+            username: Username for login authentication
+            password: Password for login authentication
+            tenant_id: Tenant ID (default: demo)
         """
         self.base_url = base_url.rstrip('/')
         self.tenant_id = tenant_id
-        self.api_key = api_key
-        self.username = username
-        self.password = password
-        self.login_token = None
-
         self.session = requests.Session()
+
+        # Configure session
         self.session.headers.update({
-            'User-Agent': 'FileServerAPIClient/2.0.0',
+            'User-Agent': 'FileServerAPIClient/1.0',
             'Content-Type': 'application/json'
         })
 
-        # Disable SSL verification for self-signed certificates
-        if self.base_url.startswith('https'):
+        # Handle HTTPS verification for localhost
+        if 'localhost' in base_url and base_url.startswith('https'):
             self.session.verify = False
-            # Suppress SSL warnings
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        # Auto-authenticate if credentials provided
+        # Set up authentication
         if api_key:
-            self.set_api_key(api_key)
+            self._setup_api_key_auth(api_key)
         elif username and password:
-            self.login()
+            self._setup_password_auth(username, password)
 
-    def set_api_key(self, api_key: str):
-        """Set API key for authentication"""
-        self.api_key = api_key
-        self.session.headers.update({
-            'Authorization': f'Bearer {api_key}'
-        })
+    def _setup_api_key_auth(self, api_key: str):
+        """Set up API key authentication"""
+        self.session.headers['Authorization'] = f'Bearer {api_key}'
         print(f"✅ API Key authentication configured: {api_key[:20]}...")
 
-    def login(self, username: Optional[str] = None, password: Optional[str] = None,
-              tenant_id: Optional[str] = None) -> bool:
-        """
-        Login using username and password
-
-        Args:
-            username: Username (optional, uses instance variable if not provided)
-            password: Password (optional, uses instance variable if not provided)
-            tenant_id: Tenant ID (optional, uses instance variable if not provided)
-
-        Returns:
-            True if login successful, False otherwise
-        """
-        # Use provided credentials or fall back to instance variables
-        username = username or self.username
-        password = password or self.password
-        tenant_id = tenant_id or self.tenant_id
-
-        if not username or not password:
-            raise ValueError("Username and password are required for login")
-
+    def _setup_password_auth(self, username: str, password: str):
+        """Set up username/password authentication"""
         try:
-            # Temporarily remove any existing Authorization header
-            temp_headers = self.session.headers.copy()
-            if 'Authorization' in self.session.headers:
-                del self.session.headers['Authorization']
-
-            login_data = {
-                "tenant_id": tenant_id,
-                "username": username,
-                "password": password
-            }
-
             response = self.session.post(
                 f'{self.base_url}/api/v1/web/auth/login',
-                json=login_data
+                json={
+                    'tenant_id': self.tenant_id,
+                    'username': username,
+                    'password': password
+                }
             )
 
             if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    self.login_token = data.get('data', {}).get('token')
-                    self.session.headers.update({
-                        'Authorization': f'Bearer {self.login_token}'
-                    })
-                    print(f"✅ Login successful: {username}@{tenant_id}")
-                    print(f"   Token: {self.login_token[:20]}...")
-                    return True
-                else:
-                    print(f"❌ Login failed: {data.get('message', 'Unknown error')}")
-                    return False
+                token = response.json()['data']['token']
+                self.session.headers['Authorization'] = f'Bearer {token}'
+                print(f"✅ Username/password authentication successful for: {username}")
             else:
-                print(f"❌ Login failed: HTTP {response.status_code}")
-                print(f"   Response: {response.text}")
-                return False
+                raise Exception(f"Login failed: HTTP {response.status_code}")
 
         except Exception as e:
-            print(f"❌ Login error: {e}")
-            # Restore original headers on error
-            self.session.headers = temp_headers
-            return False
+            raise Exception(f"Authentication failed: {e}")
 
     def logout(self) -> bool:
-        """Logout and invalidate token"""
-        if not self.login_token:
-            print("⚠️  No active login session")
-            return True
-
+        """Logout and clear authentication"""
         try:
-            response = self.session.post(f'{self.base_url}/api/v1/web/auth/logout')
-
-            if response.status_code == 200:
-                print("✅ Logout successful")
-                self.login_token = None
-                if 'Authorization' in self.session.headers:
-                    del self.session.headers['Authorization']
-                return True
-            else:
-                print(f"❌ Logout failed: HTTP {response.status_code}")
-                return False
-
-        except Exception as e:
-            print(f"❌ Logout error: {e}")
+            if 'Authorization' in self.session.headers:
+                response = self.session.post(f'{self.base_url}/api/v1/web/auth/logout')
+                del self.session.headers['Authorization']
+                return response.status_code == 200
+            return True
+        except Exception:
             return False
 
     def _handle_response(self, response: requests.Response) -> Dict[str, Any]:
@@ -252,16 +190,15 @@ class FileServerAPIClient:
             # Restore headers
             self.session.headers = temp_headers
 
-            if not response.ok:
+            if response.status_code != 200:
                 print(f"❌ Download failed: HTTP {response.status_code}")
-                print(f"   Response: {response.text}")
                 return False
 
             # Create directories if needed
             if create_dirs:
-                Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-            # Save file
+            # Write file
             with open(save_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
@@ -273,14 +210,13 @@ class FileServerAPIClient:
             print(f"❌ Download error: {e}")
             return False
 
-    def download_file_by_path(self, file_path: str, save_path: str, create_dirs: bool = True) -> bool:
+    def download_file_by_path(self, file_path: str, save_path: str) -> bool:
         """
-        Download a file by path (alternative endpoint)
+        Download a file by path
 
         Args:
-            file_path: Server path of the file (e.g., 'configs/config.json')
+            file_path: Server-side file path
             save_path: Local path where to save the file
-            create_dirs: Whether to create directories if they don't exist
 
         Returns:
             True if download successful, False otherwise
@@ -292,23 +228,21 @@ class FileServerAPIClient:
                 del self.session.headers['Content-Type']
 
             response = self.session.get(
-                f'{self.base_url}/api/v1/files/{file_path}',
+                f'{self.base_url}/api/v1/public/files/download/{file_path}',
                 stream=True
             )
 
             # Restore headers
             self.session.headers = temp_headers
 
-            if not response.ok:
+            if response.status_code != 200:
                 print(f"❌ Download failed: HTTP {response.status_code}")
-                print(f"   Response: {response.text}")
                 return False
 
             # Create directories if needed
-            if create_dirs:
-                Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-            # Save file
+            # Write file
             with open(save_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
@@ -374,65 +308,25 @@ class FileServerAPIClient:
     # ==========================================================================
 
     def get_api_status(self) -> Dict[str, Any]:
-        """Get API health status"""
-        # Remove auth header for public endpoint
-        temp_headers = self.session.headers.copy()
+        """Get API health status (public endpoint)"""
+        # Temporarily remove auth for public endpoint
+        temp_auth = self.session.headers.get('Authorization')
         if 'Authorization' in self.session.headers:
             del self.session.headers['Authorization']
-        if 'Content-Type' in self.session.headers:
-            del self.session.headers['Content-Type']
 
         try:
             response = self.session.get(f'{self.base_url}/api/v1/health', timeout=10)
-            if response.status_code == 200:
-                return response.json()
-            else:
-                return {
-                    "success": False,
-                    "message": f"Server returned HTTP {response.status_code}",
-                    "data": {"status": "unhealthy", "error": response.text}
-                }
+            result = response.json() if response.status_code == 200 else {"message": "Service unavailable"}
+            return result
         except Exception as e:
-            return {
-                "success": False,
-                "message": f"Connection failed: {e}",
-                "data": {"status": "unreachable"}
-            }
+            return {"message": f"Connection failed: {e}"}
         finally:
-            # Restore headers
-            self.session.headers = temp_headers
-
-    def get_api_info(self) -> Dict[str, Any]:
-        """Get API version and information"""
-        # Remove auth header for public endpoint
-        temp_headers = self.session.headers.copy()
-        if 'Authorization' in self.session.headers:
-            del self.session.headers['Authorization']
-        if 'Content-Type' in self.session.headers:
-            del self.session.headers['Content-Type']
-
-        try:
-            response = self.session.get(f'{self.base_url}/api/v1', timeout=10)
-            if response.status_code == 200:
-                return response.json()
-            else:
-                return {
-                    "success": False,
-                    "message": f"Server returned HTTP {response.status_code}",
-                    "data": {"error": response.text}
-                }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Connection failed: {e}",
-                "data": {"error": str(e)}
-            }
-        finally:
-            # Restore headers
-            self.session.headers = temp_headers
+            # Restore auth header
+            if temp_auth:
+                self.session.headers['Authorization'] = temp_auth
 
     # ==========================================================================
-    # Admin Methods (require admin permission)
+    # Admin Methods (require admin permissions)
     # ==========================================================================
 
     def create_api_key(self, name: str, user_id: str, permissions: List[str],
@@ -513,6 +407,44 @@ class FileServerAPIClient:
         return self._handle_response(response)
 
 
+def create_api_key(base_url: str, username: str = 'admin', password: str = 'admin123', tenant_id: str = 'demo') -> str:
+    """Create an API key for testing"""
+    print("📝 Creating API key for demo...")
+
+    # Login first
+    login_response = requests.post(f"{base_url}/api/v1/web/auth/login", json={
+        "tenant_id": tenant_id,
+        "username": username,
+        "password": password
+    })
+
+    if login_response.status_code != 200:
+        raise Exception(f"Login failed: {login_response.text}")
+
+    token = login_response.json()['data']['token']
+
+    # Create API key
+    api_key_response = requests.post(f"{base_url}/api/v1/web/admin/api-keys",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "name": f"Demo Key {datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            "description": "Auto-generated key for demo",
+            "user_id": "admin",
+            "permissions": ["read", "download", "upload"]
+        }
+    )
+
+    if api_key_response.status_code != 201:
+        raise Exception(f"API key creation failed: {api_key_response.text}")
+
+    api_key = api_key_response.json()['data']['key']
+    print(f"✅ API key created: {api_key[:20]}...")
+    return api_key
+
+
 def demo_api_key_auth(base_url: str, api_key: str):
     """Demonstrate API Key authentication"""
     print("\n" + "="*60)
@@ -558,6 +490,8 @@ def demo_api_key_auth(base_url: str, api_key: str):
             print(f"   API Keys: {api_keys.get('data', {}).get('count', 0)} keys found")
         except Exception as e:
             print(f"   Admin operations failed (may not have admin permissions): {e}")
+
+        print("\n✅ Demo completed successfully!")
 
     except Exception as e:
         print(f"\n❌ Demo failed: {e}")
@@ -613,6 +547,8 @@ def demo_password_auth(base_url: str, username: str, password: str, tenant_id: s
         print("\n3. Logging out...")
         client.logout()
 
+        print("\n✅ Demo completed successfully!")
+
     except Exception as e:
         print(f"\n❌ Demo failed: {e}")
         print("\n🔍 Troubleshooting tips:")
@@ -624,120 +560,55 @@ def demo_password_auth(base_url: str, username: str, password: str, tenant_id: s
         print(f"   6. Try accessing the health endpoint: {base_url}/api/v1/health")
 
 
-def create_api_key(base_url: str, username: str = "admin", password: str = "admin123",
-                   tenant_id: str = "demo") -> str:
-    """Create an API key using admin credentials"""
-    print("📝 Creating API key automatically...")
-
-    try:
-        # Login first
-        login_response = requests.post(f"{base_url}/api/v1/web/auth/login", json={
-            "tenant_id": tenant_id,
-            "username": username,
-            "password": password
-        })
-
-        if login_response.status_code != 200:
-            raise Exception(f"Login failed: {login_response.text}")
-
-        token = login_response.json()['data']['token']
-
-        # Create API key
-        api_key_response = requests.post(f"{base_url}/api/v1/web/admin/api-keys",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "name": f"Auto-Generated Key {datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                "description": "Auto-generated API key for client demo",
-                "user_id": username,
-                "permissions": ["read", "download", "upload", "admin"]
-            }
-        )
-
-        if api_key_response.status_code != 201:
-            raise Exception(f"API key creation failed: {api_key_response.text}")
-
-        api_key = api_key_response.json()['data']['key']
-        print(f"✅ API key created successfully: {api_key[:20]}...")
-        return api_key
-
-    except Exception as e:
-        print(f"❌ Failed to create API key: {e}")
-        print("\n🔍 Troubleshooting:")
-        print("   1. Make sure the server is running and accessible")
-        print("   2. Verify admin credentials (default: admin/admin123)")
-        print("   3. Check that the admin user has permission to create API keys")
-        raise
-
-
-def detect_server_url():
-    """Detect the correct server URL by trying common configurations"""
-    test_urls = [
-        'https://localhost:8443',  # Production mode (HTTPS)
-        'http://localhost:8080',   # Development mode (HTTP)
-        'https://localhost:443',   # Alternative HTTPS
-        'http://localhost:80',     # Alternative HTTP
-    ]
-
-    for url in test_urls:
-        try:
-            # Test with a simple health check or API info endpoint
-            session = requests.Session()
-            if url.startswith('https'):
-                session.verify = False  # Ignore SSL certificate errors
-
-            response = session.get(f"{url}/api/v1/health", timeout=5)
-            if response.status_code in [200, 401, 403]:  # Server is responding
-                print(f"✅ Server detected at: {url}")
-                return url
-        except:
-            continue
-
-    print("❌ No server detected on common ports")
-    return None
-
-
 def main():
-    """Main function with argument parsing"""
-    parser = argparse.ArgumentParser(description='File Server API Client Demo')
-    parser.add_argument('--base-url', help='Base URL of the file server (auto-detect if not provided)')
+    """Main entry point"""
+    parser = argparse.ArgumentParser(
+        description="Enhanced File Server API Client",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python file_server_api_client.py --api-key sk_1234567890abcdef
+  python file_server_api_client.py --username admin --password admin123
+  python file_server_api_client.py --demo
+  python file_server_api_client.py --create-key
+  python file_server_api_client.py --create-key --base-url http://localhost:8080
+        """)
+
+    parser.add_argument('--base-url', default='http://localhost:8080',
+                       help='Server URL (default: http://localhost:8080)')
     parser.add_argument('--api-key', help='API key for authentication')
-    parser.add_argument('--username', help='Username for login')
-    parser.add_argument('--password', help='Password for login')
-    parser.add_argument('--tenant-id', default='demo', help='Tenant ID')
+    parser.add_argument('--username', help='Username for authentication')
+    parser.add_argument('--password', help='Password for authentication')
+    parser.add_argument('--tenant-id', default='demo', help='Tenant ID (default: demo)')
     parser.add_argument('--demo', action='store_true',
                        help='Run interactive demo with default credentials')
-    parser.add_argument('--check-server', action='store_true',
-                       help='Check if server is running and exit')
     parser.add_argument('--create-key', action='store_true',
-                       help='Create a new API key automatically using admin credentials')
+                       help='Create a new API key automatically')
+    parser.add_argument('--check-server', action='store_true',
+                       help='Check if server is responding')
 
     args = parser.parse_args()
 
-    # Auto-detect server URL if not provided
-    if args.base_url:
-        base_url = args.base_url
-    else:
-        base_url = os.getenv('API_BASE_URL')
-        if not base_url:
-            print("🔍 Auto-detecting server URL...")
-            base_url = detect_server_url()
-            if not base_url:
-                print("\n❌ Could not detect server. Please ensure the server is running and try:")
-                print("   --base-url https://localhost:8443  (for production mode)")
-                print("   --base-url http://localhost:8080   (for development mode)")
-                sys.exit(1)
+    # Normalize base URL
+    base_url = args.base_url.rstrip('/')
 
-    # Auto-correct common URL issues
-    if base_url.startswith('https://localhost:8443'):
-        print("⚠️  Warning: Server URL uses HTTPS:8443, but development server runs on HTTP:8080")
-        print("   Switching to HTTP:8080 for compatibility...")
-        base_url = 'http://localhost:8080'
-    elif base_url.startswith('https://localhost:443'):
-        print("⚠️  Warning: Trying HTTPS:443, switching to HTTP:8080 for development...")
-        base_url = 'http://localhost:8080'
+    # Check if server is accessible
+    try:
+        session = requests.Session()
+        if base_url.startswith('https') and 'localhost' in base_url:
+            session.verify = False
+        response = session.get(f"{base_url}/api/v1/health", timeout=5)
+    except Exception:
+        if base_url.startswith('https://localhost:8443'):
+            print("⚠️  Warning: Server URL uses HTTPS:8443, but development server runs on HTTP:8080")
+            print("   Switching to HTTP:8080 for compatibility...")
+            base_url = 'http://localhost:8080'
+        else:
+            print(f"❌ Cannot connect to server: {base_url}")
+            print("Please ensure the server is running and try:")
+            print("   --base-url https://localhost:8443  (for production mode)")
+            print("   --base-url http://localhost:8080   (for development mode)")
+            sys.exit(1)
 
     # Check environment variables if not provided as arguments
     api_key = args.api_key or os.getenv('API_KEY')

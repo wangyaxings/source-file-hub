@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/lib/use-toast"
 import { formatDate } from "@/lib/utils"
+import { AnalyticsCharts } from "./analytics-charts"
 import {
   Key,
   Plus,
@@ -338,11 +339,11 @@ export function APIKeyManagement() {
             API Keys
           </TabsTrigger>
           <TabsTrigger value="usage" className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4" />
+            <Users className="h-4 w-4" />
             Usage Logs
           </TabsTrigger>
           <TabsTrigger value="analytics" className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
+            <BarChart3 className="h-4 w-4" />
             Analytics
           </TabsTrigger>
         </TabsList>
@@ -524,61 +525,7 @@ export function APIKeyManagement() {
 
         {/* Analytics Tab */}
         <TabsContent value="analytics" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <Key className="h-8 w-8 text-blue-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Total API Keys</p>
-                    <p className="text-2xl font-bold text-gray-900">{apiKeys.length}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <CheckCircle className="h-8 w-8 text-green-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Active Keys</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {apiKeys.filter(k => k.status === 'active').length}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <BarChart3 className="h-8 w-8 text-purple-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Total Requests</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {apiKeys.reduce((sum, key) => sum + key.usageCount, 0)}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <Users className="h-8 w-8 text-orange-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Unique Users</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {new Set(apiKeys.map(k => k.userId)).size}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <AnalyticsCharts usageLogs={usageLogs} apiKeys={apiKeys} />
         </TabsContent>
       </Tabs>
 

@@ -57,6 +57,9 @@ func RegisterWebAdminRoutes(router *mux.Router) {
 	admin.HandleFunc("/usage/stats", requireAdminAuth(getUsageStatsHandler)).Methods("GET")
 	admin.HandleFunc("/usage/summary", requireAdminAuth(getUsageSummaryHandler)).Methods("GET")
 
+	// Enhanced Analytics
+	RegisterAnalyticsRoutes(admin)
+
 	// User Management
 	admin.HandleFunc("/users", requireAdminAuth(listUsersHandler)).Methods("GET")
 	admin.HandleFunc("/users/{userId}/role", requireAdminAuth(updateUserRoleHandler)).Methods("PUT")
