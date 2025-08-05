@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -105,7 +106,9 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 
 		// Update API key usage (async)
 		go func() {
-			db.UpdateAPIKeyUsage(apiKeyRecord.ID)
+			if err := db.UpdateAPIKeyUsage(apiKeyRecord.ID); err != nil {
+				log.Printf("Warning: Failed to update API key usage: %v", err)
+			}
 		}()
 
 		// Create auth context
@@ -200,7 +203,9 @@ func APILoggingMiddleware(next http.Handler) http.Handler {
 						logEntry.FilePath = filePath
 					}
 
-					db.LogAPIUsage(logEntry)
+					if err := db.LogAPIUsage(logEntry); err != nil {
+						log.Printf("Warning: Failed to log API usage: %v", err)
+					}
 				}
 			}
 		}()
@@ -261,5 +266,7 @@ func writeAPIErrorResponse(w http.ResponseWriter, status int, code, message stri
 		"success": false,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Warning: Failed to encode error response: %v", err)
+	}
 }

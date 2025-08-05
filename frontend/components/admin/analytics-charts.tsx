@@ -93,6 +93,7 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [isMounted, setIsMounted] = useState(false)
 
+
   // Ensure component only renders on client side
   useEffect(() => {
     setIsMounted(true)
@@ -261,6 +262,8 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
       })
     }
   }
+
+
 
   // Prevent SSR issues by not rendering until mounted
   if (!isMounted) {
@@ -589,71 +592,49 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
       <div className="space-y-8 p-6">
-        {/* Header Section */}
+        {/* Controls Section */}
         <div className="flex flex-col gap-6">
-          <div className="flex justify-between items-start flex-wrap gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-blue-500 rounded-lg">
-                  <BarChart3 className="h-6 w-6 text-white" />
-                </div>
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Analytics Dashboard</h1>
-              </div>
-              <p className="text-gray-600 dark:text-gray-400">Comprehensive API usage analytics and insights</p>
-            </div>
+          <div className="flex justify-end items-center flex-wrap gap-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select value={timeRange} onValueChange={setTimeRange}>
+                <SelectTrigger className="w-20 h-8 bg-white border-gray-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="24h">24h</SelectItem>
+                  <SelectItem value="7d">7d</SelectItem>
+                  <SelectItem value="30d">30d</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
 
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex flex-col gap-1">
-                <Label className="text-xs font-medium text-gray-500">Time Range</Label>
-                <Select value={timeRange} onValueChange={setTimeRange}>
-                  <SelectTrigger className="w-36 h-9 bg-white border-gray-200 hover:border-blue-400 transition-colors">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="24h">Last 24 Hours</SelectItem>
-                    <SelectItem value="7d">Last 7 Days</SelectItem>
-                    <SelectItem value="30d">Last 30 Days</SelectItem>
-                    <SelectItem value="custom">Custom Range</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select value={selectedApiKey} onValueChange={setSelectedApiKey}>
+                <SelectTrigger className="w-24 h-8 bg-white border-gray-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Keys</SelectItem>
+                  {uniqueApiKeys.map(key => (
+                    <SelectItem key={key} value={key}>{key.substring(0, 8)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-              <div className="flex flex-col gap-1">
-                <Label className="text-xs font-medium text-gray-500">API Key</Label>
-                <Select value={selectedApiKey} onValueChange={setSelectedApiKey}>
-                  <SelectTrigger className="w-36 h-9 bg-white border-gray-200 hover:border-blue-400 transition-colors">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All API Keys</SelectItem>
-                    {uniqueApiKeys.map(key => (
-                      <SelectItem key={key} value={key}>{key}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select value={selectedUser} onValueChange={setSelectedUser}>
+                <SelectTrigger className="w-24 h-8 bg-white border-gray-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Users</SelectItem>
+                  {uniqueUsers.map(user => (
+                    <SelectItem key={user} value={user}>{user}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-              <div className="flex flex-col gap-1">
-                <Label className="text-xs font-medium text-gray-500">User</Label>
-                <Select value={selectedUser} onValueChange={setSelectedUser}>
-                  <SelectTrigger className="w-36 h-9 bg-white border-gray-200 hover:border-blue-400 transition-colors">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Users</SelectItem>
-                    {uniqueUsers.map(user => (
-                      <SelectItem key={user} value={user}>{user}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-end gap-2 mt-5">
-                <Button onClick={handleExportData} size="sm" className="bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:border-blue-400 transition-colors">
-                  <Download className="h-4 w-4 mr-2" />
-                  Export
-                </Button>
-              </div>
+              <Button onClick={handleExportData} size="sm" variant="outline" className="h-8 px-3">
+                Export
+              </Button>
             </div>
           </div>
 
@@ -682,146 +663,66 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
         </div>
 
         {/* 概览指标卡片 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
-          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-blue-600"></div>
-            <CardContent className="p-6">
-              <div className="flex justify-between items-center mb-3">
-                <p className="text-sm font-medium text-gray-500">Total Requests</p>
-                <div className="p-2 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
-                  <TrendingUp className="h-5 w-5 text-blue-600" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-2xl font-bold text-gray-900">
-                  {analyticsData?.overview?.totalRequests?.toLocaleString() || '0'}
-                </p>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500">API requests in period</p>
-                  <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full font-medium">+0%</span>
-                </div>
-              </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="p-4 text-center">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Total Requests</p>
+              <p className="text-xl font-bold text-gray-900">
+                {analyticsData?.overview?.totalRequests?.toLocaleString() || '0'}
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500 to-green-600"></div>
-            <CardContent className="p-6">
-              <div className="flex justify-between items-center mb-3">
-                <p className="text-sm font-medium text-gray-500">Active Users</p>
-                <div className="p-2 bg-green-50 rounded-lg group-hover:bg-green-100 transition-colors">
-                  <Users className="h-5 w-5 text-green-600" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-2xl font-bold text-gray-900">
-                  {analyticsData?.overview?.activeUsers || '0'}
-                </p>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500">Unique users making requests</p>
-                  <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full font-medium">+0%</span>
-                </div>
-              </div>
+          <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="p-4 text-center">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Active Users</p>
+              <p className="text-xl font-bold text-gray-900">
+                {analyticsData?.overview?.activeUsers || '0'}
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-emerald-600"></div>
-            <CardContent className="p-6">
-              <div className="flex justify-between items-center mb-3">
-                <p className="text-sm font-medium text-gray-500">Success Rate</p>
-                <div className="p-2 bg-emerald-50 rounded-lg group-hover:bg-emerald-100 transition-colors">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-2xl font-bold text-gray-900">
-                  {analyticsData?.overview?.successRate?.toFixed(1) || '0.0'}%
-                </p>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500">Successful API responses</p>
-                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">Perfect</span>
-                </div>
-              </div>
+          <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="p-4 text-center">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Success Rate</p>
+              <p className="text-xl font-bold text-gray-900">
+                {analyticsData?.overview?.successRate?.toFixed(1) || '0.0'}%
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 to-red-600"></div>
-            <CardContent className="p-6">
-              <div className="flex justify-between items-center mb-3">
-                <p className="text-sm font-medium text-gray-500">Error Rate</p>
-                <div className="p-2 bg-red-50 rounded-lg group-hover:bg-red-100 transition-colors">
-                  <XCircle className="h-5 w-5 text-red-600" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-2xl font-bold text-gray-900">
-                  {analyticsData?.overview?.errorRate?.toFixed(1) || '0.0'}%
-                </p>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500">Failed API responses</p>
-                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">Excellent</span>
-                </div>
-              </div>
+          <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="p-4 text-center">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Error Rate</p>
+              <p className="text-xl font-bold text-gray-900">
+                {analyticsData?.overview?.errorRate?.toFixed(1) || '0.0'}%
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 to-purple-600"></div>
-            <CardContent className="p-6">
-              <div className="flex justify-between items-center mb-3">
-                <p className="text-sm font-medium text-gray-500">Avg Response</p>
-                <div className="p-2 bg-purple-50 rounded-lg group-hover:bg-purple-100 transition-colors">
-                  <Clock className="h-5 w-5 text-purple-600" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-2xl font-bold text-gray-900">
-                  {Math.round(analyticsData?.overview?.avgResponseTime || 0)}ms
-                </p>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500">Average response time</p>
-                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">-5ms</span>
-                </div>
-              </div>
+          <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="p-4 text-center">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Avg Response</p>
+              <p className="text-xl font-bold text-gray-900">
+                {Math.round(analyticsData?.overview?.avgResponseTime || 0)}ms
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="relative overflow-hidden bg-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:transform hover:-translate-y-1 group">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-500 to-orange-600"></div>
-            <CardContent className="p-6">
-              <div className="flex justify-between items-center mb-3">
-                <p className="text-sm font-medium text-gray-500">API Keys</p>
-                <div className="p-2 bg-orange-50 rounded-lg group-hover:bg-orange-100 transition-colors">
-                  <Key className="h-5 w-5 text-orange-600" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-2xl font-bold text-gray-900">
-                  {analyticsData?.overview?.totalApiKeys || '0'}
-                </p>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500">Active API keys</p>
-                  <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full font-medium">+0</span>
-                </div>
-              </div>
+          <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="p-4 text-center">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">API Keys</p>
+              <p className="text-xl font-bold text-gray-900">
+                {analyticsData?.overview?.totalApiKeys || '0'}
+              </p>
             </CardContent>
           </Card>
         </div>
 
         {/* 主要趋势图表 */}
-        <Card className="bg-white border-0 shadow-lg">
+        <Card className="bg-white border shadow-sm">
           <CardHeader className="pb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-50 rounded-lg">
-                <Activity className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <CardTitle className="text-lg font-semibold text-gray-900">API Usage Trends</CardTitle>
-                <CardDescription className="text-gray-600">Request volume, success rate, and response times over time</CardDescription>
-              </div>
-            </div>
+            <CardTitle className="text-lg font-semibold text-gray-900">API Usage Trends</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <ReactECharts
@@ -835,17 +736,9 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
         {/* 次要图表行 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* API Key使用分布 */}
-          <Card className="bg-white border-0 shadow-lg">
+          <Card className="bg-white border shadow-sm">
             <CardHeader className="pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-emerald-50 rounded-lg">
-                  <Key className="h-5 w-5 text-emerald-600" />
-                </div>
-                <div>
-                  <CardTitle className="text-lg font-semibold text-gray-900">API Key Usage Distribution</CardTitle>
-                  <CardDescription className="text-gray-600">Request distribution across different API keys</CardDescription>
-                </div>
-              </div>
+              <CardTitle className="text-lg font-semibold text-gray-900">API Key Usage</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <ReactECharts
@@ -857,17 +750,9 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
           </Card>
 
           {/* 操作类型分布 */}
-          <Card className="bg-white border-0 shadow-lg">
+          <Card className="bg-white border shadow-sm">
             <CardHeader className="pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-purple-50 rounded-lg">
-                  <PieChart className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <CardTitle className="text-lg font-semibold text-gray-900">Operation Types Distribution</CardTitle>
-                  <CardDescription className="text-gray-600">Breakdown of API operation types</CardDescription>
-                </div>
-              </div>
+              <CardTitle className="text-lg font-semibold text-gray-900">Operation Types</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <ReactECharts
@@ -880,17 +765,9 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
         </div>
 
         {/* 小时分布图表 */}
-        <Card className="bg-white border-0 shadow-lg">
+        <Card className="bg-white border shadow-sm">
           <CardHeader className="pb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-orange-50 rounded-lg">
-                <Clock className="h-5 w-5 text-orange-600" />
-              </div>
-              <div>
-                <CardTitle className="text-lg font-semibold text-gray-900">Hourly Request Distribution</CardTitle>
-                <CardDescription className="text-gray-600">Request volume pattern throughout the day</CardDescription>
-              </div>
-            </div>
+            <CardTitle className="text-lg font-semibold text-gray-900">Hourly Distribution</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <ReactECharts
@@ -903,17 +780,9 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
 
         {/* 错误分析表格 */}
         {analyticsData?.errorTypes && analyticsData.errorTypes.length > 0 && (
-          <Card className="bg-white border-0 shadow-lg">
+          <Card className="bg-white border shadow-sm">
             <CardHeader className="pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-red-50 rounded-lg">
-                  <AlertCircle className="h-5 w-5 text-red-600" />
-                </div>
-                <div>
-                  <CardTitle className="text-lg font-semibold text-gray-900">Error Analysis</CardTitle>
-                  <CardDescription className="text-gray-600">Detailed breakdown of API errors and their frequency</CardDescription>
-                </div>
-              </div>
+              <CardTitle className="text-lg font-semibold text-gray-900">Error Analysis</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="overflow-x-auto">
@@ -959,6 +828,8 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
             </CardContent>
           </Card>
         )}
+
+
       </div>
     </div>
   )

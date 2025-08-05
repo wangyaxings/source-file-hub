@@ -223,7 +223,9 @@ class ApiClient {
   }
 
   async downloadFile(path: string): Promise<void> {
-    const url = `${this.baseUrl}/files/${path}`
+    // Remove downloads/ prefix if present since the API expects the path relative to downloads
+    const cleanPath = path.startsWith('downloads/') ? path.substring('downloads/'.length) : path
+    const url = `${this.baseUrl}/files/${cleanPath}`
     const headers: Record<string, string> = {}
     if (this.token) {
       headers.Authorization = `Bearer ${this.token}`

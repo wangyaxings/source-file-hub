@@ -110,7 +110,7 @@ func MigrateFromJSON(metadataFile string) error {
 			continue
 		}
 
-		filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+		if err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
 			}
@@ -134,7 +134,9 @@ func MigrateFromJSON(metadataFile string) error {
 				}
 			}
 			return nil
-		})
+		}); err != nil {
+			log.Printf("Warning: Failed to walk directory %s: %v", baseDir, err)
+		}
 	}
 
 	log.Printf("Migration completed: %d files migrated from metadata, %d files discovered", migratedCount, discoveredCount)

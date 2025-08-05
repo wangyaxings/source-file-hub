@@ -489,19 +489,7 @@ func getAccessLogsHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// getSystemLogsHandler 获取系统日志处理器
-func getSystemLogsHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO: 从SQLite数据库查询系统日志
-	response := Response{
-		Success: true,
-		Message: "系统日志查询功能即将推出",
-		Data: map[string]interface{}{
-			"note": "此功能正在开发中，将从SQLite数据库查询结构化日志",
-		},
-	}
 
-	writeJSONResponse(w, http.StatusOK, response)
-}
 
 // FileUploadRequest 文件上传请求结构
 type FileUploadRequest struct {
@@ -717,7 +705,9 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 		// Check file existence and update database if needed
 		if _, err := os.Stat(record.FilePath); err != nil {
 			// File doesn't exist, update database
-			db.CheckFileExists(record.ID)
+			if checkErr := db.CheckFileExists(record.ID); checkErr != nil {
+				log.Printf("Warning: Failed to check file existence: %v", checkErr)
+			}
 		}
 		files = append(files, convertToFileInfo(record))
 	}

@@ -2,7 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 
 	"secure-file-hub/internal/database"
@@ -396,7 +400,9 @@ func apiStatusHandler(w http.ResponseWriter, r *http.Request) {
 func writeAPIJSONResponse(w http.ResponseWriter, status int, response APIResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Warning: Failed to encode API response: %v", err)
+	}
 }
 
 func writeAPIErrorResponse(w http.ResponseWriter, status int, code, message string) {
@@ -411,7 +417,46 @@ func writeAPIErrorResponse(w http.ResponseWriter, status int, code, message stri
 }
 
 func serveFileDownload(w http.ResponseWriter, r *http.Request, filePath, fileName string) {
-	// This would implement the actual file serving logic
-	// Similar to the existing downloadFileHandler but adapted for API
-	http.ServeFile(w, r, filePath)
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		writeAPIErrorResponse(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found on server")
+		return
+	}
+
+	// Open file
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Printf("Error opening file %s: %v", filePath, err)
+		writeAPIErrorResponse(w, http.StatusInternalServerError, "FILE_ACCESS_ERROR", "Cannot access file")
+		return
+	}
+	defer file.Close()
+
+	// Get file info
+	fileInfo, err := file.Stat()
+	if err != nil {
+		log.Printf("Error getting file info for %s: %v", filePath, err)
+		writeAPIErrorResponse(w, http.StatusInternalServerError, "FILE_INFO_ERROR", "Cannot get file information")
+		return
+	}
+
+	// Determine content type
+	contentType := getContentType(fileName)
+
+	// Set response headers
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	// Copy file content to response
+	_, err = io.Copy(w, file)
+	if err != nil {
+		log.Printf("Error writing file to response: %v", err)
+		return
+	}
+
+	log.Printf("API: File %s downloaded successfully", fileName)
 }

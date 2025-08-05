@@ -357,7 +357,10 @@ func getAnalyticsExportHandler(w http.ResponseWriter, r *http.Request) {
 
 		encoder := json.NewEncoder(w)
 		encoder.SetIndent("", "  ")
-		encoder.Encode(analyticsData)
+		if err := encoder.Encode(analyticsData); err != nil {
+			writeErrorResponse(w, http.StatusInternalServerError, "Failed to encode analytics data")
+			return
+		}
 
 	default:
 		writeErrorResponse(w, http.StatusBadRequest, "Unsupported export format")

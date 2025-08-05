@@ -303,7 +303,36 @@ func (d *Database) InsertFileRecord(record *FileRecord) error {
 	record.Status = FileStatusActive
 	record.FileExists = true
 
-	query := `
+	// Start a transaction to ensure atomicity
+	tx, err := d.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// If this is the latest version, mark all previous versions as not latest
+	if record.IsLatest {
+		updateQuery := `
+		UPDATE files
+		SET is_latest = 0, updated_at = ?
+		WHERE file_type = ? AND original_name = ? AND status = 'active'
+		`
+		_, err = tx.Exec(updateQuery,
+			record.UpdatedAt.Format(time.RFC3339),
+			record.FileType,
+			record.OriginalName,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update previous versions: %v", err)
+		}
+	}
+
+	// Insert the new record
+	insertQuery := `
 	INSERT INTO files (
 		id, original_name, versioned_name, file_type, file_path, size,
 		description, uploader, upload_time, version, is_latest, status,
@@ -311,7 +340,7 @@ func (d *Database) InsertFileRecord(record *FileRecord) error {
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := d.db.Exec(query,
+	_, err = tx.Exec(insertQuery,
 		record.ID, record.OriginalName, record.VersionedName, record.FileType,
 		record.FilePath, record.Size, record.Description, record.Uploader,
 		record.UploadTime.Format(time.RFC3339), record.Version, record.IsLatest,
@@ -323,12 +352,20 @@ func (d *Database) InsertFileRecord(record *FileRecord) error {
 		return fmt.Errorf("failed to insert file record: %v", err)
 	}
 
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
 	// Log the upload operation
-	d.LogFileOperation(record.ID, "upload", record.Uploader, map[string]interface{}{
+	if err := d.LogFileOperation(record.ID, "upload", record.Uploader, map[string]interface{}{
 		"file_type": record.FileType,
 		"size":      record.Size,
 		"version":   record.Version,
-	})
+	}); err != nil {
+		// Log the error but don't fail the operation
+		fmt.Printf("Warning: failed to log file operation: %v\n", err)
+	}
 
 	return nil
 }
@@ -426,9 +463,12 @@ func (d *Database) SoftDeleteFile(fileID, deletedBy string) error {
 	}
 
 	// Log the delete operation
-	d.LogFileOperation(fileID, "delete", deletedBy, map[string]interface{}{
+	if err := d.LogFileOperation(fileID, "delete", deletedBy, map[string]interface{}{
 		"deleted_at": now.Format(time.RFC3339),
-	})
+	}); err != nil {
+		// Log the error but don't fail the operation
+		fmt.Printf("Warning: failed to log file operation: %v\n", err)
+	}
 
 	return nil
 }
@@ -457,9 +497,12 @@ func (d *Database) RestoreFile(fileID, restoredBy string) error {
 	}
 
 	// Log the restore operation
-	d.LogFileOperation(fileID, "restore", restoredBy, map[string]interface{}{
+	if err := d.LogFileOperation(fileID, "restore", restoredBy, map[string]interface{}{
 		"restored_at": now.Format(time.RFC3339),
-	})
+	}); err != nil {
+		// Log the error but don't fail the operation
+		fmt.Printf("Warning: failed to log file operation: %v\n", err)
+	}
 
 	return nil
 }
@@ -558,9 +601,12 @@ func (d *Database) PermanentlyDeleteFile(fileID, purgedBy string) error {
 	}
 
 	// Log the purge operation
-	d.LogFileOperation(fileID, "purge", purgedBy, map[string]interface{}{
+	if err := d.LogFileOperation(fileID, "purge", purgedBy, map[string]interface{}{
 		"purged_at": now.Format(time.RFC3339),
-	})
+	}); err != nil {
+		// Log the error but don't fail the operation
+		fmt.Printf("Warning: failed to log file operation: %v\n", err)
+	}
 
 	return nil
 }
@@ -752,7 +798,11 @@ func (d *Database) GetAPIKeyByHash(keyHash string) (*APIKey, error) {
 	}
 
 	// Parse JSON permissions
-	json.Unmarshal([]byte(permissionsJSON), &apiKey.Permissions)
+	if err := json.Unmarshal([]byte(permissionsJSON), &apiKey.Permissions); err != nil {
+		// Log the error but continue with empty permissions
+		fmt.Printf("Warning: failed to parse permissions JSON: %v\n", err)
+		apiKey.Permissions = []string{}
+	}
 
 	// Parse time strings
 	if createdAt, parseErr := time.Parse(time.RFC3339, createdAtStr); parseErr == nil {
@@ -810,7 +860,10 @@ func (d *Database) GetAPIKeysByUserID(userID string) ([]APIKey, error) {
 		}
 
 		// Parse JSON permissions
-		json.Unmarshal([]byte(permissionsJSON), &apiKey.Permissions)
+		if err := json.Unmarshal([]byte(permissionsJSON), &apiKey.Permissions); err != nil {
+			log.Printf("Warning: failed to parse permissions JSON: %v", err)
+			apiKey.Permissions = []string{}
+		}
 
 		// Parse time strings
 		if createdAt, parseErr := time.Parse(time.RFC3339, createdAtStr); parseErr == nil {
@@ -870,7 +923,10 @@ func (d *Database) GetAllAPIKeys() ([]APIKey, error) {
 		}
 
 		// Parse JSON permissions
-		json.Unmarshal([]byte(permissionsJSON), &apiKey.Permissions)
+		if err := json.Unmarshal([]byte(permissionsJSON), &apiKey.Permissions); err != nil {
+			log.Printf("Warning: failed to parse permissions JSON: %v", err)
+			apiKey.Permissions = []string{}
+		}
 
 		// Parse time strings
 		if createdAt, parseErr := time.Parse(time.RFC3339, createdAtStr); parseErr == nil {
@@ -1089,7 +1145,10 @@ func (d *Database) GetUserRole(userID string) (*UserRole, error) {
 
 	// Parse JSON permissions
 	if permissionsJSON.Valid {
-		json.Unmarshal([]byte(permissionsJSON.String), &userRole.Permissions)
+		if err := json.Unmarshal([]byte(permissionsJSON.String), &userRole.Permissions); err != nil {
+			log.Printf("Warning: failed to parse user role permissions JSON: %v", err)
+			userRole.Permissions = []string{"read"} // default permissions
+		}
 	}
 
 	// Parse time strings
