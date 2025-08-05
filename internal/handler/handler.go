@@ -139,7 +139,7 @@ func RegisterRoutes(router *mux.Router) {
 // downloadFileHandler 统一文件下载处理器
 func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	// 从URL路径中提取文件路径
-	filePath := strings.TrimPrefix(r.URL.Path, "/api/v1/files/")
+	filePath := strings.TrimPrefix(r.URL.Path, "/api/v1/web/files/")
 
 	// 验证和清理路径
 	if filePath == "" {

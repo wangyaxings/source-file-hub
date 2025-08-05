@@ -210,10 +210,44 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
     }
   }, [isMounted, timeRange, selectedApiKey, selectedUser, customDateStart, customDateEnd])
 
+  // Auto-refresh analytics data every 60 seconds
+  useEffect(() => {
+    if (!isMounted) return
+
+    const interval = setInterval(() => {
+      fetchAnalyticsData()
+    }, 60000) // 60 seconds
+
+    return () => clearInterval(interval)
+  }, [isMounted, timeRange, selectedApiKey, selectedUser, customDateStart, customDateEnd])
+
   // Process filter options
   const uniqueApiKeys = useMemo(() => {
     return Array.from(new Set(usageLogs.map(log => log.apiKeyId))).filter(Boolean)
   }, [usageLogs])
+
+  // Create a mapping of API key ID to display name
+  const apiKeyDisplayNames = useMemo(() => {
+    const mapping = new Map<string, string>()
+
+    // Try to find matching API key records
+    apiKeys.forEach(apiKey => {
+      if (apiKey.id) {
+        // Use the API key name if available, otherwise show masked key
+        const displayName = apiKey.name || `API Key (${apiKey.id.substring(0, 8)})`
+        mapping.set(apiKey.id, displayName)
+      }
+    })
+
+    // For any usage log entries that don't have matching API key records
+    uniqueApiKeys.forEach(keyId => {
+      if (!mapping.has(keyId)) {
+        mapping.set(keyId, `Unknown Key (${keyId.substring(0, 8)})`)
+      }
+    })
+
+    return mapping
+  }, [uniqueApiKeys, apiKeys])
 
   const uniqueUsers = useMemo(() => {
     return Array.from(new Set(usageLogs.map(log => log.userId))).filter(Boolean)
@@ -609,13 +643,15 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
               </Select>
 
               <Select value={selectedApiKey} onValueChange={setSelectedApiKey}>
-                <SelectTrigger className="w-24 h-8 bg-white border-gray-200">
+                <SelectTrigger className="w-48 h-8 bg-white border-gray-200">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Keys</SelectItem>
                   {uniqueApiKeys.map(key => (
-                    <SelectItem key={key} value={key}>{key.substring(0, 8)}</SelectItem>
+                    <SelectItem key={key} value={key} title={key}>
+                      {apiKeyDisplayNames.get(key) || `Key (${key.substring(0, 8)})`}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

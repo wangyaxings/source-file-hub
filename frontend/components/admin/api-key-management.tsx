@@ -73,6 +73,13 @@ export function APIKeyManagement() {
   const [newKey, setNewKey] = useState("")
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [tempExpiryDate, setTempExpiryDate] = useState("")
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean
+    apiKey: APIKey | null
+  }>({
+    isOpen: false,
+    apiKey: null
+  })
 
   // Create API Key Form State
   const [createForm, setCreateForm] = useState({
@@ -255,13 +262,18 @@ export function APIKeyManagement() {
     }
   }
 
-  const deleteAPIKey = async (keyId: string) => {
-    if (!confirm('Are you sure you want to delete this API key? This action cannot be undone.')) {
-      return
-    }
+  const handleDeleteAPIKey = (apiKey: APIKey) => {
+    setDeleteDialog({
+      isOpen: true,
+      apiKey: apiKey
+    })
+  }
+
+  const confirmDeleteAPIKey = async () => {
+    if (!deleteDialog.apiKey) return
 
     try {
-      const response = await fetch(`/api/v1/web/admin/api-keys/${keyId}`, {
+      const response = await fetch(`/api/v1/web/admin/api-keys/${deleteDialog.apiKey.id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -282,6 +294,8 @@ export function APIKeyManagement() {
         title: "Error",
         description: error instanceof Error ? error.message : 'Failed to delete API key'
       })
+    } finally {
+      setDeleteDialog({ isOpen: false, apiKey: null })
     }
   }
 
@@ -315,6 +329,23 @@ export function APIKeyManagement() {
       loadAPIKeys()
     } else if (activeTab === "usage") {
       loadUsageLogs()
+    }
+  }, [activeTab])
+
+  // Auto-refresh usage logs every 30 seconds when on usage tab
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+
+    if (activeTab === "usage") {
+      interval = setInterval(() => {
+        loadUsageLogs()
+      }, 30000) // 30 seconds
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval)
+      }
     }
   }, [activeTab])
 
@@ -433,7 +464,7 @@ export function APIKeyManagement() {
                           <Button
                             variant="destructive"
                             size="sm"
-                            onClick={() => deleteAPIKey(key.id)}
+                            onClick={() => handleDeleteAPIKey(key)}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -767,6 +798,48 @@ export function APIKeyManagement() {
           <DialogFooter>
             <Button onClick={() => setShowKeyDialog(false)}>
               Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialog.isOpen} onOpenChange={(open) => setDeleteDialog({ isOpen: open, apiKey: null })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Confirm Delete API Key
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete API key "<strong>{deleteDialog.apiKey?.name}</strong>"?
+              This action cannot be undone and will immediately revoke all access using this key.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              <span className="text-sm font-medium text-red-800">Warning</span>
+            </div>
+            <p className="text-sm text-red-700 mt-1">
+              Any applications or scripts using this API key will immediately lose access to the system.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialog({ isOpen: false, apiKey: null })}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteAPIKey}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete API Key
             </Button>
           </DialogFooter>
         </DialogContent>
