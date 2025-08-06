@@ -94,7 +94,8 @@ WORKDIR /app
 # Setup Startup Script
 # ================================
 # Create startup script to run both services
-RUN cat > start.sh << 'EOF'
+RUN cat > start.sh << 'EOF' && \
+    chmod +x start.sh
 #!/bin/sh
 
 # Function to handle graceful shutdown
@@ -129,9 +130,8 @@ echo "Frontend PID: $FRONTEND_PID"
 wait $BACKEND_PID $FRONTEND_PID
 EOF
 
-# Make startup script executable
-RUN chmod +x start.sh && \
-    apk add --no-cache su-exec
+# Install su-exec for user switching
+RUN apk add --no-cache su-exec
 
 # Environment variables
 ENV NODE_ENV=production
