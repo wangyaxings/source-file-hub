@@ -95,16 +95,19 @@ echo "[OK] Configuration files generated"
 # Generate SSL certificates
 echo "[INFO] Generating SSL certificates..."
 if command -v openssl &> /dev/null; then
+    echo "[DEBUG] OpenSSL found, generating private key..."
     # Generate private key
     openssl genrsa -out certs/server.key 2048 2>/dev/null
 
+    echo "[DEBUG] Generating certificate..."
     # Generate certificate
     openssl req -new -x509 -key certs/server.key -out certs/server.crt -days 365 \
         -subj "/C=CN/ST=Beijing/L=Beijing/O=FileServer/CN=localhost" \
         -addext "subjectAltName=DNS:localhost,DNS:fileserver.local,IP:127.0.0.1" 2>/dev/null
 
-    # Generate certificate info
-    cat > certs/cert_info.json << EOF
+    echo "[DEBUG] Creating certificate info file..."
+    # Generate certificate info (simplified)
+    cat > certs/cert_info.json << 'EOF'
 {
   "subject": {
     "common_name": "localhost",
@@ -114,8 +117,8 @@ if command -v openssl &> /dev/null; then
     "locality": ["Beijing"]
   },
   "validity": {
-    "not_before": "$(date -Iseconds)",
-    "not_after": "$(date -d '+365 days' -Iseconds)"
+    "not_before": "Auto-generated",
+    "not_after": "365 days from creation"
   },
   "key_usage": ["Digital Signature", "Key Encipherment"],
   "ext_key_usage": ["Server Authentication"],
@@ -138,13 +141,16 @@ fi
 
 # Prepare download files
 echo "[INFO] Preparing initial download files..."
+echo "[DEBUG] Copying configuration files..."
 cp configs/config.json downloads/configs/ 2>/dev/null || true
+echo "[DEBUG] Copying certificate files..."
 cp certs/server.crt downloads/certificates/ 2>/dev/null || true
 cp certs/server.key downloads/certificates/ 2>/dev/null || true
 cp certs/cert_info.json downloads/certificates/ 2>/dev/null || true
 
+echo "[DEBUG] Creating API documentation..."
 # Create API documentation
-cat > downloads/docs/api_guide.txt << 'EOF'
+cat > downloads/docs/api_guide.txt << 'APIEOF'
 FileServer API Usage Guide
 
 Basic Information:
@@ -169,22 +175,12 @@ Usage Steps:
 3. Use token to access /files/* for file downloads
 4. Call /auth/logout to logout
 
-Example Commands:
-# Login
-curl -k -X POST https://localhost:8443/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"tenant_id": "demo", "username": "admin", "password": "admin123"}'
-
-# Download file (use returned token)
-curl -k -H "Authorization: Bearer YOUR_TOKEN" \
-  -O -J https://localhost:8443/api/v1/files/configs/config.json
-
 Notes:
 - All APIs require HTTPS access
 - File downloads require user authentication
 - Token valid for 24 hours
-- Use -k parameter to skip SSL certificate verification (self-signed certificate)
-EOF
+- Use -k parameter to skip SSL certificate verification
+APIEOF
 
 echo "[OK] Initial files prepared"
 
