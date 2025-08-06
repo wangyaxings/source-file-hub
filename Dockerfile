@@ -48,27 +48,23 @@ FROM node:20-alpine
 WORKDIR /app
 
 # 安装运行时依赖
-RUN apk add --no-cache \
-    ca-certificates \
-    tzdata \
-    wget \
-    curl \
-    su-exec
+RUN apk add --no-cache ca-certificates tzdata wget curl su-exec
 
 # 创建非root用户和用户组
-RUN addgroup -g 1001 nodejs && \
-    adduser -D -u 1001 -G nodejs -s /bin/sh nextjs
+RUN addgroup -g 1001 -S nodejs && adduser -D -u 1001 -G nodejs -s /bin/sh -S nextjs
 
-# 创建后端需要的目录
-RUN mkdir -p data downloads configs certs logs && \
-    chown root:root data downloads configs certs logs
+# 创建应用需要的目录结构
+RUN mkdir -p data downloads configs certs logs
+RUN mkdir -p downloads/configs downloads/certificates downloads/docs
+RUN chown -R root:root data downloads configs certs logs
+RUN chmod 755 data downloads configs certs logs
 
 # 复制后端构建结果
 COPY --from=backend-builder /app/fileserver /app/fileserver
 RUN chmod +x /app/fileserver
 
-# 复制默认配置文件
-COPY configs/ configs/
+# 复制默认配置文件（如果存在）
+COPY configs/ configs/ 2>/dev/null || true
 
 # 创建前端目录并设置权限
 RUN mkdir -p frontend && chown nextjs:nodejs frontend
@@ -81,7 +77,7 @@ COPY --from=frontend-builder --chown=nextjs:nodejs /app/frontend/.next/static ./
 COPY --from=frontend-builder --chown=nextjs:nodejs /app/frontend/server.js ./frontend/
 COPY --from=frontend-builder --chown=nextjs:nodejs /app/frontend/package.json ./frontend/
 
-# 切换到frontend目录并安装生产依赖
+# 安装前端生产依赖
 WORKDIR /app/frontend
 USER nextjs
 RUN yarn install --production --frozen-lockfile
@@ -89,44 +85,45 @@ USER root
 
 WORKDIR /app
 
-# ================================
 # 创建启动脚本
-# ================================
-RUN cat > start.sh << 'STARTEOF' && \
+COPY <<EOF /app/start.sh
 #!/bin/sh
 
-# 处理优雅关闭的函数
+# 处理优雅关闭
 cleanup() {
     echo "Shutting down services..."
-    kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
-    wait $BACKEND_PID $FRONTEND_PID 2>/dev/null
+    kill \$BACKEND_PID \$FRONTEND_PID 2>/dev/null || true
+    wait \$BACKEND_PID \$FRONTEND_PID 2>/dev/null || true
     exit 0
 }
 
-# 设置信号处理
 trap cleanup SIGTERM SIGINT
+
+# 确保目录存在
+mkdir -p data downloads configs certs logs
 
 # 启动后端服务
 echo "Starting backend service..."
 ./fileserver &
-BACKEND_PID=$!
+BACKEND_PID=\$!
 
 # 启动前端服务
 echo "Starting frontend service..."
 cd frontend
 su-exec nextjs:nodejs node server.js &
-FRONTEND_PID=$!
+FRONTEND_PID=\$!
 cd ..
 
-# 等待所有服务
 echo "Both services started"
-echo "Backend PID: $BACKEND_PID"
-echo "Frontend PID: $FRONTEND_PID"
+echo "Backend PID: \$BACKEND_PID"
+echo "Frontend PID: \$FRONTEND_PID"
 
-# 保持脚本运行并等待任何服务退出
-wait $BACKEND_PID $FRONTEND_PID
-STARTEOF
-chmod +x start.sh
+# 等待服务
+wait \$BACKEND_PID \$FRONTEND_PID
+EOF
+
+# 给启动脚本添加执行权限
+RUN chmod +x /app/start.sh
 
 # 环境变量
 ENV NODE_ENV=production
@@ -140,8 +137,8 @@ EXPOSE 3000 8443
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD (wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health && \
-         wget --quiet --tries=1 --spider http://localhost:3000) || exit 1
+    CMD wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health && \
+        wget --quiet --tries=1 --spider http://localhost:3000
 
 # 运行启动脚本
-CMD ["./start.sh"]
+CMD ["/app/start.sh"]
