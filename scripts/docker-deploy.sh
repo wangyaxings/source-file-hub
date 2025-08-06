@@ -1,35 +1,38 @@
 #!/bin/bash
 
-# FileServer Docker部署自动化脚本
-# 版本: 1.0.0
+# FileServer Docker Deployment Script
+# Version: 1.0.0
 
 set -e
 
-echo "🚀 FileServer Docker部署脚本"
-echo "================================"
+echo "FileServer Docker Deployment Script"
+echo "===================================="
 
-# 检查Docker和Docker Compose
-echo "📋 检查环境依赖..."
+# Check Docker and Docker Compose
+echo "[INFO] Checking environment dependencies..."
 if ! command -v docker &> /dev/null; then
-    echo "❌ Docker未安装，请先安装Docker"
+    echo "[ERROR] Docker is not installed. Please install Docker first."
     exit 1
 fi
 
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-    echo "❌ Docker Compose未安装，请先安装Docker Compose"
+if ! docker compose version &> /dev/null; then
+    echo "[ERROR] Docker Compose is not installed. Please install Docker Compose first."
     exit 1
 fi
 
-echo "✅ Docker环境检查通过"
+echo "[OK] Docker environment check passed"
 
-# 创建目录结构
-echo "📁 创建项目目录结构..."
+# Navigate to project root directory
+cd "$(dirname "$0")/.."
+
+# Create directory structure
+echo "[INFO] Creating project directory structure..."
 mkdir -p {configs,certs,data,downloads,logs}
 mkdir -p downloads/{configs,certificates,docs}
-echo "✅ 目录结构创建完成"
+echo "[OK] Directory structure created"
 
-# 生成配置文件
-echo "⚙️ 生成配置文件..."
+# Generate configuration files
+echo "[INFO] Generating configuration files..."
 cat > configs/config.json << 'EOF'
 {
   "server": {
@@ -66,12 +69,12 @@ cat > configs/config.json << 'EOF'
       {
         "tenant_id": "demo",
         "username": "admin",
-        "description": "管理员账户"
+        "description": "Administrator Account"
       },
       {
         "tenant_id": "demo",
         "username": "user1",
-        "description": "普通用户账户"
+        "description": "Regular User Account"
       }
     ]
   },
@@ -87,20 +90,20 @@ cat > configs/config.json << 'EOF'
 }
 EOF
 
-echo "✅ 配置文件生成完成"
+echo "[OK] Configuration files generated"
 
-# 生成SSL证书
-echo "🔐 生成SSL证书..."
+# Generate SSL certificates
+echo "[INFO] Generating SSL certificates..."
 if command -v openssl &> /dev/null; then
-    # 生成私钥
+    # Generate private key
     openssl genrsa -out certs/server.key 2048 2>/dev/null
 
-    # 生成证书
+    # Generate certificate
     openssl req -new -x509 -key certs/server.key -out certs/server.crt -days 365 \
         -subj "/C=CN/ST=Beijing/L=Beijing/O=FileServer/CN=localhost" \
         -addext "subjectAltName=DNS:localhost,DNS:fileserver.local,IP:127.0.0.1" 2>/dev/null
 
-    # 生成证书信息
+    # Generate certificate info
     cat > certs/cert_info.json << EOF
 {
   "subject": {
@@ -127,255 +130,126 @@ if command -v openssl &> /dev/null; then
 }
 EOF
 
-    echo "✅ SSL证书生成完成"
+    echo "[OK] SSL certificates generated"
 else
-    echo "⚠️ OpenSSL未安装，将使用默认证书"
-    echo "请手动生成SSL证书或安装OpenSSL"
+    echo "[WARNING] OpenSSL not installed, using default certificates"
+    echo "Please manually generate SSL certificates or install OpenSSL"
 fi
 
-# 准备下载文件
-echo "📄 准备初始下载文件..."
+# Prepare download files
+echo "[INFO] Preparing initial download files..."
 cp configs/config.json downloads/configs/ 2>/dev/null || true
 cp certs/server.crt downloads/certificates/ 2>/dev/null || true
 cp certs/server.key downloads/certificates/ 2>/dev/null || true
 cp certs/cert_info.json downloads/certificates/ 2>/dev/null || true
 
-# 创建API文档
+# Create API documentation
 cat > downloads/docs/api_guide.txt << 'EOF'
-FileServer API 使用指南
+FileServer API Usage Guide
 
-基础信息:
+Basic Information:
 - API Base URL: https://localhost:8443/api/v1
-- 认证方式: Bearer Token
-- 协议: HTTPS Only
+- Authentication: Bearer Token
+- Protocol: HTTPS Only
 
-主要接口:
-1. 健康检查: GET /health
-2. 用户登录: POST /auth/login
-3. 获取用户: GET /auth/users
-4. 文件下载: GET /files/{path}
-5. 用户登出: POST /auth/logout
+Main Endpoints:
+1. Health Check: GET /health
+2. User Login: POST /auth/login
+3. Get Users: GET /auth/users
+4. File Download: GET /files/{path}
+5. User Logout: POST /auth/logout
 
-默认测试用户:
-- admin@demo (密码: admin123)
-- user1@demo (密码: password123)
+Default Test Users:
+- admin@demo (password: admin123)
+- user1@demo (password: password123)
 
-使用步骤:
-1. 调用 /auth/users 获取测试用户信息
-2. 调用 /auth/login 登录获取token
-3. 使用token访问 /files/* 下载文件
-4. 调用 /auth/logout 登出
+Usage Steps:
+1. Call /auth/users to get test user information
+2. Call /auth/login to login and get token
+3. Use token to access /files/* for file downloads
+4. Call /auth/logout to logout
 
-示例命令:
-# 登录
+Example Commands:
+# Login
 curl -k -X POST https://localhost:8443/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"tenant_id": "demo", "username": "admin", "password": "admin123"}'
 
-# 下载文件 (使用返回的token)
+# Download file (use returned token)
 curl -k -H "Authorization: Bearer YOUR_TOKEN" \
   -O -J https://localhost:8443/api/v1/files/configs/config.json
 
-注意事项:
-- 所有API都需要HTTPS访问
-- 文件下载需要用户认证
-- Token有效期24小时
-- 使用 -k 参数跳过SSL证书验证(自签名证书)
+Notes:
+- All APIs require HTTPS access
+- File downloads require user authentication
+- Token valid for 24 hours
+- Use -k parameter to skip SSL certificate verification (self-signed certificate)
 EOF
 
-echo "✅ 初始文件准备完成"
+echo "[OK] Initial files prepared"
 
-# 拉取Docker镜像
-echo "📦 拉取Docker镜像..."
-docker pull ghcr.io/wangyaxings/source-file-hub:latest
-echo "✅ 镜像拉取完成"
-
-# 检查是否存在前端代码
+# Check if frontend code exists
 if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
-    echo "🎨 检测到前端代码，将启动完整服务（前端+后端）..."
-    COMPOSE_FILE="docker-compose.yml"
-
-    # 创建前端Dockerfile
-    if [ ! -f "frontend/Dockerfile" ]; then
-        echo "📝 创建前端Dockerfile..."
-        cat > frontend/Dockerfile << 'DOCKERFILE_EOF'
-# Frontend Dockerfile for FileServer
-FROM node:18-alpine AS base
-
-# Install dependencies only when needed
-FROM base AS deps
-WORKDIR /app
-
-# Copy package files
-COPY package.json yarn.lock* ./
-RUN yarn install --frozen-lockfile
-
-# Rebuild the source code only when needed
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-
-# Build the application
-RUN yarn build
-
-# Production image, copy all the files and run next
-FROM base AS runner
-WORKDIR /app
-
-ENV NODE_ENV=production
-ENV NODE_TLS_REJECT_UNAUTHORIZED=0
-
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copy the built application
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-# Copy the server.js for custom server
-COPY --from=builder --chown=nextjs:nodejs /app/server.js ./
-COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
-
-# Install only production dependencies for custom server
-RUN yarn install --production --frozen-lockfile
-
-USER nextjs
-
-EXPOSE 3000
-
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
-
-# Run the custom server
-CMD ["node", "server.js"]
-DOCKERFILE_EOF
-        echo "✅ 前端Dockerfile创建完成"
-    fi
-
-    # 创建完整的docker-compose文件
-    cat > docker-compose.complete.yml << 'COMPOSE_EOF'
-version: '3.8'
-
-services:
-  # 后端服务 (使用预构建镜像)
-  fileserver-backend:
-    image: ghcr.io/wangyaxings/source-file-hub:latest
-    container_name: fileserver-backend
-    ports:
-      - "8443:8443"  # HTTPS端口
-    volumes:
-      # 持久化数据
-      - ./data:/app/data
-      - ./downloads:/app/downloads
-      - ./logs:/app/logs
-      # 配置文件 (只读)
-      - ./configs:/app/configs:ro
-      - ./certs:/app/certs:ro
-    environment:
-      - GO_ENV=production
-      - DB_PATH=/app/data/fileserver.db
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    networks:
-      - fileserver-network
-
-  # 前端服务 (本地构建)
-  fileserver-frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: fileserver-frontend
-    ports:
-      - "3000:3000"  # 前端端口
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=https://fileserver-backend:8443
-    depends_on:
-      fileserver-backend:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - fileserver-network
-
-networks:
-  fileserver-network:
-    driver: bridge
-COMPOSE_EOF
+    echo "[INFO] Frontend code detected, building complete service (frontend + backend)..."
 else
-    echo "⚠️ 未检测到前端代码，仅启动后端服务..."
-    COMPOSE_FILE="docker-compose.yml"
+    echo "[WARNING] Frontend code not detected, building backend service only..."
+    echo "[INFO] For complete functionality, ensure frontend directory exists with package.json"
 fi
 
-# 启动服务
-echo "🚀 启动FileServer服务..."
-docker-compose -f $COMPOSE_FILE up -d
+echo "[INFO] Building FileServer application..."
 
-echo "⏳ 等待服务启动..."
+# Start services
+echo "[INFO] Starting FileServer services..."
+docker compose up -d
+
+echo "[INFO] Waiting for services to start..."
 sleep 10
 
-# 检查服务状态
-echo "🔍 检查服务状态..."
-if docker-compose -f $COMPOSE_FILE ps | grep -q "Up"; then
-    echo "✅ 服务启动成功！"
+# Check service status
+echo "[INFO] Checking service status..."
+if docker compose ps | grep -q "Up"; then
+    echo "[OK] Services started successfully!"
 
-    # 验证API访问
-    echo "🧪 验证API访问..."
+    # Verify API access
+    echo "[INFO] Verifying API access..."
     if curl -k -s https://localhost:8443/api/v1/health > /dev/null; then
-        echo "✅ 后端API访问正常"
+        echo "[OK] Backend API access normal"
     else
-        echo "⚠️ 后端API暂时无法访问，可能仍在启动中"
+        echo "[WARNING] Backend API temporarily unavailable, may still be starting"
     fi
 
-    # 如果启动了前端，也检查前端
-    if [ "$COMPOSE_FILE" = "docker-compose.complete.yml" ]; then
-        echo "🧪 验证前端访问..."
-        if curl -s http://localhost:3000 > /dev/null; then
-            echo "✅ 前端界面访问正常"
-        else
-            echo "⚠️ 前端界面暂时无法访问，可能仍在启动中"
-        fi
+    # Check frontend
+    echo "[INFO] Verifying frontend access..."
+    if curl -s http://localhost:3000 > /dev/null; then
+        echo "[OK] Frontend interface access normal"
+    else
+        echo "[WARNING] Frontend interface temporarily unavailable, may still be starting"
     fi
 else
-    echo "❌ 服务启动失败，请检查日志"
-    docker-compose -f $COMPOSE_FILE logs
+    echo "[ERROR] Service startup failed, please check logs"
+    docker compose logs
     exit 1
 fi
 
 echo ""
-echo "🎉 FileServer部署完成！"
+echo "FileServer deployment completed!"
 echo "================================"
 
-# 显示不同的服务信息
-if [ "$COMPOSE_FILE" = "docker-compose.complete.yml" ]; then
-    echo "🌐 前端界面: http://localhost:3000"
-    echo "📡 后端API: https://localhost:8443"
-    echo "🏥 健康检查: https://localhost:8443/api/v1/health"
-    echo "📚 API信息: https://localhost:8443/api/v1"
-    echo "👥 默认用户: https://localhost:8443/api/v1/auth/users"
-    echo ""
-    echo "🎯 推荐访问: http://localhost:3000 (完整前端界面)"
-    echo "⚡ API直连: https://localhost:8443/api/v1 (纯API访问)"
-else
-    echo "📡 后端API: https://localhost:8443"
-    echo "🏥 健康检查: https://localhost:8443/api/v1/health"
-    echo "📚 API信息: https://localhost:8443/api/v1"
-    echo "👥 默认用户: https://localhost:8443/api/v1/auth/users"
-    echo ""
-    echo "⚠️ 仅启动了后端服务，如需前端界面请在包含frontend目录的位置运行"
-fi
+# Display service information
+echo "Frontend Interface: http://localhost:3000"
+echo "Backend API: https://localhost:8443"
+echo "Health Check: https://localhost:8443/api/v1/health"
+echo "API Info: https://localhost:8443/api/v1"
+echo "Default Users: https://localhost:8443/api/v1/auth/users"
+echo ""
+echo "Recommended Access: http://localhost:3000 (Complete frontend interface)"
+echo "Direct API Access: https://localhost:8443/api/v1 (Pure API access)"
 
 echo ""
-echo "📋 管理命令:"
-echo "  查看日志: docker-compose -f $COMPOSE_FILE logs -f"
-echo "  停止服务: docker-compose -f $COMPOSE_FILE down"
-echo "  重启服务: docker-compose -f $COMPOSE_FILE restart"
+echo "Management Commands:"
+echo "  View logs: docker compose logs -f"
+echo "  Stop services: docker compose down"
+echo "  Restart services: docker compose restart"
 echo ""
-echo "⚠️ 注意: 使用自签名证书，浏览器会显示安全警告"
-echo "📖 详细文档: cat docker-deployment-guide.md"
+echo "NOTE: Using self-signed certificates, browsers will show security warnings"
+echo "Documentation: cat docs/deployment-guide.md"

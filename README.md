@@ -220,7 +220,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-org/fileserver/issues)
+- **Issues**: [GitHub Issues](https://github.com/wangyaxings/source-file-hub/issues)
 - **Documentation**: See the `docs/` directory
 - **API Reference**: [API Guide](docs/api-guide.md)
 

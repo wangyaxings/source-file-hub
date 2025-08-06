@@ -100,7 +100,7 @@ cd ..
 
 echo.
 
-REM 检查证书文件，如果不存在则启用开发模式
+REM Check certificate files, enable development mode if not found
 set "DEV_MODE=false"
 if not exist "certs\server.crt" (
     echo [INFO] SSL certificates not found, enabling development mode
@@ -111,7 +111,7 @@ if not exist "certs\server.key" (
     set "DEV_MODE=true"
 )
 
-REM 设置环境变量
+REM Set environment variables
 set "GO_ENV=development"
 if "%DEV_MODE%"=="true" (
     set "DEV_MODE=true"
@@ -131,7 +131,7 @@ echo [INFO] Checking backend status...
 set "backend_status=0"
 
 if "%DEV_MODE%"=="true" (
-    REM 开发模式检查 HTTP
+    REM Development mode check HTTP
     for /f %%i in ('powershell -Command "try { (Invoke-WebRequest -Uri 'http://localhost:8080/api/v1/health' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "backend_status=%%i"
     if "%backend_status%"=="200" (
         echo [OK] Backend service is running (HTTP mode)
@@ -147,7 +147,7 @@ if "%DEV_MODE%"=="true" (
         )
     )
 ) else (
-    REM 生产模式检查 HTTPS
+    REM Production mode check HTTPS
     for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "backend_status=%%i"
     if "%backend_status%"=="200" (
         echo [OK] Backend service is running (HTTPS mode)

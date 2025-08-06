@@ -1,12 +1,13 @@
-version: '3.8'
-
 services:
-  # Backend service using pre-built image
-  fileserver-backend:
-    image: ghcr.io/wangyaxings/source-file-hub:latest
-    container_name: fileserver-backend
+  # FileServer - Combined Frontend + Backend
+  fileserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fileserver-app
     ports:
-      - "8443:8443"  # HTTPS port
+      - "3000:3000"   # Frontend port
+      - "8443:8443"   # Backend HTTPS port
     volumes:
       # Persistent data
       - ./data:/app/data
@@ -16,33 +17,17 @@ services:
       - ./configs:/app/configs:ro
       - ./certs:/app/certs:ro
     environment:
+      - NODE_ENV=production
       - GO_ENV=production
       - DB_PATH=/app/data/fileserver.db
+      - NEXT_PUBLIC_API_URL=https://localhost:8443
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health || exit 1"]
+      test: ["CMD-SHELL", "(wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health && wget --quiet --tries=1 --spider http://localhost:3000) || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    networks:
-      - fileserver-network
-
-  # Frontend service (local build)
-  fileserver-frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: fileserver-frontend
-    ports:
-      - "3000:3000"  # Frontend port
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=https://fileserver-backend:8443
-    depends_on:
-      fileserver-backend:
-        condition: service_healthy
-    restart: unless-stopped
     networks:
       - fileserver-network
 
