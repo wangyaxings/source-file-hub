@@ -8,7 +8,7 @@ FROM golang:1.23-alpine AS backend-builder
 WORKDIR /app
 
 # 安装必要的构建工具，包括GCC用于CGO
-RUN apk add --no-cache git ca-certificates tzdata gcc musl-dev sqlite-dev
+RUN apk add --no-cache git ca-certificates tzdata
 
 # 复制依赖文件
 COPY go.mod go.sum ./
@@ -19,7 +19,7 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 
 # 构建后端应用 - 启用CGO以支持SQLite
-RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static"' -o fileserver cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags '-s -w' -o fileserver cmd/server/main.go
 
 # ================================
 # 构建前端
@@ -54,7 +54,7 @@ FROM node:20-alpine
 WORKDIR /app
 
 # 安装运行时依赖，包括SQLite
-RUN apk add --no-cache ca-certificates tzdata wget curl su-exec sqlite
+RUN apk add --no-cache ca-certificates tzdata wget curl su-exec
 
 # 创建非root用户和用户组
 RUN addgroup -g 1001 -S nodejs && adduser -D -u 1001 -G nodejs -s /bin/sh -S nextjs
@@ -130,13 +130,15 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0
 ENV GO_ENV=production
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+ENV BACKEND_URL=http://localhost:8080
 
 # 暴露端口
-EXPOSE 3000 8443
+EXPOSE 3000 8080 8443
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health && \
+    CMD (wget --quiet --tries=1 --spider http://localhost:8080/api/v1/health || \
+         wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health) && \
         wget --quiet --tries=1 --spider http://localhost:3000
 
 # 运行启动脚本

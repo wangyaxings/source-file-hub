@@ -7,6 +7,7 @@ services:
     container_name: fileserver-app
     ports:
       - "3000:3000"   # Frontend port
+      - "8080:8080"   # Backend HTTP port
       - "8443:8443"   # Backend HTTPS port
     volumes:
       # Persistent data
@@ -21,9 +22,10 @@ services:
       - GO_ENV=production
       - DB_PATH=/app/data/fileserver.db
       - NEXT_PUBLIC_API_URL=https://localhost:8443
+      - BACKEND_URL=http://localhost:8080
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "(wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health && wget --quiet --tries=1 --spider http://localhost:3000) || exit 1"]
+      test: ["CMD-SHELL", "(wget --quiet --tries=1 --spider http://localhost:8080/api/v1/health || wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health) && wget --quiet --tries=1 --spider http://localhost:3000"]
       interval: 30s
       timeout: 10s
       retries: 3
