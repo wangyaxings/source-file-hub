@@ -13,9 +13,12 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 const app = next({ dev, hostname, port })
 const handle = app.getRequestHandler()
 
+// Resolve backend target based on env
+const backendTarget = process.env.BACKEND_URL || (dev ? 'http://localhost:8080' : 'https://localhost:8443')
+
 // Proxy configuration for API requests
 const apiProxy = createProxyMiddleware({
-  target: 'https://localhost:8443',
+  target: backendTarget,
   changeOrigin: true,
   // 修复路径重写问题 - 不需要重写，直接转发
   secure: false, // Ignore SSL certificate errors
@@ -52,6 +55,6 @@ app.prepare().then(() => {
   }).listen(port, (err) => {
     if (err) throw err
     console.log(`> Ready on http://${hostname}:${port}`)
-    console.log(`> API proxy target: https://localhost:8443`)
+    console.log(`> API proxy target: ${backendTarget}`)
   })
 })

@@ -1,15 +1,15 @@
 package database
 
 import (
-	"database/sql"
-	"encoding/json"
-	"fmt"
-	"log"
-	"os"
-	"path/filepath"
-	"time"
+    "database/sql"
+    "encoding/json"
+    "fmt"
+    "log"
+    "os"
+    "path/filepath"
+    "time"
 
-	_ "github.com/mattn/go-sqlite3"
+    _ "modernc.org/sqlite"
 )
 
 // Database manager struct
@@ -112,10 +112,10 @@ func InitDatabase(dbPath string) error {
 		return fmt.Errorf("failed to create database directory: %v", err)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to open database: %v", err)
-	}
+    db, err := sql.Open("sqlite", dbPath)
+    if err != nil {
+        return fmt.Errorf("failed to open database: %v", err)
+    }
 
 	// Enable foreign keys and WAL mode for better performance
 	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {

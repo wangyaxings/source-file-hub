@@ -1,16 +1,14 @@
 package logger
 
 import (
-	"database/sql"
-	"encoding/json"
-	"fmt"
-	"log"
-	"os"
-	"runtime"
-	"strings"
-	"time"
-
-	_ "github.com/mattn/go-sqlite3"
+    "database/sql"
+    "encoding/json"
+    "fmt"
+    "log"
+    "os"
+    "runtime"
+    "strings"
+    "time"
 )
 
 // LogLevel 日志级别
