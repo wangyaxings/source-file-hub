@@ -25,15 +25,13 @@ import {
 } from "lucide-react"
 
 const fileTypeIcons = {
-  config: Settings,
-  certificate: Shield,
-  docs: BookOpen
+  roadmap: FileText,
+  recommendation: FileText
 }
 
 const fileTypeLabels = {
-  config: "Configuration Files",
-  certificate: "Certificate Files",
-  docs: "Document Files"
+  roadmap: "Roadmaps",
+  recommendation: "Recommendations"
 }
 
 interface FileListProps {
@@ -192,7 +190,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
                 File Management
               </CardTitle>
               <CardDescription>
-                Manage uploaded configuration files, certificates, and documents
+                Manage uploaded Roadmaps (.tsv) and Recommendations (.xlsx)
               </CardDescription>
             </div>
             <div className="flex items-center gap-4">
@@ -202,9 +200,8 @@ export function FileList({ refreshTrigger }: FileListProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Files</SelectItem>
-                  <SelectItem value="config">Configuration Files</SelectItem>
-                  <SelectItem value="certificate">Certificate Files</SelectItem>
-                  <SelectItem value="docs">Document Files</SelectItem>
+                  <SelectItem value="roadmap">Roadmaps</SelectItem>
+                  <SelectItem value="recommendation">Recommendations</SelectItem>
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={loadFiles}>
@@ -221,13 +218,14 @@ export function FileList({ refreshTrigger }: FileListProps) {
         // 分组显示
         <div className="space-y-6">
           {Object.entries(groupedFiles).map(([type, typeFiles]) => {
-            const Icon = fileTypeIcons[type as keyof typeof fileTypeIcons]
+            const Icon = (fileTypeIcons as any)[type] || FileText
+            const label = (fileTypeLabels as any)[type] || type
             return (
               <Card key={type}>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-lg">
                     <Icon className="h-5 w-5" />
-                    {fileTypeLabels[type as keyof typeof fileTypeLabels]}
+                    {label}
                     <span className="text-sm font-normal text-gray-500">
                       ({typeFiles.length} files)
                     </span>

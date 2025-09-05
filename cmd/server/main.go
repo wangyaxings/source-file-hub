@@ -95,13 +95,13 @@ func main() {
 
 	if os.Getenv("DEV_MODE") == "true" || (certErr != nil || keyErr != nil) {
 		// 开发模式：启动HTTP服务器
-		httpServer = &http.Server{
-			Addr:         ":9000",
-			Handler:      srv.Router,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			IdleTimeout:  60 * time.Second,
-		}
+        httpServer = &http.Server{
+            Addr:         ":9000",
+            Handler:      srv.Router,
+            ReadTimeout:  120 * time.Second,
+            WriteTimeout: 120 * time.Second,
+            IdleTimeout:  180 * time.Second,
+        }
 
 		go func() {
 			log.Printf("HTTP Server starting on port 9000 (Development Mode)...")

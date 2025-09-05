@@ -16,6 +16,9 @@ file-server.exe
 main
 main.exe
 
+# 忽略downloads文件夹中的所有文件
+downloads/
+
 # 测试二进制文件
 *.test
 

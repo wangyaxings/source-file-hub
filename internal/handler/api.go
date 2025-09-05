@@ -1,13 +1,15 @@
 package handler
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"os"
-	"strconv"
+    "encoding/json"
+    "fmt"
+    "io"
+    "log"
+    "net/http"
+    "os"
+    "strconv"
+    "path/filepath"
+    "strings"
 
 	"secure-file-hub/internal/database"
 	"secure-file-hub/internal/middleware"
@@ -28,6 +30,10 @@ func RegisterAPIRoutes(router *mux.Router) {
 	apiV1.Handle("/files", middleware.RequirePermission("read")(http.HandlerFunc(apiListFilesHandler))).Methods("GET")
 	apiV1.Handle("/files/{fileId}/download", middleware.RequirePermission("download")(http.HandlerFunc(apiDownloadFileHandler))).Methods("GET")
 	apiV1.Handle("/files/upload", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadFileHandler))).Methods("POST")
+
+	// Package upload endpoints (ZIP) for assets and others
+	apiV1.Handle("/upload/assets-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadAssetsZipHandler))).Methods("POST")
+	apiV1.Handle("/upload/others-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadOthersZipHandler))).Methods("POST")
 
 	// File information endpoints
 	apiV1.Handle("/files/{fileId}", middleware.RequirePermission("read")(http.HandlerFunc(apiGetFileInfoHandler))).Methods("GET")
@@ -459,4 +465,108 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, filePath, fileNam
 	}
 
 	log.Printf("API: File %s downloaded successfully", fileName)
+}
+
+// =========================
+// ZIP Upload (assets/others)
+// =========================
+
+// apiUploadAssetsZipHandler handles assets ZIP uploads
+func apiUploadAssetsZipHandler(w http.ResponseWriter, r *http.Request) {
+    handleZipUpload(w, r, "assets")
+}
+
+// apiUploadOthersZipHandler handles others ZIP uploads
+func apiUploadOthersZipHandler(w http.ResponseWriter, r *http.Request) {
+    handleZipUpload(w, r, "others")
+}
+
+// handleZipUpload validates filename and stores ZIP under downloads/packages/{tenant}/{category}/
+func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
+    // Parse multipart form (up to 256MB)
+    if err := r.ParseMultipartForm(256 << 20); err != nil {
+        writeAPIErrorResponse(w, http.StatusBadRequest, "INVALID_FORM", "Failed to parse form data")
+        return
+    }
+
+    file, header, err := r.FormFile("file")
+    if err != nil {
+        writeAPIErrorResponse(w, http.StatusBadRequest, "MISSING_FILE", "File is required (field: file)")
+        return
+    }
+    defer file.Close()
+
+    // Validate filename pattern: <tenant>_(assets|others)_<UTC>.zip where UTC is YYYYMMDDThhmmssZ
+    // Example: tenant123_assets_20250101T120000Z.zip
+    filename := header.Filename
+    var expected string
+    if category == "assets" {
+        expected = "assets"
+    } else {
+        expected = "others"
+    }
+
+    // Simple state machine validation without external regex
+    // Split by underscore: tenant, category, timestamp.ext
+    parts := strings.Split(filename, "_")
+    if len(parts) != 3 {
+        writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_FILENAME", "Filename must be <tenant>_"+expected+"_<UTC>.zip")
+        return
+    }
+
+    tenantToken := parts[0]
+    catPart := parts[1]
+    tsPart := parts[2]
+
+    if tenantToken == "" || catPart != expected || !strings.HasSuffix(strings.ToLower(tsPart), ".zip") {
+        writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_FILENAME", "Invalid filename structure or extension")
+        return
+    }
+
+    // Trim .zip and validate timestamp format YYYYMMDDThhmmssZ
+    tsCore := strings.TrimSuffix(tsPart, ".zip")
+    if len(tsCore) != 16 || tsCore[8] != 'T' || tsCore[15] != 'Z' {
+        writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_TIMESTAMP", "Timestamp must be YYYYMMDDThhmmssZ")
+        return
+    }
+    // Basic numeric checks for date/time components
+    digits := tsCore[:8] + tsCore[9:15]
+    for _, c := range digits {
+        if c < '0' || c > '9' {
+            writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_TIMESTAMP", "Timestamp contains non-digit characters")
+            return
+        }
+    }
+
+    // Create target directory downloads/packages/{tenant}/{category}
+    baseDir := filepath.Join("downloads", "packages", tenantToken, category)
+    if err := os.MkdirAll(baseDir, 0755); err != nil {
+        writeAPIErrorResponse(w, http.StatusInternalServerError, "MKDIR_FAILED", "Failed to create storage directory")
+        return
+    }
+
+    // Full path
+    targetPath := filepath.Join(baseDir, filename)
+    out, err := os.Create(targetPath)
+    if err != nil {
+        writeAPIErrorResponse(w, http.StatusInternalServerError, "CREATE_FAILED", "Failed to create target file")
+        return
+    }
+    defer out.Close()
+
+    if _, err := io.Copy(out, file); err != nil {
+        writeAPIErrorResponse(w, http.StatusInternalServerError, "WRITE_FAILED", "Failed to save uploaded file")
+        return
+    }
+
+    // Success response
+    writeAPIJSONResponse(w, http.StatusCreated, APIResponse{
+        Success: true,
+        Data: map[string]interface{}{
+            "tenant":     tenantToken,
+            "category":   category,
+            "file_name":  filename,
+            "stored_at":  targetPath,
+        },
+    })
 }

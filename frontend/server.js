@@ -23,8 +23,8 @@ const apiProxy = createProxyMiddleware({
   // 修复路径重写问题 - 不需要重写，直接转发
   secure: false, // Ignore SSL certificate errors
   logLevel: 'debug',
-  timeout: 30000, // 30 seconds timeout
-  proxyTimeout: 30000, // 30 seconds proxy timeout
+  timeout: 120000, // 120 seconds timeout
+  proxyTimeout: 120000, // 120 seconds proxy timeout
   onError: (err, req, res) => {
     console.error('Proxy error:', err)
     res.writeHead(500, {

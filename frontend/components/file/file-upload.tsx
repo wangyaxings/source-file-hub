@@ -16,6 +16,12 @@ interface FileUploadProps {
   onUploadComplete?: (file: FileInfo) => void
 }
 
+// Allowed upload types: Roadmap (.tsv) and Recommendation (.xlsx)
+const allowedFileTypes = [
+  { value: "roadmap", label: "Roadmap (.tsv)", extensions: [".tsv"] },
+  { value: "recommendation", label: "Recommendation (.xlsx)", extensions: [".xlsx"] }
+]
+
 const fileTypes = [
   { value: "config", label: "Configuration Files", extensions: [".json"], icon: "⚙️" },
   { value: "certificate", label: "Certificate Files", extensions: [".crt", ".key", ".pem"], icon: "🔐" },
@@ -40,7 +46,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
       setSelectedFile(file)
       // 根据文件扩展名自动选择类型
       const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
-      const detectedType = fileTypes.find(type =>
+      const detectedType = allowedFileTypes.find(type =>
         type.extensions.includes(ext)
       )
       if (detectedType) {
@@ -52,10 +58,8 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'application/json': ['.json'],
-      'application/x-x509-ca-cert': ['.crt', '.pem'],
-      'application/pkcs8': ['.key'],
-      'text/plain': ['.txt', '.log']
+      'text/tab-separated-values': ['.tsv'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']
     },
     maxFiles: 1,
     multiple: false
@@ -90,7 +94,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
   }
 
   const isValidFile = selectedFile && fileType &&
-    fileTypes.find(type => type.value === fileType)?.extensions
+    allowedFileTypes.find(type => type.value === fileType)?.extensions
       .some(ext => selectedFile.name.toLowerCase().endsWith(ext))
 
   return (
@@ -102,7 +106,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
             File Upload
           </CardTitle>
           <CardDescription>
-            Upload configuration files, certificates, and documents
+            Upload Roadmap (.tsv) and Recommendation (.xlsx) files
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -136,7 +140,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
                     {isDragActive ? "Drop file to upload" : "Click or drag file here"}
                   </p>
                   <p className="text-sm text-gray-500">
-                    Supports .json, .crt, .key, .pem, .txt, .log formats
+                    Supports .tsv (Roadmap) and .xlsx (Recommendation)
                   </p>
                 </div>
               )}
@@ -151,10 +155,9 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
                 <SelectValue placeholder="Select file type" />
               </SelectTrigger>
               <SelectContent>
-                {fileTypes.map((type) => (
+                {allowedFileTypes.map((type) => (
                   <SelectItem key={type.value} value={type.value}>
                     <div className="flex items-center gap-2">
-                      <span>{type.icon}</span>
                       <div>
                         <div>{type.label}</div>
                         <div className="text-xs text-muted-foreground">
@@ -226,7 +229,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
                 <strong>File Size:</strong> {selectedFile && formatFileSize(selectedFile.size)}
               </div>
               <div>
-                <strong>File Type:</strong> {fileTypes.find(t => t.value === fileType)?.label}
+                <strong>File Type:</strong> {allowedFileTypes.find(t => t.value === fileType)?.label}
               </div>
               <div>
                 <strong>Description:</strong> {description || "None"}

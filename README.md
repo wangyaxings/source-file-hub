@@ -227,3 +227,56 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **⚡ Quick Tip**: For the best experience, use the web interface at http://localhost:3000 which provides a complete file management experience with automatic API authentication handling.
+
+## Recent Changes: Roadmap/Recommendation Uploads and New APIs
+
+- Allowed upload types are now restricted to:
+  - Roadmap: `.tsv`
+  - Recommendation: `.xlsx`
+
+- Single-file versioning per category:
+  - The server normalizes original names so each category has one logical file:
+    - Roadmap → `roadmap.tsv`
+    - Recommendation → `recommendation.xlsx`
+  - Versioned filenames are created as `roadmap_vN.tsv` and `recommendation_vN.xlsx`.
+  - The original uploaded filename is appended to the description as `Original filename: <name>`.
+
+- Web UI upload endpoint:
+  - `POST /api/v1/web/upload`
+  - Form fields: `file` (binary), `fileType` (`roadmap`|`recommendation`), `description` (optional)
+  - The server validates the extension matches the selected `fileType`.
+
+- New public API endpoints (API Key auth) for ZIP packages:
+  - `POST /api/v1/public/upload/assets-zip`
+  - `POST /api/v1/public/upload/others-zip`
+  - Request: multipart/form-data with `file` (the ZIP)
+  - Filename rule (strict validation):
+    - `<tenantToken>_assets_<UTC>.zip` for assets
+    - `<tenantToken>_others_<UTC>.zip` for others
+    - `<UTC>` format: `YYYYMMDDThhmmssZ` (e.g., `20250101T120000Z`)
+  - Storage: `downloads/packages/<tenantToken>/<assets|others>/<filename>` (directories created if missing)
+
+### cURL Examples
+
+Upload Roadmap via UI API:
+```
+curl -k -X POST https://localhost:8443/api/v1/web/upload \
+  -H "Authorization: Bearer $TOKEN" \
+  -F file=@./my_roadmap.tsv \
+  -F fileType=roadmap \
+  -F description="Initial roadmap"
+```
+
+Upload assets ZIP via public API:
+```
+curl -k -X POST https://localhost:8443/api/v1/public/upload/assets-zip \
+  -H "Authorization: Bearer $API_KEY" \
+  -F file=@./tenant123_assets_20250101T120000Z.zip
+```
+
+Upload others ZIP via public API:
+```
+curl -k -X POST https://localhost:8443/api/v1/public/upload/others-zip \
+  -H "Authorization: Bearer $API_KEY" \
+  -F file=@./tenant123_others_20250101T120000Z.zip
+```

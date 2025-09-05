@@ -115,8 +115,7 @@ func RegisterRoutes(router *mux.Router) {
 	// 日志查询路由（需要Web认证）
 	webAPI.HandleFunc("/logs/access", getAccessLogsHandler).Methods("GET")
 
-	// Admin API routes (under web API for frontend)
-	RegisterWebAdminRoutes(webAPI)
+	// Admin web routes removed per requirements
 
 		// =============================================================================
 	// Public API Routes (require API key authentication) - 注册在更具体的路径
@@ -514,8 +513,8 @@ type FileInfo struct {
 
 // uploadFileHandler 文件上传处理器
 func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
-	// 解析multipart form
-	err := r.ParseMultipartForm(32 << 20) // 32MB
+    // 解析multipart form（提高限额）
+    err := r.ParseMultipartForm(128 << 20) // 128MB
 	if err != nil {
 		writeErrorResponse(w, http.StatusBadRequest, "Failed to parse form: "+err.Error())
 		return
@@ -535,20 +534,49 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 验证文件类型
 	allowedTypes := map[string]bool{
-		"config":      true,
-		"certificate": true,
-		"docs":        true,
+		"roadmap":        true,
+		"recommendation": true,
 	}
 	if !allowedTypes[fileType] {
 		writeErrorResponse(w, http.StatusBadRequest, "Unsupported file type")
 		return
 	}
 
-	// 验证文件扩展名
-	if !isValidFileExtension(header.Filename) {
+    // 验证文件扩展名
+    if !isValidFileExtension(header.Filename) {
 		writeErrorResponse(w, http.StatusBadRequest, "Unsupported file format")
 		return
 	}
+
+    // 进一步校验扩展名与类型匹配（roadmap->.tsv，recommendation->.xlsx）并设置固定原始名
+    ext := strings.ToLower(filepath.Ext(header.Filename))
+    var fixedOriginalName string
+    switch fileType {
+    case "roadmap":
+        if ext != ".tsv" {
+            writeErrorResponse(w, http.StatusBadRequest, "File extension does not match fileType: roadmap requires .tsv")
+            return
+        }
+        fixedOriginalName = "roadmap.tsv"
+    case "recommendation":
+        if ext != ".xlsx" {
+            writeErrorResponse(w, http.StatusBadRequest, "File extension does not match fileType: recommendation requires .xlsx")
+            return
+        }
+        fixedOriginalName = "recommendation.xlsx"
+    default:
+        writeErrorResponse(w, http.StatusBadRequest, "Unsupported file type")
+        return
+    }
+
+    // 将上传的原始文件名记录在描述中，便于追溯
+    if header.Filename != "" {
+        if strings.TrimSpace(description) == "" {
+            description = "Original filename: " + header.Filename
+        } else if !strings.Contains(description, "Original filename:") {
+            description = description + " | Original filename: " + header.Filename
+        }
+    }
 
 	// 获取用户信息（从认证中间件设置的上下文中获取）
 	var uploader string
@@ -563,10 +591,10 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 创建文件信息
-	fileInfo := &FileInfo{
+    fileInfo := &FileInfo{
 		ID:           generateFileID(),
 		FileName:     header.Filename,
-		OriginalName: header.Filename,
+		OriginalName: fixedOriginalName,
 		FileType:     fileType,
 		Size:         header.Size,
 		Description:  description,
@@ -575,7 +603,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 生成版本化的文件名和路径
-	versionedFileName, version, err := generateVersionedFileName(fileType, header.Filename)
+    versionedFileName, version, err := generateVersionedFileName(fileType, fixedOriginalName)
 	if err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to generate filename: "+err.Error())
 		return
@@ -610,7 +638,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 更新最新版本链接
-	latestPath := filepath.Join(targetDir, header.Filename)
+    latestPath := filepath.Join(targetDir, fixedOriginalName)
 	os.Remove(latestPath) // 删除旧的链接（如果存在）
 
 	// 创建硬链接指向最新版本
@@ -634,9 +662,9 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record := &database.FileRecord{
+    record := &database.FileRecord{
 		ID:           fileInfo.ID,
-		OriginalName: header.Filename,
+		OriginalName: fixedOriginalName,
 		VersionedName: versionedFileName,
 		FileType:     fileType,
 		FilePath:     targetPath,
@@ -983,17 +1011,12 @@ func generateVersionedFileName(fileType, originalName string) (string, int, erro
 
 // isValidFileExtension 验证文件扩展名
 func isValidFileExtension(filename string) bool {
-	ext := strings.ToLower(filepath.Ext(filename))
-	validExts := map[string]bool{
-		".json": true,
-		".crt":  true,
-		".key":  true,
-		".pem":  true,
-		".txt":  true,
-		".log":  true,
-		".zip":  true,
-	}
-	return validExts[ext]
+    ext := strings.ToLower(filepath.Ext(filename))
+    validExts := map[string]bool{
+        ".tsv":  true, // Roadmap
+        ".xlsx": true, // Recommendation
+    }
+    return validExts[ext]
 }
 
 // copyFile 复制文件
@@ -1018,19 +1041,15 @@ func copyFile(src, dst string) error {
 
 // getContentType 根据文件扩展名确定内容类型
 func getContentType(fileName string) string {
-	ext := filepath.Ext(fileName)
-	switch ext {
-	case ".json":
-		return "application/json"
-	case ".crt", ".pem":
-		return "application/x-x509-ca-cert"
-	case ".key":
-		return "application/pkcs8"
-	case ".txt":
-		return "text/plain"
-	case ".log":
-		return "text/plain"
-	default:
-		return "application/octet-stream"
-	}
+    ext := strings.ToLower(filepath.Ext(fileName))
+    switch ext {
+    case ".tsv":
+        return "text/tab-separated-values"
+    case ".xlsx":
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    case ".zip":
+        return "application/zip"
+    default:
+        return "application/octet-stream"
+    }
 }
