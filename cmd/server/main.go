@@ -96,7 +96,7 @@ func main() {
 	if os.Getenv("DEV_MODE") == "true" || (certErr != nil || keyErr != nil) {
 		// 开发模式：启动HTTP服务器
 		httpServer = &http.Server{
-			Addr:         ":8080",
+			Addr:         ":9000",
 			Handler:      srv.Router,
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
@@ -104,7 +104,7 @@ func main() {
 		}
 
 		go func() {
-			log.Printf("HTTP Server starting on port 8080 (Development Mode)...")
+			log.Printf("HTTP Server starting on port 9000 (Development Mode)...")
 			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Fatalf("HTTP Server failed to start: %v", err)
 			}

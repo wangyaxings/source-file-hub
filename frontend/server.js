@@ -14,7 +14,7 @@ const app = next({ dev, hostname, port })
 const handle = app.getRequestHandler()
 
 // Resolve backend target based on env
-const backendTarget = process.env.BACKEND_URL || (dev ? 'http://localhost:8080' : 'https://localhost:8443')
+const backendTarget = process.env.BACKEND_URL || (dev ? 'http://localhost:9000' : 'https://localhost:8443')
 
 // Proxy configuration for API requests
 const apiProxy = createProxyMiddleware({
@@ -23,6 +23,8 @@ const apiProxy = createProxyMiddleware({
   // 修复路径重写问题 - 不需要重写，直接转发
   secure: false, // Ignore SSL certificate errors
   logLevel: 'debug',
+  timeout: 30000, // 30 seconds timeout
+  proxyTimeout: 30000, // 30 seconds proxy timeout
   onError: (err, req, res) => {
     console.error('Proxy error:', err)
     res.writeHead(500, {
