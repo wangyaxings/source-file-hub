@@ -10,6 +10,7 @@ import (
     "strconv"
     "path/filepath"
     "strings"
+    "time"
 
 	"secure-file-hub/internal/database"
 	"secure-file-hub/internal/middleware"
@@ -31,9 +32,13 @@ func RegisterAPIRoutes(router *mux.Router) {
 	apiV1.Handle("/files/{fileId}/download", middleware.RequirePermission("download")(http.HandlerFunc(apiDownloadFileHandler))).Methods("GET")
 	apiV1.Handle("/files/upload", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadFileHandler))).Methods("POST")
 
-	// Package upload endpoints (ZIP) for assets and others
-	apiV1.Handle("/upload/assets-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadAssetsZipHandler))).Methods("POST")
-	apiV1.Handle("/upload/others-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadOthersZipHandler))).Methods("POST")
+    // Package upload endpoints (ZIP) for assets and others
+    apiV1.Handle("/upload/assets-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadAssetsZipHandler))).Methods("POST")
+    apiV1.Handle("/upload/others-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadOthersZipHandler))).Methods("POST")
+
+    // Package list/update endpoints
+    apiV1.Handle("/packages", middleware.RequirePermission("read")(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
+    apiV1.Handle("/packages/{id}/remark", middleware.RequirePermission("upload")(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
 
 	// File information endpoints
 	apiV1.Handle("/files/{fileId}", middleware.RequirePermission("read")(http.HandlerFunc(apiGetFileInfoHandler))).Methods("GET")
@@ -538,6 +543,12 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
         }
     }
 
+    // Determine client IP
+    clientIP := r.Header.Get("X-Forwarded-For")
+    if clientIP == "" {
+        clientIP = strings.Split(r.RemoteAddr, ":")[0]
+    }
+
     // Create target directory downloads/packages/{tenant}/{category}
     baseDir := filepath.Join("downloads", "packages", tenantToken, category)
     if err := os.MkdirAll(baseDir, 0755); err != nil {
@@ -545,8 +556,17 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
         return
     }
 
+    // Shorten tenant for stored filename (like Docker-style short IDs)
+    shortTenant := tenantToken
+    if len(shortTenant) > 12 {
+        shortTenant = shortTenant[:12]
+    }
+
+    // Store with shorter, structured name: <category>_<UTC>_<shortTenant>.zip
+    storedName := fmt.Sprintf("%s_%s_%s.zip", category, strings.TrimSuffix(tsPart, ".zip"), shortTenant)
+
     // Full path
-    targetPath := filepath.Join(baseDir, filename)
+    targetPath := filepath.Join(baseDir, storedName)
     out, err := os.Create(targetPath)
     if err != nil {
         writeAPIErrorResponse(w, http.StatusInternalServerError, "CREATE_FAILED", "Failed to create target file")
@@ -559,14 +579,107 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
         return
     }
 
+    // Stat file for size
+    var size int64
+    if fi, err := os.Stat(targetPath); err == nil {
+        size = fi.Size()
+    }
+
+    // Insert package record (preserve original filename in remark)
+    db := database.GetDatabase()
+    if db == nil {
+        writeAPIErrorResponse(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+        return
+    }
+
+    pkg := &database.PackageRecord{
+        ID:        fmt.Sprintf("pkg_%d_%d", time.Now().UnixNano(), os.Getpid()),
+        TenantID:  tenantToken,
+        Type:      category,
+        FileName:  storedName,
+        Size:      size,
+        Path:      targetPath,
+        IP:        clientIP,
+        Timestamp: time.Now().UTC(),
+        Remark:    "Original filename: " + filename,
+    }
+    if err := db.InsertPackageRecord(pkg); err != nil {
+        log.Printf("Failed to insert package record: %v", err)
+    }
+
     // Success response
     writeAPIJSONResponse(w, http.StatusCreated, APIResponse{
         Success: true,
         Data: map[string]interface{}{
+            "id":         pkg.ID,
             "tenant":     tenantToken,
             "category":   category,
-            "file_name":  filename,
+            "file_name":  storedName,
+            "original_name": filename,
             "stored_at":  targetPath,
+            "size":       size,
+            "ip":         clientIP,
+            "timestamp":  time.Now().UTC().Format(time.RFC3339),
         },
     })
+}
+
+// apiListPackagesHandler lists packages with filters and pagination
+func apiListPackagesHandler(w http.ResponseWriter, r *http.Request) {
+    tenant := r.URL.Query().Get("tenant")
+    ptype := r.URL.Query().Get("type")
+    search := r.URL.Query().Get("q")
+    pageStr := r.URL.Query().Get("page")
+    limitStr := r.URL.Query().Get("limit")
+
+    page, limit := 1, 50
+    if pageStr != "" { if p, err := strconv.Atoi(pageStr); err == nil && p > 0 { page = p } }
+    if limitStr != "" { if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 1000 { limit = l } }
+
+    db := database.GetDatabase()
+    if db == nil {
+        writeAPIErrorResponse(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+        return
+    }
+
+    list, total, err := db.ListPackages(tenant, ptype, search, page, limit)
+    if err != nil {
+        writeAPIErrorResponse(w, http.StatusInternalServerError, "QUERY_ERROR", "Failed to list packages")
+        return
+    }
+
+    writeAPIJSONResponse(w, http.StatusOK, APIResponse{
+        Success: true,
+        Data: map[string]interface{}{
+            "items": list,
+            "count": total,
+            "page":  page,
+            "limit": limit,
+        },
+    })
+}
+
+// apiUpdatePackageRemarkHandler updates remark
+func apiUpdatePackageRemarkHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    id := vars["id"]
+    if id == "" {
+        writeAPIErrorResponse(w, http.StatusBadRequest, "MISSING_ID", "Package id is required")
+        return
+    }
+    var body struct{ Remark string `json:"remark"` }
+    if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+        writeAPIErrorResponse(w, http.StatusBadRequest, "INVALID_BODY", "Invalid JSON body")
+        return
+    }
+    db := database.GetDatabase()
+    if db == nil {
+        writeAPIErrorResponse(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+        return
+    }
+    if err := db.UpdatePackageRemark(id, body.Remark); err != nil {
+        writeAPIErrorResponse(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to update remark")
+        return
+    }
+    writeAPIJSONResponse(w, http.StatusOK, APIResponse{ Success: true })
 }

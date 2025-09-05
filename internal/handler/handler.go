@@ -115,6 +115,20 @@ func RegisterRoutes(router *mux.Router) {
 	// 日志查询路由（需要Web认证）
 	webAPI.HandleFunc("/logs/access", getAccessLogsHandler).Methods("GET")
 
+	// Packages (assets/others) web endpoints delegating to public handlers
+	webAPI.HandleFunc("/packages/upload/assets-zip", func(w http.ResponseWriter, r *http.Request) {
+		apiUploadAssetsZipHandler(w, r)
+	}).Methods("POST")
+	webAPI.HandleFunc("/packages/upload/others-zip", func(w http.ResponseWriter, r *http.Request) {
+		apiUploadOthersZipHandler(w, r)
+	}).Methods("POST")
+	webAPI.HandleFunc("/packages", func(w http.ResponseWriter, r *http.Request) {
+		apiListPackagesHandler(w, r)
+	}).Methods("GET")
+	webAPI.HandleFunc("/packages/{id}/remark", func(w http.ResponseWriter, r *http.Request) {
+		apiUpdatePackageRemarkHandler(w, r)
+	}).Methods("PATCH")
+
 	// Admin web routes removed per requirements
 
 		// =============================================================================

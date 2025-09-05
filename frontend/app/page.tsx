@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { LoginForm } from "@/components/auth/login-form"
 import { FileUpload } from "@/components/file/file-upload"
+import { PackagesPanel } from "@/components/packages/packages-panel"
 import { FileList } from "@/components/file/file-list"
 import { RecycleBin } from "@/components/file/recycle-bin"
 import { Toaster } from "@/components/ui/toaster"
@@ -182,7 +183,7 @@ export default function HomePage() {
       {/* 主要内容 */}
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Tabs defaultValue="upload" className="space-y-6">
-          <TabsList className={`grid w-full grid-cols-3 max-w-lg`}>
+          <TabsList className={`grid w-full grid-cols-4 max-w-3xl`}>
             <TabsTrigger value="upload" className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
               Upload
@@ -194,6 +195,10 @@ export default function HomePage() {
             <TabsTrigger value="recycle" className="flex items-center gap-2">
               <Trash2 className="h-4 w-4" />
               Recycle
+            </TabsTrigger>
+            <TabsTrigger value="packages" className="flex items-center gap-2">
+              <Files className="h-4 w-4" />
+              Packages
             </TabsTrigger>
             
           </TabsList>
@@ -208,6 +213,10 @@ export default function HomePage() {
 
           <TabsContent value="recycle" className="space-y-6">
             <RecycleBin />
+          </TabsContent>
+
+          <TabsContent value="packages" className="space-y-6">
+            <PackagesPanel />
           </TabsContent>
 
           

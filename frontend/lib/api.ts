@@ -363,6 +363,46 @@ class ApiClient {
     }
   }
 
+  // Packages API (web wrappers)
+  async uploadAssetsZip(file: File): Promise<any> {
+    const headers: Record<string, string> = {}
+    if (this.token) headers.Authorization = `Bearer ${this.token}`
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(`${this.baseUrl}/packages/upload/assets-zip`, { method: 'POST', headers, body: formData })
+    if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`)
+    const result = await response.json()
+    if (!result.success) throw new Error(result.error || 'Upload failed')
+    return result.data
+  }
+
+  async uploadOthersZip(file: File): Promise<any> {
+    const headers: Record<string, string> = {}
+    if (this.token) headers.Authorization = `Bearer ${this.token}`
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(`${this.baseUrl}/packages/upload/others-zip`, { method: 'POST', headers, body: formData })
+    if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`)
+    const result = await response.json()
+    if (!result.success) throw new Error(result.error || 'Upload failed')
+    return result.data
+  }
+
+  async listPackages(params: { tenant?: string; type?: string; q?: string; page?: number; limit?: number } = {}): Promise<{ items: any[]; count: number; page: number; limit: number }> {
+    const qs = new URLSearchParams()
+    if (params.tenant) qs.set('tenant', params.tenant)
+    if (params.type) qs.set('type', params.type)
+    if (params.q) qs.set('q', params.q)
+    if (params.page) qs.set('page', String(params.page))
+    if (params.limit) qs.set('limit', String(params.limit))
+    const response = await this.request<{ items: any[]; count: number; page: number; limit: number }>(`/packages?${qs.toString()}`)
+    return response.data as any
+  }
+
+  async updatePackageRemark(id: string, remark: string): Promise<void> {
+    await this.request(`/packages/${id}/remark`, { method: 'PATCH', body: JSON.stringify({ remark }) })
+  }
+
   // 健康检查 - 使用正确的端点
   async healthCheck(): Promise<any> {
     try {

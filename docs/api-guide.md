@@ -231,3 +231,39 @@ Currently no rate limiting is implemented, but it's recommended to implement cli
 Use the provided test scripts to verify API functionality:
 - `scripts/quick-test.sh` (Linux/macOS)
 - `scripts/quick-test.ps1` (Windows PowerShell)
+# Packages (Assets/Others) APIs
+
+Two ZIP upload endpoints are available for assets and others. Filenames are strictly validated before upload.
+
+- POST /api/v1/public/upload/assets-zip
+- POST /api/v1/public/upload/others-zip
+
+Request:
+- Content-Type: multipart/form-data
+- Field: `file` (ZIP file)
+- Filename rules:
+  - `<tenantToken>_assets_<UTC>.zip` for assets
+  - `<tenantToken>_others_<UTC>.zip` for others
+  - `<UTC>` format: `YYYYMMDDThhmmssZ` (e.g., `20250101T120000Z`)
+
+On success, the file is stored under `downloads/packages/<tenantToken>/<assets|others>/`.
+
+List and remark management:
+
+- GET /api/v1/public/packages?tenant=&type=&q=&page=&limit=
+  - Query params (optional):
+    - `tenant`: Tenant ID
+    - `type`: `assets` or `others`
+    - `q`: search string (matches filename/path/remark)
+    - `page`: default 1
+    - `limit`: default 50, max 1000
+  - Response data: `{ items: PackageRecord[], count, page, limit }`
+
+- PATCH /api/v1/public/packages/{id}/remark
+  - Body: `{ "remark": "text" }`
+
+Web-authenticated mirrors (for use from the UI) exist under `/api/v1/web/...`:
+- POST `/api/v1/web/packages/upload/assets-zip`
+- POST `/api/v1/web/packages/upload/others-zip`
+- GET `/api/v1/web/packages`
+- PATCH `/api/v1/web/packages/{id}/remark`

@@ -286,7 +286,26 @@ func (d *Database) createTables() error {
 	`
 
 	// Execute all table creation statements
-	tables := []string{createFilesTable, createLogsTable, createAuditTable, createAPIKeysTable, createAPIUsageTable, createUserRolesTable}
+	createPackagesTable := `
+	CREATE TABLE IF NOT EXISTS packages (
+		id TEXT PRIMARY KEY,
+		tenant_id TEXT NOT NULL,
+		type TEXT NOT NULL,
+		file_name TEXT NOT NULL,
+		size INTEGER NOT NULL,
+		path TEXT NOT NULL,
+		ip TEXT,
+		timestamp TEXT NOT NULL,
+		remark TEXT,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_packages_tenant ON packages(tenant_id);
+	CREATE INDEX IF NOT EXISTS idx_packages_type ON packages(type);
+	CREATE INDEX IF NOT EXISTS idx_packages_timestamp ON packages(timestamp);
+	`
+
+	tables := []string{createFilesTable, createLogsTable, createAuditTable, createAPIKeysTable, createAPIUsageTable, createUserRolesTable, createPackagesTable}
 	for _, table := range tables {
 		if _, err := d.db.Exec(table); err != nil {
 			return fmt.Errorf("failed to create table: %v", err)
@@ -734,10 +753,98 @@ func (d *Database) GetDB() *sql.DB {
 
 // Close closes the database connection
 func (d *Database) Close() error {
-	if d.db != nil {
-		return d.db.Close()
-	}
-	return nil
+    if d.db != nil {
+        return d.db.Close()
+    }
+    return nil
+}
+
+// =============================================================================
+// Package Management Functions
+// =============================================================================
+
+// InsertPackageRecord inserts a new package record
+func (d *Database) InsertPackageRecord(p *PackageRecord) error {
+    p.CreatedAt = time.Now()
+    p.UpdatedAt = time.Now()
+    if p.Timestamp.IsZero() {
+        p.Timestamp = time.Now()
+    }
+    query := `
+    INSERT INTO packages (id, tenant_id, type, file_name, size, path, ip, timestamp, remark, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    _, err := d.db.Exec(query,
+        p.ID, p.TenantID, p.Type, p.FileName, p.Size, p.Path, p.IP,
+        p.Timestamp.Format(time.RFC3339), p.Remark,
+        p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339),
+    )
+    return err
+}
+
+// ListPackages lists packages with optional filters and pagination
+func (d *Database) ListPackages(tenant, ptype, search string, page, limit int) ([]PackageRecord, int, error) {
+    if page <= 0 { page = 1 }
+    if limit <= 0 || limit > 1000 { limit = 50 }
+    offset := (page - 1) * limit
+
+    base := "SELECT id, tenant_id, type, file_name, size, path, ip, timestamp, remark, created_at, updated_at FROM packages WHERE 1=1"
+    countQ := "SELECT COUNT(1) FROM packages WHERE 1=1"
+    args := []interface{}{}
+
+    if tenant != "" {
+        base += " AND tenant_id = ?"
+        countQ += " AND tenant_id = ?"
+        args = append(args, tenant)
+    }
+    if ptype != "" {
+        base += " AND type = ?"
+        countQ += " AND type = ?"
+        args = append(args, ptype)
+    }
+    if search != "" {
+        like := "%" + search + "%"
+        base += " AND (file_name LIKE ? OR path LIKE ? OR remark LIKE ?)"
+        countQ += " AND (file_name LIKE ? OR path LIKE ? OR remark LIKE ?)"
+        args = append(args, like, like, like)
+    }
+    base += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+
+    // Count first
+    var total int
+    if err := d.db.QueryRow(countQ, args...).Scan(&total); err != nil {
+        return nil, 0, err
+    }
+
+    // Append pagination params
+    argsWithPage := append(append([]interface{}{}, args...), limit, offset)
+    rows, err := d.db.Query(base, argsWithPage...)
+    if err != nil {
+        return nil, 0, err
+    }
+    defer rows.Close()
+
+    var list []PackageRecord
+    for rows.Next() {
+        var r PackageRecord
+        var ts, ca, ua string
+        if err := rows.Scan(&r.ID, &r.TenantID, &r.Type, &r.FileName, &r.Size, &r.Path, &r.IP, &ts, &r.Remark, &ca, &ua); err != nil {
+            log.Printf("scan package: %v", err)
+            continue
+        }
+        if t, err := time.Parse(time.RFC3339, ts); err == nil { r.Timestamp = t }
+        if t, err := time.Parse(time.RFC3339, ca); err == nil { r.CreatedAt = t }
+        if t, err := time.Parse(time.RFC3339, ua); err == nil { r.UpdatedAt = t }
+        list = append(list, r)
+    }
+    return list, total, nil
+}
+
+// UpdatePackageRemark updates remark for a package
+func (d *Database) UpdatePackageRemark(id, remark string) error {
+    now := time.Now().Format(time.RFC3339)
+    _, err := d.db.Exec("UPDATE packages SET remark = ?, updated_at = ? WHERE id = ?", remark, now, id)
+    return err
 }
 
 // =============================================================================
@@ -1160,4 +1267,19 @@ func (d *Database) GetUserRole(userID string) (*UserRole, error) {
 	}
 
 	return &userRole, nil
+}
+
+// PackageRecord represents an uploaded package (assets/others)
+type PackageRecord struct {
+    ID         string    `json:"id"`
+    TenantID   string    `json:"tenantId"`
+    Type       string    `json:"type"` // assets or others
+    FileName   string    `json:"fileName"`
+    Size       int64     `json:"size"`
+    Path       string    `json:"path"`
+    IP         string    `json:"ip"`
+    Timestamp  time.Time `json:"timestamp"`
+    Remark     string    `json:"remark"`
+    CreatedAt  time.Time `json:"createdAt"`
+    UpdatedAt  time.Time `json:"updatedAt"`
 }
