@@ -79,7 +79,9 @@ func convertToFileInfo(record database.FileRecord) FileInfo {
 // RegisterRoutes 注册所有路由
 func RegisterRoutes(router *mux.Router) {
 	// 添加全局健康检查路由（不需要认证，便于系统监控）
-	router.HandleFunc("/api/v1/health", healthCheckHandler).Methods("GET")
+    router.HandleFunc("/api/v1/health", healthCheckHandler).Methods("GET")
+    // Alias for broader compatibility with common probes (e.g., Kubernetes)
+    router.HandleFunc("/api/v1/healthz", healthCheckHandler).Methods("GET")
 
 	// Web API版本前缀 (原有的Web界面API)
 	webAPI := router.PathPrefix("/api/v1/web").Subrouter()
@@ -94,7 +96,9 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/", apiInfoHandler).Methods("GET")
 
 	// 健康检查路由（无需认证）
-	webAPI.HandleFunc("/health", healthCheckHandler).Methods("GET")
+    webAPI.HandleFunc("/health", healthCheckHandler).Methods("GET")
+    // Alias for web namespace
+    webAPI.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
 
 	// 文件管理路由（需要Web认证）
 	webAPI.HandleFunc("/upload", uploadFileHandler).Methods("POST")

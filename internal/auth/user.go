@@ -1,209 +1,148 @@
 package auth
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"errors"
-	"fmt"
-	"time"
+    "crypto/rand"
+    "encoding/hex"
+    "errors"
+    "fmt"
+    "time"
 
-	"golang.org/x/crypto/bcrypt"
+    "golang.org/x/crypto/bcrypt"
 )
 
-// User 用户结构体
+// User represents an application user
 type User struct {
-	TenantID string `json:"tenant_id"`
-	Username string `json:"username"`
-	Password string `json:"-"` // 不在JSON中显示密码
+    TenantID string `json:"tenant_id"`
+    Username string `json:"username"`
+    Password string `json:"-"` // do not expose password in JSON
 }
 
-// LoginRequest 登录请求结构体
+// LoginRequest represents a login payload
 type LoginRequest struct {
-	TenantID string `json:"tenant_id"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+    TenantID string `json:"tenant_id"`
+    Username string `json:"username"`
+    Password string `json:"password"`
 }
 
-// LoginResponse 登录响应结构体
+// LoginResponse represents a login response
 type LoginResponse struct {
-	Token     string `json:"token"`
-	ExpiresIn int64  `json:"expires_in"` // token过期时间（秒）
-	User      UserInfo `json:"user"`
+    Token     string   `json:"token"`
+    ExpiresIn int64    `json:"expires_in"` // seconds
+    User      UserInfo `json:"user"`
 }
 
-// UserInfo 用户信息（不包含密码）
+// UserInfo is user information returned to clients
 type UserInfo struct {
-	TenantID string `json:"tenant_id"`
-	Username string `json:"username"`
+    TenantID string `json:"tenant_id"`
+    Username string `json:"username"`
 }
 
-// 内存中的用户存储（生产环境应使用数据库）
+// In-memory user store (for demo; production should use DB)
 var userStore = map[string]*User{
-	"admin:demo@admin": {
-		TenantID: "demo",
-		Username: "admin",
-		Password: hashPassword("admin123"), // 默认密码
-	},
-	"user1:demo@user1": {
-		TenantID: "demo",
-		Username: "user1",
-		Password: hashPassword("password123"),
-	},
-	"test:tenant1@test": {
-		TenantID: "tenant1",
-		Username: "test",
-		Password: hashPassword("test123"),
-	},
+    "admin:demo@admin":  { TenantID: "demo",    Username: "admin", Password: hashPassword("admin123") },
+    "user1:demo@user1":  { TenantID: "demo",    Username: "user1", Password: hashPassword("password123") },
+    "test:tenant1@test": { TenantID: "tenant1", Username: "test",  Password: hashPassword("test123") },
 }
 
-// 活跃的token存储（简单实现，生产环境建议使用Redis）
+// Active token store (simple in-memory; consider Redis for production)
 var tokenStore = map[string]*TokenInfo{}
 
-// TokenInfo token信息
+// TokenInfo represents token metadata
 type TokenInfo struct {
-	User      *User     `json:"user"`
-	ExpiresAt time.Time `json:"expires_at"`
+    User      *User     `json:"user"`
+    ExpiresAt time.Time `json:"expires_at"`
 }
 
-// hashPassword 对密码进行哈希处理
 func hashPassword(password string) string {
-	bytes, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(bytes)
+    bytes, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+    return string(bytes)
 }
 
-// checkPassword 验证密码
 func checkPassword(hashedPassword, password string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
-	return err == nil
+    return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)) == nil
 }
 
-// generateToken 生成简单的token（生产环境建议使用JWT）
+// generateToken creates a random token (fallback to timestamp if random fails)
 func generateToken() string {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		// Fallback to timestamp-based token if random generation fails
-		return fmt.Sprintf("fallback_%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(bytes)
+    bytes := make([]byte, 32)
+    if _, err := rand.Read(bytes); err != nil {
+        return fmt.Sprintf("fallback_%d", time.Now().UnixNano())
+    }
+    return hex.EncodeToString(bytes)
 }
 
-// getUserKey 获取用户存储的key
+// getUserKey computes the key for the in-memory store
 func getUserKey(tenantID, username string) string {
-	return fmt.Sprintf("%s:%s@%s", username, tenantID, username)
+    return fmt.Sprintf("%s:%s@%s", username, tenantID, username)
 }
 
-// Authenticate 用户认证
+// Authenticate validates credentials and returns a token
 func Authenticate(req *LoginRequest) (*LoginResponse, error) {
-	if req.TenantID == "" || req.Username == "" || req.Password == "" {
-		return nil, errors.New("租户ID、用户名和密码不能为空")
-	}
+    if req.TenantID == "" || req.Username == "" || req.Password == "" {
+        return nil, errors.New("tenant_id, username and password are required")
+    }
 
-	// 查找用户
-	userKey := getUserKey(req.TenantID, req.Username)
-	user, exists := userStore[userKey]
-	if !exists {
-		return nil, errors.New("用户不存在")
-	}
+    userKey := getUserKey(req.TenantID, req.Username)
+    user, exists := userStore[userKey]
+    if !exists {
+        return nil, errors.New("user not found")
+    }
 
-	// 验证密码
-	if !checkPassword(user.Password, req.Password) {
-		return nil, errors.New("密码错误")
-	}
+    if !checkPassword(user.Password, req.Password) {
+        return nil, errors.New("invalid password")
+    }
 
-	// 生成token
-	token := generateToken()
-	expiresAt := time.Now().Add(24 * time.Hour) // token有效期24小时
+    token := generateToken()
+    expiresAt := time.Now().Add(24 * time.Hour)
 
-	// 存储token
-	tokenStore[token] = &TokenInfo{
-		User:      user,
-		ExpiresAt: expiresAt,
-	}
+    tokenStore[token] = &TokenInfo{ User: user, ExpiresAt: expiresAt }
 
-	// 返回登录响应
-	return &LoginResponse{
-		Token:     token,
-		ExpiresIn: 24 * 60 * 60, // 24小时，以秒为单位
-		User: UserInfo{
-			TenantID: user.TenantID,
-			Username: user.Username,
-		},
-	}, nil
+    return &LoginResponse{
+        Token:     token,
+        ExpiresIn: 24 * 60 * 60,
+        User:      UserInfo{ TenantID: user.TenantID, Username: user.Username },
+    }, nil
 }
 
-// ValidateToken 验证token
+// ValidateToken validates and returns the associated user
 func ValidateToken(token string) (*User, error) {
-	if token == "" {
-		return nil, errors.New("token不能为空")
-	}
+    if token == "" { return nil, errors.New("token is required") }
 
-	// 查找token
-	tokenInfo, exists := tokenStore[token]
-	if !exists {
-		return nil, errors.New("无效的token")
-	}
+    tokenInfo, exists := tokenStore[token]
+    if !exists { return nil, errors.New("invalid token") }
 
-	// 检查token是否过期
-	if time.Now().After(tokenInfo.ExpiresAt) {
-		// 删除过期的token
-		delete(tokenStore, token)
-		return nil, errors.New("token已过期")
-	}
+    if time.Now().After(tokenInfo.ExpiresAt) {
+        delete(tokenStore, token)
+        return nil, errors.New("token expired")
+    }
 
-	return tokenInfo.User, nil
+    return tokenInfo.User, nil
 }
 
-// Logout 登出
+// Logout deletes a token from the store
 func Logout(token string) error {
-	if token == "" {
-		return errors.New("token不能为空")
-	}
-
-	// 删除token
-	delete(tokenStore, token)
-	return nil
+    if token == "" { return errors.New("token is required") }
+    delete(tokenStore, token)
+    return nil
 }
 
-// AddUser 添加用户（管理功能）
+// AddUser adds a new user (admin functionality)
 func AddUser(tenantID, username, password string) error {
-	if tenantID == "" || username == "" || password == "" {
-		return errors.New("租户ID、用户名和密码不能为空")
-	}
-
-	userKey := getUserKey(tenantID, username)
-	if _, exists := userStore[userKey]; exists {
-		return errors.New("用户已存在")
-	}
-
-	userStore[userKey] = &User{
-		TenantID: tenantID,
-		Username: username,
-		Password: hashPassword(password),
-	}
-
-	return nil
+    if tenantID == "" || username == "" || password == "" {
+        return errors.New("tenant_id, username and password are required")
+    }
+    key := getUserKey(tenantID, username)
+    if _, exists := userStore[key]; exists { return errors.New("user already exists") }
+    userStore[key] = &User{ TenantID: tenantID, Username: username, Password: hashPassword(password) }
+    return nil
 }
 
-// GetDefaultUsers 获取默认测试用户信息
+// GetDefaultUsers returns demo users for quick start/testing
 func GetDefaultUsers() []map[string]string {
-	return []map[string]string{
-		{
-			"tenant_id": "demo",
-			"username":  "admin",
-			"password":  "admin123",
-			"desc":      "管理员账户",
-		},
-		{
-			"tenant_id": "demo",
-			"username":  "user1",
-			"password":  "password123",
-			"desc":      "普通用户账户",
-		},
-		{
-			"tenant_id": "tenant1",
-			"username":  "test",
-			"password":  "test123",
-			"desc":      "测试账户",
-		},
-	}
+    return []map[string]string{
+        {"tenant_id": "demo",    "username": "admin", "password": "admin123",  "desc": "Administrator account"},
+        {"tenant_id": "demo",    "username": "user1", "password": "password123","desc": "Regular user account"},
+        {"tenant_id": "tenant1", "username": "test",  "password": "test123",   "desc": "Test account"},
+    }
 }
+

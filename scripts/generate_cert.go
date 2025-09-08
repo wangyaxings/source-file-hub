@@ -1,101 +1,94 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
-	"fmt"
-	"log"
-	"math/big"
-	"net"
-	"os"
-	"path/filepath"
-	"time"
+    "crypto/rand"
+    "crypto/rsa"
+    "crypto/x509"
+    "crypto/x509/pkix"
+    "encoding/pem"
+    "fmt"
+    "log"
+    "math/big"
+    "net"
+    "os"
+    "path/filepath"
+    "time"
 )
 
-// generateSelfSignedCert 生成自签名SSL证书
+// generateSelfSignedCert generates a self-signed SSL certificate (for dev/testing)
 func generateSelfSignedCert() error {
-	// 创建证书目录
-	certDir := "certs"
-	if err := os.MkdirAll(certDir, 0755); err != nil {
-		return fmt.Errorf("创建证书目录失败: %v", err)
-	}
+    // Ensure cert directory exists
+    certDir := "certs"
+    if err := os.MkdirAll(certDir, 0755); err != nil {
+        return fmt.Errorf("failed to create cert directory: %v", err)
+    }
 
-	// 生成私钥
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return fmt.Errorf("生成私钥失败: %v", err)
-	}
+    // Generate private key
+    privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+    if err != nil {
+        return fmt.Errorf("failed to generate private key: %v", err)
+    }
 
-	// 创建证书模板
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			Organization:  []string{"FileServer"},
-			Country:       []string{"CN"},
-			Province:      []string{"Beijing"},
-			Locality:      []string{"Beijing"},
-			StreetAddress: []string{""},
-			PostalCode:    []string{""},
-			CommonName:    "FileServer Local Certificate",
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(365 * 24 * time.Hour), // 1年有效期
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		IPAddresses:           []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
-		DNSNames:              []string{"localhost", "fileserver.local"},
-	}
+    // Create certificate template
+    template := x509.Certificate{
+        SerialNumber: big.NewInt(1),
+        Subject: pkix.Name{
+            Organization:  []string{"FileServer"},
+            Country:       []string{"CN"},
+            Province:      []string{"Beijing"},
+            Locality:      []string{"Beijing"},
+            CommonName:    "FileServer Local Certificate",
+        },
+        NotBefore:             time.Now(),
+        NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+        KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+        ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+        BasicConstraintsValid: true,
+        IPAddresses:           []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+        DNSNames:              []string{"localhost", "fileserver.local"},
+    }
 
-	// 生成证书
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
-	if err != nil {
-		return fmt.Errorf("创建证书失败: %v", err)
-	}
+    // Create certificate
+    certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+    if err != nil {
+        return fmt.Errorf("failed to create certificate: %v", err)
+    }
 
-	// 保存证书文件
-	certPath := filepath.Join(certDir, "server.crt")
-	certOut, err := os.Create(certPath)
-	if err != nil {
-		return fmt.Errorf("创建证书文件失败: %v", err)
-	}
-	defer certOut.Close()
+    // Save certificate file
+    certPath := filepath.Join(certDir, "server.crt")
+    certOut, err := os.Create(certPath)
+    if err != nil {
+        return fmt.Errorf("failed to create certificate file: %v", err)
+    }
+    defer certOut.Close()
+    if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
+        return fmt.Errorf("failed to encode certificate: %v", err)
+    }
 
-	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
-		return fmt.Errorf("编码证书失败: %v", err)
-	}
+    // Save private key file
+    keyPath := filepath.Join(certDir, "server.key")
+    keyOut, err := os.Create(keyPath)
+    if err != nil {
+        return fmt.Errorf("failed to create private key file: %v", err)
+    }
+    defer keyOut.Close()
+    privateKeyBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+    if err != nil {
+        return fmt.Errorf("failed to serialize private key: %v", err)
+    }
+    if err := pem.Encode(keyOut, &pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyBytes}); err != nil {
+        return fmt.Errorf("failed to encode private key: %v", err)
+    }
 
-	// 保存私钥文件
-	keyPath := filepath.Join(certDir, "server.key")
-	keyOut, err := os.Create(keyPath)
-	if err != nil {
-		return fmt.Errorf("创建私钥文件失败: %v", err)
-	}
-	defer keyOut.Close()
+    // Save certificate metadata (JSON)
+    infoPath := filepath.Join(certDir, "cert_info.json")
+    infoOut, err := os.Create(infoPath)
+    if err != nil {
+        return fmt.Errorf("failed to create cert info file: %v", err)
+    }
+    defer infoOut.Close()
 
-	privateKeyBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
-	if err != nil {
-		return fmt.Errorf("序列化私钥失败: %v", err)
-	}
-
-	if err := pem.Encode(keyOut, &pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyBytes}); err != nil {
-		return fmt.Errorf("编码私钥失败: %v", err)
-	}
-
-	// 生成证书信息文件
-	infoPath := filepath.Join(certDir, "cert_info.json")
-
-	infoOut, err := os.Create(infoPath)
-	if err != nil {
-		return fmt.Errorf("创建证书信息文件失败: %v", err)
-	}
-	defer infoOut.Close()
-
-	// 写入JSON格式的证书信息
-	infoJSON := `{
+    infoJSON := `{
   "subject": {
     "common_name": "` + template.Subject.CommonName + `",
     "organization": ["` + template.Subject.Organization[0] + `"],
@@ -114,35 +107,29 @@ func generateSelfSignedCert() error {
   "serial_number": "` + template.SerialNumber.String() + `",
   "key_size": 2048,
   "signature_algorithm": "SHA256-RSA",
-  "files": {
-    "certificate": "server.crt",
-    "private_key": "server.key"
-  }
+  "files": {"certificate": "server.crt", "private_key": "server.key"}
 }`
+    if _, err := infoOut.WriteString(infoJSON); err != nil {
+        return fmt.Errorf("failed to write cert info: %v", err)
+    }
 
-	if _, err := infoOut.WriteString(infoJSON); err != nil {
-		return fmt.Errorf("写入证书信息失败: %v", err)
-	}
-
-	fmt.Printf("✅ SSL证书生成成功！\n")
-	fmt.Printf("   证书文件: %s\n", certPath)
-	fmt.Printf("   私钥文件: %s\n", keyPath)
-	fmt.Printf("   证书信息: %s\n", infoPath)
-	fmt.Printf("   有效期: %s 至 %s\n", template.NotBefore.Format("2006-01-02"), template.NotAfter.Format("2006-01-02"))
-
-	return nil
+    fmt.Printf("✅ SSL certificate generated successfully!\n")
+    fmt.Printf("   Certificate: %s\n", certPath)
+    fmt.Printf("   Private Key: %s\n", keyPath)
+    fmt.Printf("   Info File:   %s\n", infoPath)
+    fmt.Printf("   Validity:    %s to %s\n", template.NotBefore.Format("2006-01-02"), template.NotAfter.Format("2006-01-02"))
+    return nil
 }
 
 func main() {
-	fmt.Println("🔐 生成FileServer SSL证书...")
-
-	if err := generateSelfSignedCert(); err != nil {
-		log.Fatalf("生成证书失败: %v", err)
-	}
-
-	fmt.Println("\n📝 使用说明:")
-	fmt.Println("1. 生成的证书是自签名证书，仅用于开发和测试")
-	fmt.Println("2. 浏览器会显示安全警告，这是正常的")
-	fmt.Println("3. 生产环境请使用CA签发的正式证书")
-	fmt.Println("4. 可以通过 /api/v1/certificates API 下载证书")
+    fmt.Println("🔐 Generating FileServer SSL certificate...")
+    if err := generateSelfSignedCert(); err != nil {
+        log.Fatalf("failed to generate certificate: %v", err)
+    }
+    fmt.Println("\n📝 Notes:")
+    fmt.Println("1. This is a self-signed certificate for development and testing only.")
+    fmt.Println("2. Browsers may show security warnings — this is expected.")
+    fmt.Println("3. Use a CA-signed certificate for production deployments.")
+    fmt.Println("4. The certificate can be downloaded via /api/v1/certificates API.")
 }
+

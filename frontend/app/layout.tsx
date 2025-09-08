@@ -5,8 +5,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'File Manager - 文件管理系统',
-  description: '安全的文件上传和管理系统，支持配置文件、证书文件和文档管理',
+  title: 'File Manager - Secure File Management',
+  description: 'Secure file upload and management system with support for configuration files, certificates, and documents.',
 }
 
 export default function RootLayout({
@@ -15,7 +15,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="zh-CN">
+    <html lang="en">
       <body className={inter.className}>
         <div className="min-h-screen bg-background">
           {children}
@@ -24,3 +24,4 @@ export default function RootLayout({
     </html>
   )
 }
+
