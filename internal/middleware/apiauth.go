@@ -14,10 +14,10 @@ import (
 
 // APIAuthContext key for storing API authentication info in request context
 type APIAuthContext struct {
-	APIKey     *database.APIKey
-	UserID     string
-	KeyID      string
-	HasPermission func(permission string) bool
+    APIKey     *database.APIKey
+    Role       string
+    KeyID      string
+    HasPermission func(permission string) bool
 }
 
 const APIAuthContextKey = "api_auth"
@@ -78,31 +78,11 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Get user role and permissions
-		userRole, err := db.GetUserRole(apiKeyRecord.UserID)
-		if err != nil {
-			writeAPIErrorResponse(w, http.StatusForbidden, "USER_ROLE_ERROR", "Unable to verify user permissions")
-			return
-		}
-
-		// Check if user is active
-		if userRole.Status != "active" {
-			writeAPIErrorResponse(w, http.StatusForbidden, "USER_SUSPENDED", "User account is suspended")
-			return
-		}
-
-		// Create permission checker function
-		hasPermission := func(permission string) bool {
-			// Check API key permissions
-			if apikey.HasPermission(apiKeyRecord.Permissions, permission) {
-				return true
-			}
-			// Check user role permissions
-			if apikey.HasPermission(userRole.Permissions, permission) {
-				return true
-			}
-			return false
-		}
+        // Create permission checker function
+        hasPermission := func(permission string) bool {
+            // Check API key permissions only (role-derived)
+            return apikey.HasPermission(apiKeyRecord.Permissions, permission)
+        }
 
 		// Update API key usage (async)
 		go func() {
@@ -112,12 +92,12 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 		}()
 
 		// Create auth context
-		authContext := &APIAuthContext{
-			APIKey:        apiKeyRecord,
-			UserID:        apiKeyRecord.UserID,
-			KeyID:         apiKeyRecord.ID,
-			HasPermission: hasPermission,
-		}
+        authContext := &APIAuthContext{
+            APIKey:        apiKeyRecord,
+            Role:          apiKeyRecord.Role,
+            KeyID:         apiKeyRecord.ID,
+            HasPermission: hasPermission,
+        }
 
 		// Add auth context to request
 		ctx := context.WithValue(r.Context(), APIAuthContextKey, authContext)
@@ -182,11 +162,11 @@ func APILoggingMiddleware(next http.Handler) http.Handler {
 			if authCtx != nil {
 				db := database.GetDatabase()
 				if db != nil {
-					logEntry := &database.APIUsageLog{
-						APIKeyID:       authCtx.KeyID,
-						UserID:         authCtx.UserID,
-						Endpoint:       r.URL.Path,
-						Method:         r.Method,
+                    logEntry := &database.APIUsageLog{
+                        APIKeyID:       authCtx.KeyID,
+                        UserID:         authCtx.Role,
+                        Endpoint:       r.URL.Path,
+                        Method:         r.Method,
 						IPAddress:      GetClientIP(r),
 						UserAgent:      r.Header.Get("User-Agent"),
 						StatusCode:     recorder.StatusCode,

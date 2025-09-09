@@ -1,6 +1,10 @@
 package middleware
 
-import "net/http"
+import (
+	"net/http"
+	"os"
+	"strings"
+)
 
 // CorsMiddleware CORS中间件
 func CorsMiddleware(next http.Handler) http.Handler {
@@ -15,5 +19,54 @@ func CorsMiddleware(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+// HTTPSRedirectMiddleware redirects HTTP requests to HTTPS
+func HTTPSRedirectMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if HTTPS enforcement is disabled
+		if os.Getenv("DISABLE_HTTPS_REDIRECT") == "true" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if request is already HTTPS
+		if r.TLS != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check for X-Forwarded-Proto header (for load balancers/proxies)
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto == "https" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check for X-Forwarded-SSL header
+		if ssl := r.Header.Get("X-Forwarded-SSL"); ssl == "on" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Redirect to HTTPS
+		host := r.Host
+		if host == "" {
+			host = "localhost:8443"
+		}
+
+		// Replace port 9001 with 8443 if present
+		if strings.Contains(host, ":9001") {
+			host = strings.Replace(host, ":9001", ":8443", 1)
+		} else if !strings.Contains(host, ":") {
+			// If no port specified, add HTTPS port
+			host = host + ":8443"
+		}
+
+		httpsURL := "https://" + host + r.RequestURI
+
+		w.Header().Set("Location", httpsURL)
+		w.WriteHeader(http.StatusMovedPermanently)
+		w.Write([]byte("Moved Permanently. Please use HTTPS."))
 	})
 }
