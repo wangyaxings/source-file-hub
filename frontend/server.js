@@ -1,11 +1,13 @@
-const { createServer } = require('http')
+const { createServer } = require('https')
 const { parse } = require('url')
 const next = require('next')
 const { createProxyMiddleware } = require('http-proxy-middleware')
+const fs = require('fs')
+const path = require('path')
 
 const dev = process.env.NODE_ENV !== 'production'
-const hostname = 'localhost'
-const port = 3000
+const hostname = process.env.HOSTNAME || '127.0.0.1'
+const port = Number(process.env.PORT || 3000)
 
 // Disable SSL certificate verification for development
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
@@ -35,7 +37,13 @@ const apiProxy = createProxyMiddleware({
 })
 
 app.prepare().then(() => {
-  createServer(async (req, res) => {
+  const certDir = path.resolve(__dirname, '..', 'certs')
+  const options = {
+    key: fs.readFileSync(path.join(certDir, 'server.key')),
+    cert: fs.readFileSync(path.join(certDir, 'server.crt')),
+  }
+
+  createServer(options, async (req, res) => {
     try {
       const parsedUrl = parse(req.url, true)
       const { pathname } = parsedUrl
@@ -54,9 +62,9 @@ app.prepare().then(() => {
       res.statusCode = 500
       res.end('internal server error')
     }
-  }).listen(port, (err) => {
+  }).listen(port, hostname, (err) => {
     if (err) throw err
-    console.log(`> Ready on http://${hostname}:${port}`)
+    console.log(`> Ready on https://${hostname}:${port}`)
     console.log(`> API proxy target: ${backendTarget}`)
   })
 })

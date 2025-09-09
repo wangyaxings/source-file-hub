@@ -130,16 +130,15 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0
 ENV GO_ENV=production
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
-ENV BACKEND_URL=http://localhost:8080
+ENV BACKEND_URL=https://localhost:8443
 
 # 暴露端口
-EXPOSE 3000 8080 8443
+EXPOSE 3000 8443
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD (wget --quiet --tries=1 --spider http://localhost:8080/api/v1/health || \
-         wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health) && \
-        wget --quiet --tries=1 --spider http://localhost:3000
+    CMD (wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health) && \
+        wget --no-check-certificate --quiet --tries=1 --spider https://localhost:3000
 
 # 运行启动脚本
 CMD ["./start.sh"]

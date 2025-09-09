@@ -89,66 +89,24 @@ func main() {
 	// 注册路由
 	handler.RegisterRoutes(srv.Router)
 
-	// 检查是否为开发模式（通过环境变量或证书文件存在与否判断）
-	certFile := "certs/server.crt"
-	keyFile := "certs/server.key"
+    // HTTPS-only unified mode
+    certFile := "certs/server.crt"
+    keyFile := "certs/server.key"
 
-	var httpServer *http.Server
-	var httpsServer *http.Server
+    httpsServer := &http.Server{
+        Addr:         ":8443",
+        Handler:      srv.Router,
+        ReadTimeout:  120 * time.Second,
+        WriteTimeout: 120 * time.Second,
+        IdleTimeout:  180 * time.Second,
+    }
 
-	// 检查证书文件是否存在
-	_, certErr := os.Stat(certFile)
-	_, keyErr := os.Stat(keyFile)
-
-	if os.Getenv("DEV_MODE") == "true" || (certErr != nil || keyErr != nil) {
-		// 开发模式：启动HTTP服务器（仅用于重定向到HTTPS）
-		httpServer = &http.Server{
-			Addr:         ":9001",
-			Handler:      srv.Router,
-			ReadTimeout:  120 * time.Second,
-			WriteTimeout: 120 * time.Second,
-			IdleTimeout:  180 * time.Second,
-		}
-
-		go func() {
-			log.Printf("HTTP Server starting on port 9001 (Development Mode - HTTPS Redirect Only)...")
-			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Fatalf("HTTP Server failed to start: %v", err)
-			}
-		}()
-
-		// 在开发模式下也启动HTTPS服务器
-		httpsServer = &http.Server{
-			Addr:         ":8443",
-			Handler:      srv.Router,
-			ReadTimeout:  120 * time.Second,
-			WriteTimeout: 120 * time.Second,
-			IdleTimeout:  180 * time.Second,
-		}
-
-		go func() {
-			log.Printf("HTTPS Server starting on port 8443 (Development Mode)...")
-			if err := httpsServer.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
-				log.Printf("HTTPS Server failed to start (this is expected if certificates are missing): %v", err)
-			}
-		}()
-	} else {
-		// 生产模式：启动HTTPS服务器
-		httpsServer = &http.Server{
-			Addr:         ":8443",
-			Handler:      srv.Router,
-			ReadTimeout:  120 * time.Second,
-			WriteTimeout: 120 * time.Second,
-			IdleTimeout:  180 * time.Second,
-		}
-
-		go func() {
-			log.Printf("HTTPS Server starting on port 8443 (Production Mode)...")
-			if err := httpsServer.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
-				log.Fatalf("HTTPS Server failed to start: %v", err)
-			}
-		}()
-	}
+    go func() {
+        log.Printf("HTTPS Server starting on port 8443 (Unified HTTPS Mode)...")
+        if err := httpsServer.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("HTTPS Server failed to start: %v", err)
+        }
+    }()
 
 	// 等待中断信号以优雅关闭服务器
 	quit := make(chan os.Signal, 1)
@@ -161,19 +119,10 @@ func main() {
 	defer cancel()
 
 	// 优雅关闭服务器
-	if httpServer != nil {
-		log.Println("Shutting down HTTP server...")
-		if err := httpServer.Shutdown(ctx); err != nil {
-			log.Printf("HTTP Server forced to shutdown: %v", err)
-		}
-	}
-
-	if httpsServer != nil {
-		log.Println("Shutting down HTTPS server...")
-		if err := httpsServer.Shutdown(ctx); err != nil {
-			log.Printf("HTTPS Server forced to shutdown: %v", err)
-		}
-	}
+    log.Println("Shutting down HTTPS server...")
+    if err := httpsServer.Shutdown(ctx); err != nil {
+        log.Printf("HTTPS Server forced to shutdown: %v", err)
+    }
 
 	log.Println("Server exited")
 }

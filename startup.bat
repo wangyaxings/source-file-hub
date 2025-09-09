@@ -100,90 +100,64 @@ cd ..
 
 echo.
 
-REM Check certificate files, enable development mode if not found
-set "DEV_MODE=false"
-if not exist "certs\server.crt" (
-    echo [INFO] SSL certificates not found, enabling development mode
-    set "DEV_MODE=true"
+REM Always (re)generate SSL certificates for a unified HTTPS setup
+echo [INFO] Generating SSL certificates (self-signed)...
+go run scripts/generate_cert.go > logs\cert-generate.log 2>&1
+if errorlevel 1 (
+    echo [ERROR] Failed to generate SSL certificates. See logs\cert-generate.log
+    pause
+    exit /b 1
 )
-if not exist "certs\server.key" (
-    echo [INFO] SSL certificates not found, enabling development mode
-    set "DEV_MODE=true"
-)
+echo [OK] SSL certificates ready (certs\server.crt, certs\server.key)
 
-REM Set environment variables
-set "GO_ENV=development"
-if "%DEV_MODE%"=="true" (
-    set "DEV_MODE=true"
-    echo [INFO] Starting in development mode (HTTP only)
-) else (
-    echo [INFO] Starting in production mode (HTTPS)
-)
+REM Unified environment (HTTPS only)
+set "GO_ENV=local"
+set "BACKEND_URL=https://localhost:8443"
 
-REM Start backend service
-echo [INFO] Starting backend service...
-start "FileServer Backend" /min cmd /c "set DEV_MODE=%DEV_MODE% && set GO_ENV=%GO_ENV% && file-server.exe > logs\backend.log 2>&1"
+REM Start backend service (HTTPS only)
+echo [INFO] Starting backend service (HTTPS on 8443)...
+start "FileServer Backend" /min cmd /c "set GO_ENV=%GO_ENV% && file-server.exe > logs\backend.log 2>&1"
 echo [INFO] Waiting for backend to start...
 timeout /t 5 /nobreak >nul
 
-REM Check backend status (try both HTTP and HTTPS)
-echo [INFO] Checking backend status...
+REM Check backend status (HTTPS)
+echo [INFO] Checking backend status (HTTPS)...
 set "backend_status=0"
-
-if "%DEV_MODE%"=="true" (
-    REM Development mode check HTTP
-    for /f %%i in ('powershell -Command "try { (Invoke-WebRequest -Uri 'http://localhost:8080/api/v1/health' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "backend_status=%%i"
-    if "%backend_status%"=="200" (
-        echo [OK] Backend service is running (HTTP mode)
-    ) else (
-        echo [WARNING] Backend may still be starting... (Status: %backend_status%)
-        timeout /t 5 /nobreak >nul
-        for /f %%i in ('powershell -Command "try { (Invoke-WebRequest -Uri 'http://localhost:8080/api/v1/health' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "backend_status=%%i"
-        if "%backend_status%"=="200" (
-            echo [OK] Backend service is now running (HTTP mode)
-        ) else (
-            echo [ERROR] Backend service failed to start properly
-            echo [INFO] Check logs\backend.log for details
-        )
-    )
+for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "backend_status=%%i"
+if "%backend_status%"=="200" (
+    echo [OK] Backend service is running
 ) else (
-    REM Production mode check HTTPS
-    for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "backend_status=%%i"
-    if "%backend_status%"=="200" (
-        echo [OK] Backend service is running (HTTPS mode)
+    echo [WARNING] Backend may still be starting... (Status: %backend_status%)
+    timeout /t 5 /nobreak >nul
+    for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "backend_status=%%i"
+    if not "%backend_status%"=="200" (
+        echo [ERROR] Backend service failed to start properly
+        echo [INFO] Check logs\backend.log for details
     ) else (
-        echo [WARNING] Backend may still be starting... (Status: %backend_status%)
-        timeout /t 5 /nobreak >nul
-        for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "backend_status=%%i"
-        if "%backend_status%"=="200" (
-            echo [OK] Backend service is now running (HTTPS mode)
-        ) else (
-            echo [ERROR] Backend service failed to start properly
-            echo [INFO] Check logs\backend.log for details
-        )
+        echo [OK] Backend service is now running
     )
 )
 
 REM Start frontend service
 echo [INFO] Starting frontend service...
 cd frontend
-start "FileServer Frontend" /min cmd /c "cd /d %cd% && yarn dev > ..\logs\frontend.log 2>&1"
+start "FileServer Frontend" /min cmd /c "cd /d %cd% && set BACKEND_URL=%BACKEND_URL% && yarn dev > ..\logs\frontend.log 2>&1"
 cd ..
 echo [INFO] Waiting for frontend to start...
 timeout /t 8 /nobreak >nul
 
-REM Check if frontend is running
-echo [INFO] Checking frontend status...
-for /f %%i in ('powershell -Command "try { (Invoke-WebRequest -Uri 'http://localhost:3000' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "frontend_status=%%i"
+REM Check if frontend is running (HTTPS)
+echo [INFO] Checking frontend status (HTTPS)...
+for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:3000' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "frontend_status=%%i"
 if "%frontend_status%"=="200" (
-    echo [OK] Frontend service is running
+    echo [OK] Frontend service is running (HTTPS)
 ) else (
     echo [WARNING] Frontend may still be starting... (Status: %frontend_status%)
     echo [INFO] Waiting additional 5 seconds for frontend...
     timeout /t 5 /nobreak >nul
-    for /f %%i in ('powershell -Command "try { (Invoke-WebRequest -Uri 'http://localhost:3000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "frontend_status=%%i"
+    for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:3000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "frontend_status=%%i"
     if "%frontend_status%"=="200" (
-        echo [OK] Frontend service is now running
+        echo [OK] Frontend service is now running (HTTPS)
     ) else (
         echo [ERROR] Frontend service failed to start properly
         echo [INFO] Check logs\frontend.log for details
@@ -195,14 +169,9 @@ echo ================================
 echo       Services Started!
 echo ================================
 echo.
-echo Frontend URL: http://localhost:3000
-if "%DEV_MODE%"=="true" (
-    echo Backend URL:  http://localhost:8080
-    echo API Info:    http://localhost:8080/api/v1/health
-) else (
-    echo Backend URL:  https://localhost:8443
-    echo API Info:    https://localhost:8443/api/v1/health
-)
+echo Frontend URL: https://127.0.0.1:3000
+echo Backend URL:  https://localhost:8443
+echo API Info:    https://localhost:8443/api/v1/health
 echo.
 echo Default Users:
 echo - admin@demo     (Administrator)
@@ -217,16 +186,16 @@ echo.
 
 REM Open main interface in browser
 echo [INFO] Preparing to open main interface...
-for /f %%i in ('powershell -Command "try { (Invoke-WebRequest -Uri 'http://localhost:3000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "final_check=%%i"
+for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:3000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "final_check=%%i"
 if "%final_check%"=="200" (
     echo [INFO] Opening main interface in browser...
     timeout /t 1 /nobreak >nul
-    start "" "http://localhost:3000"
+    start "" "https://127.0.0.1:3000"
     echo [OK] Browser opened with FileServer interface
 ) else (
     echo [WARNING] Frontend service not responding, opening anyway...
     echo [INFO] You may need to refresh the page once services are ready
-    start "" "http://localhost:3000"
+    start "" "https://127.0.0.1:3000"
     echo [OK] Browser opened (services may still be starting)
 )
 
