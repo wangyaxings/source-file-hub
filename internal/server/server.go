@@ -15,7 +15,8 @@ type Server struct {
 func New() *Server {
 	router := mux.NewRouter()
 
-	// Order matters: CORS (preflight), Logging, then Auth
+	// Order matters: HTTPS redirect, CORS (preflight), Logging, then Auth
+	router.Use(middleware.HTTPSRedirectMiddleware)
 	router.Use(middleware.CorsMiddleware)
 	router.Use(middleware.LoggingMiddleware)
 	router.Use(middleware.AuthMiddleware)

@@ -1,16 +1,16 @@
 package handler
 
 import (
-    "encoding/json"
-    "fmt"
-    "io"
-    "log"
-    "net/http"
-    "os"
-    "strconv"
-    "path/filepath"
-    "strings"
-    "time"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"secure-file-hub/internal/database"
 	"secure-file-hub/internal/middleware"
@@ -32,13 +32,13 @@ func RegisterAPIRoutes(router *mux.Router) {
 	apiV1.Handle("/files/{fileId}/download", middleware.RequirePermission("download")(http.HandlerFunc(apiDownloadFileHandler))).Methods("GET")
 	apiV1.Handle("/files/upload", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadFileHandler))).Methods("POST")
 
-    // Package upload endpoints (ZIP) for assets and others
-    apiV1.Handle("/upload/assets-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadAssetsZipHandler))).Methods("POST")
-    apiV1.Handle("/upload/others-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadOthersZipHandler))).Methods("POST")
+	// Package upload endpoints (ZIP) for assets and others
+	apiV1.Handle("/upload/assets-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadAssetsZipHandler))).Methods("POST")
+	apiV1.Handle("/upload/others-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadOthersZipHandler))).Methods("POST")
 
-    // Package list/update endpoints
-    apiV1.Handle("/packages", middleware.RequirePermission("read")(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
-    apiV1.Handle("/packages/{id}/remark", middleware.RequirePermission("upload")(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
+	// Package list/update endpoints
+	apiV1.Handle("/packages", middleware.RequirePermission("read")(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
+	apiV1.Handle("/packages/{id}/remark", middleware.RequirePermission("upload")(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
 
 	// File information endpoints
 	apiV1.Handle("/files/{fileId}", middleware.RequirePermission("read")(http.HandlerFunc(apiGetFileInfoHandler))).Methods("GET")
@@ -47,6 +47,9 @@ func RegisterAPIRoutes(router *mux.Router) {
 	// API information
 	apiV1.HandleFunc("/info", apiPublicInfoHandler).Methods("GET")
 	apiV1.HandleFunc("/status", apiStatusHandler).Methods("GET")
+
+	// API list endpoint with permission-based filtering
+	apiV1.Handle("/list", middleware.RequirePermission("read")(http.HandlerFunc(apiListEndpointsHandler))).Methods("GET")
 }
 
 // APIResponse represents a standard API response
@@ -90,7 +93,7 @@ type APIFileInfo struct {
 	UploadTime   string `json:"upload_time"`
 	Version      int    `json:"version"`
 	IsLatest     bool   `json:"is_latest"`
-	Checksum     string `json:"checksum,omitempty"`
+	Checksum     string `json:"checksum,omitempty"` // SHA256 checksum
 	DownloadURL  string `json:"download_url"`
 }
 
@@ -378,11 +381,11 @@ func apiPublicInfoHandler(w http.ResponseWriter, r *http.Request) {
 			"version":     "1.0.0",
 			"description": "RESTful API for secure file management",
 			"endpoints": map[string]interface{}{
-				"files":           "/api/v1/public/files",
-				"file_download":   "/api/v1/public/files/{id}/download",
-				"file_upload":     "/api/v1/public/files/upload",
-				"file_info":       "/api/v1/public/files/{id}",
-				"file_versions":   "/api/v1/public/files/{id}/versions",
+				"files":         "/api/v1/public/files",
+				"file_download": "/api/v1/public/files/{id}/download",
+				"file_upload":   "/api/v1/public/files/upload",
+				"file_info":     "/api/v1/public/files/{id}",
+				"file_versions": "/api/v1/public/files/{id}/versions",
 			},
 			"authentication": "API Key required in Authorization header",
 			"rate_limits":    "Per API key limits apply",
@@ -478,208 +481,363 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, filePath, fileNam
 
 // apiUploadAssetsZipHandler handles assets ZIP uploads
 func apiUploadAssetsZipHandler(w http.ResponseWriter, r *http.Request) {
-    handleZipUpload(w, r, "assets")
+	handleZipUpload(w, r, "assets")
 }
 
 // apiUploadOthersZipHandler handles others ZIP uploads
 func apiUploadOthersZipHandler(w http.ResponseWriter, r *http.Request) {
-    handleZipUpload(w, r, "others")
+	handleZipUpload(w, r, "others")
 }
 
 // handleZipUpload validates filename and stores ZIP under downloads/packages/{tenant}/{category}/
 func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
-    // Parse multipart form (up to 256MB)
-    if err := r.ParseMultipartForm(256 << 20); err != nil {
-        writeAPIErrorResponse(w, http.StatusBadRequest, "INVALID_FORM", "Failed to parse form data")
-        return
-    }
+	// Parse multipart form (up to 256MB)
+	if err := r.ParseMultipartForm(256 << 20); err != nil {
+		writeAPIErrorResponse(w, http.StatusBadRequest, "INVALID_FORM", "Failed to parse form data")
+		return
+	}
 
-    file, header, err := r.FormFile("file")
-    if err != nil {
-        writeAPIErrorResponse(w, http.StatusBadRequest, "MISSING_FILE", "File is required (field: file)")
-        return
-    }
-    defer file.Close()
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeAPIErrorResponse(w, http.StatusBadRequest, "MISSING_FILE", "File is required (field: file)")
+		return
+	}
+	defer file.Close()
 
-    // Validate filename pattern: <tenant>_(assets|others)_<UTC>.zip where UTC is YYYYMMDDThhmmssZ
-    // Example: tenant123_assets_20250101T120000Z.zip
-    filename := header.Filename
-    var expected string
-    if category == "assets" {
-        expected = "assets"
-    } else {
-        expected = "others"
-    }
+	// Validate filename pattern: <category>_<UTC>.zip where UTC is YYYYMMDDThhmmssZ
+	// Example: assets_20250101T120000Z.zip
+	filename := header.Filename
+	var expected string
+	if category == "assets" {
+		expected = "assets"
+	} else {
+		expected = "others"
+	}
 
-    // Simple state machine validation without external regex
-    // Split by underscore: tenant, category, timestamp.ext
-    parts := strings.Split(filename, "_")
-    if len(parts) != 3 {
-        writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_FILENAME", "Filename must be <tenant>_"+expected+"_<UTC>.zip")
-        return
-    }
+	// Simple state machine validation without external regex
+	// Split by underscore: category, timestamp.ext
+	parts := strings.Split(filename, "_")
+	if len(parts) != 2 {
+		writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_FILENAME", "Filename must be "+expected+"_<UTC>.zip")
+		return
+	}
 
-    tenantToken := parts[0]
-    catPart := parts[1]
-    tsPart := parts[2]
+	catPart := parts[0]
+	tsPart := parts[1]
 
-    if tenantToken == "" || catPart != expected || !strings.HasSuffix(strings.ToLower(tsPart), ".zip") {
-        writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_FILENAME", "Invalid filename structure or extension")
-        return
-    }
+	if catPart != expected || !strings.HasSuffix(strings.ToLower(tsPart), ".zip") {
+		writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_FILENAME", "Invalid filename structure or extension")
+		return
+	}
 
-    // Trim .zip and validate timestamp format YYYYMMDDThhmmssZ
-    tsCore := strings.TrimSuffix(tsPart, ".zip")
-    if len(tsCore) != 16 || tsCore[8] != 'T' || tsCore[15] != 'Z' {
-        writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_TIMESTAMP", "Timestamp must be YYYYMMDDThhmmssZ")
-        return
-    }
-    // Basic numeric checks for date/time components
-    digits := tsCore[:8] + tsCore[9:15]
-    for _, c := range digits {
-        if c < '0' || c > '9' {
-            writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_TIMESTAMP", "Timestamp contains non-digit characters")
-            return
-        }
-    }
+	// Trim .zip and validate timestamp format YYYYMMDDThhmmssZ
+	tsCore := strings.TrimSuffix(tsPart, ".zip")
+	if len(tsCore) != 16 || tsCore[8] != 'T' || tsCore[15] != 'Z' {
+		writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_TIMESTAMP", "Timestamp must be YYYYMMDDThhmmssZ")
+		return
+	}
+	// Basic numeric checks for date/time components
+	digits := tsCore[:8] + tsCore[9:15]
+	for _, c := range digits {
+		if c < '0' || c > '9' {
+			writeAPIErrorResponse(w, http.StatusBadRequest, "BAD_TIMESTAMP", "Timestamp contains non-digit characters")
+			return
+		}
+	}
 
-    // Determine client IP
-    clientIP := r.Header.Get("X-Forwarded-For")
-    if clientIP == "" {
-        clientIP = strings.Split(r.RemoteAddr, ":")[0]
-    }
+	// Determine client IP
+	clientIP := r.Header.Get("X-Forwarded-For")
+	if clientIP == "" {
+		clientIP = strings.Split(r.RemoteAddr, ":")[0]
+	}
 
-    // Create target directory downloads/packages/{tenant}/{category}
-    baseDir := filepath.Join("downloads", "packages", tenantToken, category)
-    if err := os.MkdirAll(baseDir, 0755); err != nil {
-        writeAPIErrorResponse(w, http.StatusInternalServerError, "MKDIR_FAILED", "Failed to create storage directory")
-        return
-    }
+	// Create target directory downloads/packages/{category}
+	baseDir := filepath.Join("downloads", "packages", category)
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		writeAPIErrorResponse(w, http.StatusInternalServerError, "MKDIR_FAILED", "Failed to create storage directory")
+		return
+	}
 
-    // Shorten tenant for stored filename (like Docker-style short IDs)
-    shortTenant := tenantToken
-    if len(shortTenant) > 12 {
-        shortTenant = shortTenant[:12]
-    }
+	// Store with structured name: <category>_<UTC>.zip
+	storedName := fmt.Sprintf("%s_%s.zip", category, strings.TrimSuffix(tsPart, ".zip"))
 
-    // Store with shorter, structured name: <category>_<UTC>_<shortTenant>.zip
-    storedName := fmt.Sprintf("%s_%s_%s.zip", category, strings.TrimSuffix(tsPart, ".zip"), shortTenant)
+	// Full path
+	targetPath := filepath.Join(baseDir, storedName)
+	out, err := os.Create(targetPath)
+	if err != nil {
+		writeAPIErrorResponse(w, http.StatusInternalServerError, "CREATE_FAILED", "Failed to create target file")
+		return
+	}
+	defer out.Close()
 
-    // Full path
-    targetPath := filepath.Join(baseDir, storedName)
-    out, err := os.Create(targetPath)
-    if err != nil {
-        writeAPIErrorResponse(w, http.StatusInternalServerError, "CREATE_FAILED", "Failed to create target file")
-        return
-    }
-    defer out.Close()
+	if _, err := io.Copy(out, file); err != nil {
+		writeAPIErrorResponse(w, http.StatusInternalServerError, "WRITE_FAILED", "Failed to save uploaded file")
+		return
+	}
 
-    if _, err := io.Copy(out, file); err != nil {
-        writeAPIErrorResponse(w, http.StatusInternalServerError, "WRITE_FAILED", "Failed to save uploaded file")
-        return
-    }
+	// Stat file for size
+	var size int64
+	if fi, err := os.Stat(targetPath); err == nil {
+		size = fi.Size()
+	}
 
-    // Stat file for size
-    var size int64
-    if fi, err := os.Stat(targetPath); err == nil {
-        size = fi.Size()
-    }
+	// Insert package record (preserve original filename in remark)
+	db := database.GetDatabase()
+	if db == nil {
+		writeAPIErrorResponse(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
 
-    // Insert package record (preserve original filename in remark)
-    db := database.GetDatabase()
-    if db == nil {
-        writeAPIErrorResponse(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
-        return
-    }
+	pkg := &database.PackageRecord{
+		ID:        fmt.Sprintf("pkg_%d_%d", time.Now().UnixNano(), os.Getpid()),
+		TenantID:  "default", // Use default tenant for simplified system
+		Type:      category,
+		FileName:  storedName,
+		Size:      size,
+		Path:      targetPath,
+		IP:        clientIP,
+		Timestamp: time.Now().UTC(),
+		Remark:    "Original filename: " + filename,
+	}
+	if err := db.InsertPackageRecord(pkg); err != nil {
+		log.Printf("Failed to insert package record: %v", err)
+	}
 
-    pkg := &database.PackageRecord{
-        ID:        fmt.Sprintf("pkg_%d_%d", time.Now().UnixNano(), os.Getpid()),
-        TenantID:  tenantToken,
-        Type:      category,
-        FileName:  storedName,
-        Size:      size,
-        Path:      targetPath,
-        IP:        clientIP,
-        Timestamp: time.Now().UTC(),
-        Remark:    "Original filename: " + filename,
-    }
-    if err := db.InsertPackageRecord(pkg); err != nil {
-        log.Printf("Failed to insert package record: %v", err)
-    }
-
-    // Success response
-    writeAPIJSONResponse(w, http.StatusCreated, APIResponse{
-        Success: true,
-        Data: map[string]interface{}{
-            "id":         pkg.ID,
-            "tenant":     tenantToken,
-            "category":   category,
-            "file_name":  storedName,
-            "original_name": filename,
-            "stored_at":  targetPath,
-            "size":       size,
-            "ip":         clientIP,
-            "timestamp":  time.Now().UTC().Format(time.RFC3339),
-        },
-    })
+	// Success response
+	writeAPIJSONResponse(w, http.StatusCreated, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"id":            pkg.ID,
+			"tenant":        "default",
+			"category":      category,
+			"file_name":     storedName,
+			"original_name": filename,
+			"stored_at":     targetPath,
+			"size":          size,
+			"ip":            clientIP,
+			"timestamp":     time.Now().UTC().Format(time.RFC3339),
+		},
+	})
 }
 
 // apiListPackagesHandler lists packages with filters and pagination
 func apiListPackagesHandler(w http.ResponseWriter, r *http.Request) {
-    tenant := r.URL.Query().Get("tenant")
-    ptype := r.URL.Query().Get("type")
-    search := r.URL.Query().Get("q")
-    pageStr := r.URL.Query().Get("page")
-    limitStr := r.URL.Query().Get("limit")
+	tenant := r.URL.Query().Get("tenant")
+	ptype := r.URL.Query().Get("type")
+	search := r.URL.Query().Get("q")
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
 
-    page, limit := 1, 50
-    if pageStr != "" { if p, err := strconv.Atoi(pageStr); err == nil && p > 0 { page = p } }
-    if limitStr != "" { if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 1000 { limit = l } }
+	page, limit := 1, 50
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 1000 {
+			limit = l
+		}
+	}
 
-    db := database.GetDatabase()
-    if db == nil {
-        writeAPIErrorResponse(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
-        return
-    }
+	db := database.GetDatabase()
+	if db == nil {
+		writeAPIErrorResponse(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
 
-    list, total, err := db.ListPackages(tenant, ptype, search, page, limit)
-    if err != nil {
-        writeAPIErrorResponse(w, http.StatusInternalServerError, "QUERY_ERROR", "Failed to list packages")
-        return
-    }
+	list, total, err := db.ListPackages(tenant, ptype, search, page, limit)
+	if err != nil {
+		writeAPIErrorResponse(w, http.StatusInternalServerError, "QUERY_ERROR", "Failed to list packages")
+		return
+	}
 
-    writeAPIJSONResponse(w, http.StatusOK, APIResponse{
-        Success: true,
-        Data: map[string]interface{}{
-            "items": list,
-            "count": total,
-            "page":  page,
-            "limit": limit,
-        },
-    })
+	writeAPIJSONResponse(w, http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"items": list,
+			"count": total,
+			"page":  page,
+			"limit": limit,
+		},
+	})
 }
 
 // apiUpdatePackageRemarkHandler updates remark
 func apiUpdatePackageRemarkHandler(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
-    id := vars["id"]
-    if id == "" {
-        writeAPIErrorResponse(w, http.StatusBadRequest, "MISSING_ID", "Package id is required")
-        return
+	vars := mux.Vars(r)
+	id := vars["id"]
+	if id == "" {
+		writeAPIErrorResponse(w, http.StatusBadRequest, "MISSING_ID", "Package id is required")
+		return
+	}
+	var body struct {
+		Remark string `json:"remark"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeAPIErrorResponse(w, http.StatusBadRequest, "INVALID_BODY", "Invalid JSON body")
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeAPIErrorResponse(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	if err := db.UpdatePackageRemark(id, body.Remark); err != nil {
+		writeAPIErrorResponse(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to update remark")
+		return
+	}
+	writeAPIJSONResponse(w, http.StatusOK, APIResponse{Success: true})
+}
+
+// apiListEndpointsHandler provides a permission-based list of available API endpoints
+func apiListEndpointsHandler(w http.ResponseWriter, r *http.Request) {
+	// Get auth context to check permissions
+	authCtx := middleware.GetAPIAuthContext(r)
+	if authCtx == nil {
+		writeAPIErrorResponse(w, http.StatusUnauthorized, "AUTH_REQUIRED", "Authentication required")
+		return
+	}
+
+	// Base API endpoints that all authenticated users can see
+	endpoints := map[string]interface{}{
+		"info": map[string]interface{}{
+			"method":         "GET",
+			"path":           "/api/v1/public/info",
+			"description":    "Get API information and version",
+			"authentication": "None required",
+		},
+		"status": map[string]interface{}{
+			"method":         "GET",
+			"path":           "/api/v1/public/status",
+			"description":    "Get API status",
+			"authentication": "None required",
+		},
+	}
+
+	// Add permission-based endpoints
+	if authCtx.HasPermission("read") {
+		endpoints["list_files"] = map[string]interface{}{
+			"method":         "GET",
+			"path":           "/api/v1/public/files",
+			"description":    "List files with optional filtering and pagination",
+			"authentication": "API Key with read permission",
+			"parameters": map[string]interface{}{
+				"type":  "File type filter (config, certificate, docs)",
+				"page":  "Page number for pagination",
+				"limit": "Number of items per page (max 1000)",
+			},
+		}
+
+		endpoints["get_file_info"] = map[string]interface{}{
+			"method":         "GET",
+			"path":           "/api/v1/public/files/{fileId}",
+			"description":    "Get detailed information about a specific file",
+			"authentication": "API Key with read permission",
+		}
+
+		endpoints["get_file_versions"] = map[string]interface{}{
+			"method":         "GET",
+			"path":           "/api/v1/public/files/{fileId}/versions",
+			"description":    "Get all versions of a specific file",
+			"authentication": "API Key with read permission",
+		}
+
+		endpoints["list_packages"] = map[string]interface{}{
+			"method":         "GET",
+			"path":           "/api/v1/public/packages",
+			"description":    "List uploaded packages (assets/others)",
+			"authentication": "API Key with read permission",
+			"parameters": map[string]interface{}{
+				"tenant": "Filter by tenant ID",
+				"type":   "Filter by package type (assets, others)",
+				"q":      "Search query",
+				"page":   "Page number for pagination",
+				"limit":  "Number of items per page",
+			},
+		}
+	}
+
+	if authCtx.HasPermission("download") {
+		endpoints["download_file"] = map[string]interface{}{
+			"method":         "GET",
+			"path":           "/api/v1/public/files/{fileId}/download",
+			"description":    "Download a specific file",
+			"authentication": "API Key with download permission",
+		}
+	}
+
+	if authCtx.HasPermission("upload") {
+		endpoints["upload_file"] = map[string]interface{}{
+			"method":         "POST",
+			"path":           "/api/v1/public/files/upload",
+			"description":    "Upload a new file",
+			"authentication": "API Key with upload permission",
+			"content_type":   "multipart/form-data",
+			"parameters": map[string]interface{}{
+				"file":        "File to upload",
+				"type":        "File type (config, certificate, docs)",
+				"description": "Optional file description",
+			},
+		}
+
+		endpoints["upload_assets_zip"] = map[string]interface{}{
+			"method":          "POST",
+			"path":            "/api/v1/public/upload/assets-zip",
+			"description":     "Upload assets ZIP package",
+			"authentication":  "API Key with upload permission",
+			"content_type":    "multipart/form-data",
+			"filename_format": "assets_YYYYMMDDThhmmssZ.zip",
+		}
+
+		endpoints["upload_others_zip"] = map[string]interface{}{
+			"method":          "POST",
+			"path":            "/api/v1/public/upload/others-zip",
+			"description":     "Upload others ZIP package",
+			"authentication":  "API Key with upload permission",
+			"content_type":    "multipart/form-data",
+			"filename_format": "others_YYYYMMDDThhmmssZ.zip",
+		}
+
+		endpoints["update_package_remark"] = map[string]interface{}{
+			"method":         "PATCH",
+			"path":           "/api/v1/public/packages/{id}/remark",
+			"description":    "Update package remark",
+			"authentication": "API Key with upload permission",
+			"content_type":   "application/json",
+			"body": map[string]interface{}{
+				"remark": "New remark text",
+			},
+		}
+	}
+
+	if authCtx.HasPermission("admin") {
+		endpoints["admin_endpoints"] = map[string]interface{}{
+			"note":    "Admin-only endpoints are available but not listed here for security",
+			"contact": "Contact system administrator for admin API access",
+		}
+	}
+
+	// Get user info for response
+    userInfo := map[string]interface{}{
+        "role":        authCtx.Role,
+        "key_id":      authCtx.KeyID,
+        "permissions": authCtx.APIKey.Permissions,
     }
-    var body struct{ Remark string `json:"remark"` }
-    if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-        writeAPIErrorResponse(w, http.StatusBadRequest, "INVALID_BODY", "Invalid JSON body")
-        return
-    }
-    db := database.GetDatabase()
-    if db == nil {
-        writeAPIErrorResponse(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
-        return
-    }
-    if err := db.UpdatePackageRemark(id, body.Remark); err != nil {
-        writeAPIErrorResponse(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to update remark")
-        return
-    }
-    writeAPIJSONResponse(w, http.StatusOK, APIResponse{ Success: true })
+
+	response := APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"endpoints":       endpoints,
+			"user_info":       userInfo,
+			"total_endpoints": len(endpoints),
+			"api_version":     "v1",
+			"base_url":        "/api/v1/public",
+		},
+		Meta: &APIMeta{
+			Total: len(endpoints),
+		},
+	}
+
+	writeAPIJSONResponse(w, http.StatusOK, response)
 }

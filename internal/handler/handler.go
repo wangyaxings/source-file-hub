@@ -1,8 +1,9 @@
 package handler
 
 import (
-	"crypto/md5"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,19 +32,19 @@ type Response struct {
 
 // FileMetadata 文件元数据结构 (deprecated, use database.FileRecord)
 type FileMetadata struct {
-	ID           string    `json:"id"`
-	OriginalName string    `json:"originalName"`
-	FileType     string    `json:"fileType"`
-	Description  string    `json:"description"`
-	Uploader     string    `json:"uploader"`
-	UploadTime   time.Time `json:"uploadTime"`
-	Version      int       `json:"version"`
-	VersionedName string   `json:"versionedName"`
+	ID            string    `json:"id"`
+	OriginalName  string    `json:"originalName"`
+	FileType      string    `json:"fileType"`
+	Description   string    `json:"description"`
+	Uploader      string    `json:"uploader"`
+	UploadTime    time.Time `json:"uploadTime"`
+	Version       int       `json:"version"`
+	VersionedName string    `json:"versionedName"`
 }
 
 // Database helper functions
 
-// calculateFileChecksum calculates MD5 checksum of a file
+// calculateFileChecksum calculates SHA256 checksum of a file
 func calculateFileChecksum(filePath string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -51,37 +52,37 @@ func calculateFileChecksum(filePath string) (string, error) {
 	}
 	defer file.Close()
 
-	hash := md5.New()
+	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return "", err
 	}
 
-	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // convertToFileInfo converts database.FileRecord to FileInfo
 func convertToFileInfo(record database.FileRecord) FileInfo {
 	return FileInfo{
-		ID:          record.ID,
-		FileName:    record.VersionedName,
+		ID:           record.ID,
+		FileName:     record.VersionedName,
 		OriginalName: record.OriginalName,
-		FileType:    record.FileType,
-		Size:        record.Size,
-		Description: record.Description,
-		UploadTime:  record.UploadTime,
-		Version:     record.Version,
-		IsLatest:    record.IsLatest,
-		Uploader:    record.Uploader,
-		Path:        record.FilePath,
+		FileType:     record.FileType,
+		Size:         record.Size,
+		Description:  record.Description,
+		UploadTime:   record.UploadTime,
+		Version:      record.Version,
+		IsLatest:     record.IsLatest,
+		Uploader:     record.Uploader,
+		Path:         record.FilePath,
 	}
 }
 
 // RegisterRoutes 注册所有路由
 func RegisterRoutes(router *mux.Router) {
 	// 添加全局健康检查路由（不需要认证，便于系统监控）
-    router.HandleFunc("/api/v1/health", healthCheckHandler).Methods("GET")
-    // Alias for broader compatibility with common probes (e.g., Kubernetes)
-    router.HandleFunc("/api/v1/healthz", healthCheckHandler).Methods("GET")
+	router.HandleFunc("/api/v1/health", healthCheckHandler).Methods("GET")
+	// Alias for broader compatibility with common probes (e.g., Kubernetes)
+	router.HandleFunc("/api/v1/healthz", healthCheckHandler).Methods("GET")
 
 	// Web API版本前缀 (原有的Web界面API)
 	webAPI := router.PathPrefix("/api/v1/web").Subrouter()
@@ -96,9 +97,9 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/", apiInfoHandler).Methods("GET")
 
 	// 健康检查路由（无需认证）
-    webAPI.HandleFunc("/health", healthCheckHandler).Methods("GET")
-    // Alias for web namespace
-    webAPI.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
+	webAPI.HandleFunc("/health", healthCheckHandler).Methods("GET")
+	// Alias for web namespace
+	webAPI.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
 
 	// 文件管理路由（需要Web认证）
 	webAPI.HandleFunc("/upload", uploadFileHandler).Methods("POST")
@@ -136,7 +137,7 @@ func RegisterRoutes(router *mux.Router) {
 	// Admin web routes (for frontend admin panel)
 	RegisterWebAdminRoutes(webAPI)
 
-		// =============================================================================
+	// =============================================================================
 	// Public API Routes (require API key authentication) - 注册在更具体的路径
 	// =============================================================================
 	RegisterAPIRoutes(router)
@@ -252,10 +253,10 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Message: "FileServer REST API Information",
 		Data: map[string]interface{}{
-			"name":        "FileServer REST API",
-			"version":     "v1.0.0",
-			"description": "A secure file server with user authentication and SSL support",
-			"base_url":    baseURL,
+			"name":              "FileServer REST API",
+			"version":           "v1.0.0",
+			"description":       "A secure file server with user authentication and SSL support",
+			"base_url":          baseURL,
 			"documentation_url": baseURL + "/docs",
 			"endpoints": map[string]interface{}{
 				"api_info":     baseURL,
@@ -304,9 +305,9 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
 				"burst_limit":         10,
 			},
 			"server_info": map[string]interface{}{
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-				"uptime":    "runtime dependent",
-				"ssl_enabled": true,
+				"timestamp":      time.Now().UTC().Format(time.RFC3339),
+				"uptime":         "runtime dependent",
+				"ssl_enabled":    true,
 				"golang_version": "go1.19+",
 			},
 		},
@@ -363,22 +364,22 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	// 用户认证
 	loginResp, err := auth.Authenticate(&loginReq)
 	if err != nil {
-		log.Printf("Login failed for user %s@%s: %v", loginReq.Username, loginReq.TenantID, err)
+		log.Printf("Login failed for user %s: %v", loginReq.Username, err)
 
 		// 记录登录失败日志
 		if l := logger.GetLogger(); l != nil {
-			l.LogUserLogin(loginReq.TenantID, loginReq.Username, r.RemoteAddr, false)
+			l.LogUserLogin("", loginReq.Username, r.RemoteAddr, false)
 		}
 
 		writeErrorResponse(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
-	log.Printf("User %s@%s logged in successfully", loginReq.Username, loginReq.TenantID)
+	log.Printf("User %s logged in successfully", loginReq.Username)
 
 	// 记录用户登录日志
 	if l := logger.GetLogger(); l != nil {
-		l.LogUserLogin(loginReq.TenantID, loginReq.Username, r.RemoteAddr, true)
+		l.LogUserLogin("", loginReq.Username, r.RemoteAddr, true)
 	}
 
 	// 返回登录成功响应
@@ -507,8 +508,6 @@ func getAccessLogsHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-
-
 // FileUploadRequest 文件上传请求结构
 type FileUploadRequest struct {
 	FileType    string `form:"fileType" json:"fileType"`       // config, certificate, docs
@@ -517,23 +516,23 @@ type FileUploadRequest struct {
 
 // FileInfo 文件信息结构
 type FileInfo struct {
-	ID          string    `json:"id"`
-	FileName    string    `json:"fileName"`
-	OriginalName string   `json:"originalName"`
-	FileType    string    `json:"fileType"`
-	Size        int64     `json:"size"`
-	Description string    `json:"description"`
-	UploadTime  time.Time `json:"uploadTime"`
-	Version     int       `json:"version"`
-	IsLatest    bool      `json:"isLatest"`
-	Uploader    string    `json:"uploader"`
-	Path        string    `json:"path"`
+	ID           string    `json:"id"`
+	FileName     string    `json:"fileName"`
+	OriginalName string    `json:"originalName"`
+	FileType     string    `json:"fileType"`
+	Size         int64     `json:"size"`
+	Description  string    `json:"description"`
+	UploadTime   time.Time `json:"uploadTime"`
+	Version      int       `json:"version"`
+	IsLatest     bool      `json:"isLatest"`
+	Uploader     string    `json:"uploader"`
+	Path         string    `json:"path"`
 }
 
 // uploadFileHandler 文件上传处理器
 func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
-    // 解析multipart form（提高限额）
-    err := r.ParseMultipartForm(128 << 20) // 128MB
+	// 解析multipart form（提高限额）
+	err := r.ParseMultipartForm(128 << 20) // 128MB
 	if err != nil {
 		writeErrorResponse(w, http.StatusBadRequest, "Failed to parse form: "+err.Error())
 		return
@@ -561,47 +560,47 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    // 验证文件扩展名
-    if !isValidFileExtension(header.Filename) {
+	// 验证文件扩展名
+	if !isValidFileExtension(header.Filename) {
 		writeErrorResponse(w, http.StatusBadRequest, "Unsupported file format")
 		return
 	}
 
-    // 进一步校验扩展名与类型匹配（roadmap->.tsv，recommendation->.xlsx）并设置固定原始名
-    ext := strings.ToLower(filepath.Ext(header.Filename))
-    var fixedOriginalName string
-    switch fileType {
-    case "roadmap":
-        if ext != ".tsv" {
-            writeErrorResponse(w, http.StatusBadRequest, "File extension does not match fileType: roadmap requires .tsv")
-            return
-        }
-        fixedOriginalName = "roadmap.tsv"
-    case "recommendation":
-        if ext != ".xlsx" {
-            writeErrorResponse(w, http.StatusBadRequest, "File extension does not match fileType: recommendation requires .xlsx")
-            return
-        }
-        fixedOriginalName = "recommendation.xlsx"
-    default:
-        writeErrorResponse(w, http.StatusBadRequest, "Unsupported file type")
-        return
-    }
+	// 进一步校验扩展名与类型匹配（roadmap->.tsv，recommendation->.xlsx）并设置固定原始名
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	var fixedOriginalName string
+	switch fileType {
+	case "roadmap":
+		if ext != ".tsv" {
+			writeErrorResponse(w, http.StatusBadRequest, "File extension does not match fileType: roadmap requires .tsv")
+			return
+		}
+		fixedOriginalName = "roadmap.tsv"
+	case "recommendation":
+		if ext != ".xlsx" {
+			writeErrorResponse(w, http.StatusBadRequest, "File extension does not match fileType: recommendation requires .xlsx")
+			return
+		}
+		fixedOriginalName = "recommendation.xlsx"
+	default:
+		writeErrorResponse(w, http.StatusBadRequest, "Unsupported file type")
+		return
+	}
 
-    // 将上传的原始文件名记录在描述中，便于追溯
-    if header.Filename != "" {
-        if strings.TrimSpace(description) == "" {
-            description = "Original filename: " + header.Filename
-        } else if !strings.Contains(description, "Original filename:") {
-            description = description + " | Original filename: " + header.Filename
-        }
-    }
+	// 将上传的原始文件名记录在描述中，便于追溯
+	if header.Filename != "" {
+		if strings.TrimSpace(description) == "" {
+			description = "Original filename: " + header.Filename
+		} else if !strings.Contains(description, "Original filename:") {
+			description = description + " | Original filename: " + header.Filename
+		}
+	}
 
 	// 获取用户信息（从认证中间件设置的上下文中获取）
 	var uploader string
 	if userCtx := r.Context().Value("user"); userCtx != nil {
 		if user, ok := userCtx.(*auth.User); ok {
-			uploader = user.Username + "@" + user.TenantID
+			uploader = user.Username
 		} else {
 			uploader = "unknown"
 		}
@@ -610,7 +609,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 创建文件信息
-    fileInfo := &FileInfo{
+	fileInfo := &FileInfo{
 		ID:           generateFileID(),
 		FileName:     header.Filename,
 		OriginalName: fixedOriginalName,
@@ -622,7 +621,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 生成版本化的文件名和路径
-    versionedFileName, version, err := generateVersionedFileName(fileType, fixedOriginalName)
+	versionedFileName, version, err := generateVersionedFileName(fileType, fixedOriginalName)
 	if err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to generate filename: "+err.Error())
 		return
@@ -657,7 +656,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 更新最新版本链接
-    latestPath := filepath.Join(targetDir, fixedOriginalName)
+	latestPath := filepath.Join(targetDir, fixedOriginalName)
 	os.Remove(latestPath) // 删除旧的链接（如果存在）
 
 	// 创建硬链接指向最新版本
@@ -668,10 +667,10 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Calculate checksum
+	// Calculate SHA256 checksum
 	checksum, err := calculateFileChecksum(targetPath)
 	if err != nil {
-		log.Printf("Warning: Failed to calculate checksum: %v", err)
+		log.Printf("Warning: Failed to calculate SHA256 checksum: %v", err)
 	}
 
 	// Create database record
@@ -681,19 +680,19 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    record := &database.FileRecord{
-		ID:           fileInfo.ID,
-		OriginalName: fixedOriginalName,
+	record := &database.FileRecord{
+		ID:            fileInfo.ID,
+		OriginalName:  fixedOriginalName,
 		VersionedName: versionedFileName,
-		FileType:     fileType,
-		FilePath:     targetPath,
-		Size:         fileInfo.Size,
-		Description:  description,
-		Uploader:     uploader,
-		UploadTime:   time.Now(),
-		Version:      version,
-		IsLatest:     true,
-		Checksum:     checksum,
+		FileType:      fileType,
+		FilePath:      targetPath,
+		Size:          fileInfo.Size,
+		Description:   description,
+		Uploader:      uploader,
+		UploadTime:    time.Now(),
+		Version:       version,
+		IsLatest:      true,
+		Checksum:      checksum,
 	}
 
 	// Save to database
@@ -816,7 +815,7 @@ func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
 	var deletedBy string
 	if userCtx := r.Context().Value("user"); userCtx != nil {
 		if user, ok := userCtx.(*auth.User); ok {
-			deletedBy = user.Username + "@" + user.TenantID
+			deletedBy = user.Username
 		} else {
 			deletedBy = "unknown"
 		}
@@ -852,7 +851,7 @@ func restoreFileHandler(w http.ResponseWriter, r *http.Request) {
 	var restoredBy string
 	if userCtx := r.Context().Value("user"); userCtx != nil {
 		if user, ok := userCtx.(*auth.User); ok {
-			restoredBy = user.Username + "@" + user.TenantID
+			restoredBy = user.Username
 		} else {
 			restoredBy = "unknown"
 		}
@@ -888,7 +887,7 @@ func purgeFileHandler(w http.ResponseWriter, r *http.Request) {
 	var purgedBy string
 	if userCtx := r.Context().Value("user"); userCtx != nil {
 		if user, ok := userCtx.(*auth.User); ok {
-			purgedBy = user.Username + "@" + user.TenantID
+			purgedBy = user.Username
 		} else {
 			purgedBy = "unknown"
 		}
@@ -947,7 +946,7 @@ func clearRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 	var purgedBy string
 	if userCtx := r.Context().Value("user"); userCtx != nil {
 		if user, ok := userCtx.(*auth.User); ok {
-			purgedBy = user.Username + "@" + user.TenantID
+			purgedBy = user.Username
 		} else {
 			purgedBy = "unknown"
 		}
@@ -1030,12 +1029,12 @@ func generateVersionedFileName(fileType, originalName string) (string, int, erro
 
 // isValidFileExtension 验证文件扩展名
 func isValidFileExtension(filename string) bool {
-    ext := strings.ToLower(filepath.Ext(filename))
-    validExts := map[string]bool{
-        ".tsv":  true, // Roadmap
-        ".xlsx": true, // Recommendation
-    }
-    return validExts[ext]
+	ext := strings.ToLower(filepath.Ext(filename))
+	validExts := map[string]bool{
+		".tsv":  true, // Roadmap
+		".xlsx": true, // Recommendation
+	}
+	return validExts[ext]
 }
 
 // copyFile 复制文件
@@ -1056,19 +1055,17 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-
-
 // getContentType 根据文件扩展名确定内容类型
 func getContentType(fileName string) string {
-    ext := strings.ToLower(filepath.Ext(fileName))
-    switch ext {
-    case ".tsv":
-        return "text/tab-separated-values"
-    case ".xlsx":
-        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    case ".zip":
-        return "application/zip"
-    default:
-        return "application/octet-stream"
-    }
+	ext := strings.ToLower(filepath.Ext(fileName))
+	switch ext {
+	case ".tsv":
+		return "text/tab-separated-values"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".zip":
+		return "application/zip"
+	default:
+		return "application/octet-stream"
+	}
 }

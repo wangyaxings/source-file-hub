@@ -46,7 +46,7 @@ func main() {
 	// 运行数据迁移
 	log.Println("Running data migration...")
 	if err := migration.MigrateFromJSON("downloads/metadata.json"); err != nil {
-		log.Printf("Warning: Migration failed: %v", err)
+		log.Printf("Warning: JSON migration failed: %v", err)
 	}
 
 	// 启动自动清理任务
@@ -54,15 +54,22 @@ func main() {
 		ticker := time.NewTicker(24 * time.Hour) // 每24小时运行一次
 		defer ticker.Stop()
 
-		for {
-			select {
-			case <-ticker.C:
-				if db := database.GetDatabase(); db != nil {
-					if err := db.AutoCleanupRecycleBin(); err != nil {
-						log.Printf("Auto cleanup failed: %v", err)
-					}
+		for range ticker.C {
+			if db := database.GetDatabase(); db != nil {
+				if err := db.AutoCleanupRecycleBin(); err != nil {
+					log.Printf("Auto cleanup failed: %v", err)
 				}
 			}
+		}
+	}()
+
+	// 启动临时API Key清理任务
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute) // 每5分钟清理一次
+		defer ticker.Stop()
+
+		for range ticker.C {
+			handler.CleanupExpiredTempKeys()
 		}
 	}()
 
@@ -94,9 +101,9 @@ func main() {
 	_, keyErr := os.Stat(keyFile)
 
 	if os.Getenv("DEV_MODE") == "true" || (certErr != nil || keyErr != nil) {
-		// 开发模式：启动HTTP服务器
+		// 开发模式：启动HTTP服务器（仅用于重定向到HTTPS）
 		httpServer = &http.Server{
-			Addr:         ":9000",
+			Addr:         ":9001",
 			Handler:      srv.Router,
 			ReadTimeout:  120 * time.Second,
 			WriteTimeout: 120 * time.Second,
@@ -104,9 +111,25 @@ func main() {
 		}
 
 		go func() {
-			log.Printf("HTTP Server starting on port 9000 (Development Mode)...")
+			log.Printf("HTTP Server starting on port 9001 (Development Mode - HTTPS Redirect Only)...")
 			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Fatalf("HTTP Server failed to start: %v", err)
+			}
+		}()
+
+		// 在开发模式下也启动HTTPS服务器
+		httpsServer = &http.Server{
+			Addr:         ":8443",
+			Handler:      srv.Router,
+			ReadTimeout:  120 * time.Second,
+			WriteTimeout: 120 * time.Second,
+			IdleTimeout:  180 * time.Second,
+		}
+
+		go func() {
+			log.Printf("HTTPS Server starting on port 8443 (Development Mode)...")
+			if err := httpsServer.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTPS Server failed to start (this is expected if certificates are missing): %v", err)
 			}
 		}()
 	} else {
