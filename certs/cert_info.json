@@ -7,8 +7,8 @@
     "locality": ["Beijing"]
   },
   "validity": {
-    "not_before": "2025-07-30T23:40:40+08:00",
-    "not_after": "2026-07-30T23:40:40+08:00"
+    "not_before": "2025-09-09T18:25:55+08:00",
+    "not_after": "2026-09-09T18:25:55+08:00"
   },
   "key_usage": ["Digital Signature", "Key Encipherment"],
   "ext_key_usage": ["Server Authentication"],
@@ -17,8 +17,5 @@
   "serial_number": "1",
   "key_size": 2048,
   "signature_algorithm": "SHA256-RSA",
-  "files": {
-    "certificate": "server.crt",
-    "private_key": "server.key"
-  }
+  "files": {"certificate": "server.crt", "private_key": "server.key"}
 }
