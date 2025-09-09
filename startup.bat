@@ -148,14 +148,14 @@ timeout /t 8 /nobreak >nul
 
 REM Check if frontend is running (HTTPS)
 echo [INFO] Checking frontend status (HTTPS)...
-for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:3000' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "frontend_status=%%i"
+for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:30000' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "frontend_status=%%i"
 if "%frontend_status%"=="200" (
     echo [OK] Frontend service is running (HTTPS)
 ) else (
     echo [WARNING] Frontend may still be starting... (Status: %frontend_status%)
     echo [INFO] Waiting additional 5 seconds for frontend...
     timeout /t 5 /nobreak >nul
-    for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:3000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "frontend_status=%%i"
+    for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:30000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "frontend_status=%%i"
     if "%frontend_status%"=="200" (
         echo [OK] Frontend service is now running (HTTPS)
     ) else (
@@ -169,7 +169,7 @@ echo ================================
 echo       Services Started!
 echo ================================
 echo.
-echo Frontend URL: https://127.0.0.1:3000
+echo Frontend URL: https://127.0.0.1:30000
 echo Backend URL:  https://localhost:8443
 echo API Info:    https://localhost:8443/api/v1/health
 echo.
@@ -186,16 +186,16 @@ echo.
 
 REM Open main interface in browser
 echo [INFO] Preparing to open main interface...
-for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:3000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "final_check=%%i"
+for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:30000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "final_check=%%i"
 if "%final_check%"=="200" (
     echo [INFO] Opening main interface in browser...
     timeout /t 1 /nobreak >nul
-    start "" "https://127.0.0.1:3000"
+    start "" "https://127.0.0.1:30000"
     echo [OK] Browser opened with FileServer interface
 ) else (
     echo [WARNING] Frontend service not responding, opening anyway...
     echo [INFO] You may need to refresh the page once services are ready
-    start "" "https://127.0.0.1:3000"
+    start "" "https://127.0.0.1:30000"
     echo [OK] Browser opened (services may still be starting)
 )
 

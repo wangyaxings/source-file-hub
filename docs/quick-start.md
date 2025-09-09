@@ -94,7 +94,7 @@ curl -k -H "Authorization: Bearer YOUR_TOKEN" \
 ## 📡 服务地址
 
 ### 完整部署（前端+后端）
-- **🎯 前端界面**: http://localhost:3000 （推荐访问）
+- **🎯 前端界面**: http://localhost:30000 （推荐访问）
 - **📡 后端API**: https://localhost:8443/api/v1
 - **🏥 健康检查**: https://localhost:8443/api/v1/health
 - **👥 用户管理**: https://localhost:8443/api/v1/auth/users

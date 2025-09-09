@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile
     container_name: fileserver-app
     ports:
-      - "3000:3000"   # Frontend port
+      - "30000:30000"   # Frontend port
       - "8443:8443"   # Backend HTTPS port
     volumes:
       # Persistent data
@@ -24,7 +24,7 @@ services:
       - BACKEND_URL=https://localhost:8443
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health && wget --no-check-certificate --quiet --tries=1 --spider https://localhost:3000"]
+      test: ["CMD-SHELL", "wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health && wget --no-check-certificate --quiet --tries=1 --spider https://localhost:30000"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -7,7 +7,7 @@ const path = require('path')
 
 const dev = process.env.NODE_ENV !== 'production'
 const hostname = process.env.HOSTNAME || '127.0.0.1'
-const port = Number(process.env.PORT || 3000)
+const port = Number(process.env.PORT || 30000)
 
 // Disable SSL certificate verification for development
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'

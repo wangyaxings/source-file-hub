@@ -60,7 +60,7 @@ scripts/dev-startup.bat     # Windows
 ## 🌐 Access URLs
 
 ### Complete Deployment (Frontend + Backend)
-- **🎯 Web Interface**: http://localhost:3000 (Recommended)
+- **🎯 Web Interface**: http://localhost:30000 (Recommended)
 - **📡 Backend API**: https://localhost:8443/api/v1
 - **🏥 Health Check**: https://localhost:8443/api/v1/health
 
@@ -226,7 +226,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**⚡ Quick Tip**: For the best experience, use the web interface at http://localhost:3000 which provides a complete file management experience with automatic API authentication handling.
+**⚡ Quick Tip**: For the best experience, use the web interface at http://localhost:30000 which provides a complete file management experience with automatic API authentication handling.
 
 ## Recent Changes: Roadmap/Recommendation Uploads and New APIs
 
