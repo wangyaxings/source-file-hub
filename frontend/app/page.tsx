@@ -168,9 +168,6 @@ export default function HomePage() {
                     <div className="text-sm font-medium text-gray-900">
                       {currentUser.username}
                     </div>
-                    <div className="text-xs text-gray-500">
-                      @{currentUser.tenant_id}
-                    </div>
                   </div>
                 </div>
               )}

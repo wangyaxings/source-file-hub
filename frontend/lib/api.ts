@@ -13,7 +13,6 @@ export interface FileInfo {
 }
 
 export interface LoginRequest {
-  tenant_id: string
   username: string
   password: string
 }
@@ -22,13 +21,11 @@ export interface LoginResponse {
   token: string
   expiresIn: number
   user: {
-    tenant_id: string
     username: string
   }
 }
 
 export interface UserInfo {
-  tenant_id: string
   username: string
   role?: string
 }
@@ -154,7 +151,6 @@ class ApiClient {
     if (response.success && response.data) {
       this.setToken(response.data.token)
       this.setUser({
-        tenant_id: response.data.user.tenant_id,
         username: response.data.user.username
       })
       return response.data

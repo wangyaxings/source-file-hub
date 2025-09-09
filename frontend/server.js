@@ -14,7 +14,7 @@ const app = next({ dev, hostname, port })
 const handle = app.getRequestHandler()
 
 // Resolve backend target based on env
-const backendTarget = process.env.BACKEND_URL || (dev ? 'http://localhost:9000' : 'https://localhost:8443')
+const backendTarget = process.env.BACKEND_URL || 'https://localhost:8443'
 
 // Proxy configuration for API requests
 const apiProxy = createProxyMiddleware({

@@ -14,14 +14,13 @@ interface LoginFormProps {
 }
 
 const defaultUsers = [
-  { tenant_id: "demo", username: "admin", description: "Administrator Account" },
-  { tenant_id: "demo", username: "user1", description: "Regular User Account" },
-  { tenant_id: "tenant1", username: "test", description: "Test Account" }
+  { username: "admin", description: "Administrator Account" },
+  { username: "user1", description: "Regular User Account" },
+  { username: "test", description: "Test Account" }
 ]
 
 export function LoginForm({ onLogin }: LoginFormProps) {
   const [formData, setFormData] = useState<LoginRequest>({
-    tenant_id: "",
     username: "",
     password: ""
   })
@@ -29,11 +28,9 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   const [error, setError] = useState("")
 
   const handleUserSelect = (value: string) => {
-    const [tenant_id, username] = value.split(":")
     setFormData(prev => ({
       ...prev,
-      tenant_id,
-      username
+      username: value
     }))
   }
 
@@ -71,11 +68,11 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               <SelectContent>
                 {defaultUsers.map((user) => (
                   <SelectItem
-                    key={`${user.tenant_id}:${user.username}`}
-                    value={`${user.tenant_id}:${user.username}`}
+                    key={user.username}
+                    value={user.username}
                   >
                     <div className="flex flex-col">
-                      <span>{user.username}@{user.tenant_id}</span>
+                      <span>{user.username}</span>
                       <span className="text-xs text-muted-foreground">{user.description}</span>
                     </div>
                   </SelectItem>
@@ -84,29 +81,16 @@ export function LoginForm({ onLogin }: LoginFormProps) {
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="tenantId">Tenant ID</Label>
-              <Input
-                id="tenantId"
-                type="text"
-                value={formData.tenant_id}
-                onChange={(e) => setFormData(prev => ({ ...prev, tenant_id: e.target.value }))}
-                placeholder="demo"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                type="text"
-                value={formData.username}
-                onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
-                placeholder="admin"
-                required
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="username">Username</Label>
+            <Input
+              id="username"
+              type="text"
+              value={formData.username}
+              onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
+              placeholder="admin"
+              required
+            />
           </div>
 
           <div className="space-y-2">

@@ -36,7 +36,7 @@ interface APIKey {
   id: string
   name: string
   description?: string
-  userId: string
+  role: string
   permissions: string[]
   status: string
   expiresAt?: string
@@ -81,11 +81,11 @@ export function APIKeyManagement() {
     apiKey: null
   })
 
-  // Create API Key Form State
+  // Create API Key Form State (role-based API key creation)
   const [createForm, setCreateForm] = useState({
     name: "",
     description: "",
-    userId: "",
+    role: "", // API role
     permissions: [] as string[],
     expiresAt: ""
   })
@@ -143,7 +143,7 @@ export function APIKeyManagement() {
   }
 
   const createAPIKey = async () => {
-    if (!createForm.name || !createForm.userId || createForm.permissions.length === 0) {
+    if (!createForm.name || !createForm.role || createForm.permissions.length === 0) {
       toast({
         variant: "destructive",
         title: "Validation Error",
@@ -169,7 +169,7 @@ export function APIKeyManagement() {
       const requestBody = {
         name: createForm.name,
         description: createForm.description,
-        user_id: createForm.userId,
+        role: createForm.role,
         permissions: createForm.permissions,
         expires_at: createForm.expiresAt || undefined
       }
@@ -202,7 +202,11 @@ export function APIKeyManagement() {
         throw new Error(errorMessage)
       }
 
-      const createdKey = result.data
+      // Backend returns { data: { api_key: {...}, download_url: "..." } }
+      const createdKey = result?.data?.api_key || result?.data
+      if (!createdKey) {
+        throw new Error('Invalid server response: missing api_key')
+      }
 
       setNewKey(createdKey.key)
       setSelectedKey(createdKey)
@@ -213,7 +217,7 @@ export function APIKeyManagement() {
       setCreateForm({
         name: "",
         description: "",
-        userId: "",
+        role: "",
         permissions: [],
         expiresAt: ""
       })
@@ -231,6 +235,24 @@ export function APIKeyManagement() {
         title: "Error",
         description: error instanceof Error ? error.message : 'Failed to create API key'
       })
+    }
+  }
+
+  // Map API role to permissions
+  const roleToPermissions = (role: string): string[] => {
+    switch (role) {
+      case 'admin':
+        return ['read', 'download', 'upload', 'admin']
+      case 'read_only':
+        return ['read']
+      case 'download_only':
+        return ['read', 'download']
+      case 'upload_only':
+        return ['upload']
+      case 'read_upload':
+        return ['read', 'upload']
+      default:
+        return []
     }
   }
 
@@ -428,7 +450,7 @@ export function APIKeyManagement() {
                             <p className="text-sm text-gray-600 mt-1">{key.description}</p>
                           )}
                           <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                            <span>User: {key.userId}</span>
+                            <span>Role: {key.role}</span>
                             <span>Usage: {key.usageCount}</span>
                             <span>Created: {formatDate(key.createdAt)}</span>
                             {key.lastUsedAt && (
@@ -592,52 +614,43 @@ export function APIKeyManagement() {
             </div>
 
             <div>
-              <Label htmlFor="userId">User ID *</Label>
-              <Select value={createForm.userId} onValueChange={(value) => setCreateForm(prev => ({ ...prev, userId: value }))}>
+              <Label htmlFor="role">API Role *</Label>
+              <Select
+                value={createForm.role}
+                onValueChange={(value) => setCreateForm(prev => ({
+                  ...prev,
+                  role: value, // store selected role string
+                  permissions: roleToPermissions(value)
+                }))}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a user ID" />
+                  <SelectValue placeholder="Select an API role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">admin (Administrator)</SelectItem>
-                  <SelectItem value="api_user">api_user (API Access User)</SelectItem>
-                  <SelectItem value="demo_user">demo_user (Demo User)</SelectItem>
-                  <SelectItem value="system">system (System User)</SelectItem>
+                  <SelectItem value="admin">Administrator (full access)</SelectItem>
+                  <SelectItem value="read_only">Read Only</SelectItem>
+                  <SelectItem value="download_only">Read + Download</SelectItem>
+                  <SelectItem value="upload_only">Upload Only</SelectItem>
+                  <SelectItem value="read_upload">Read + Upload</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-gray-500 mt-1">
-                Select the user ID that will own this API key. Use 'admin' for administrative access.
+                Role determines permissions automatically. No manual selection needed.
               </p>
             </div>
 
             <div>
-              <Label>Permissions *</Label>
-              <div className="space-y-2 mt-2">
-                {permissions.map((perm) => (
-                  <label key={perm.value} className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={createForm.permissions.includes(perm.value)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setCreateForm(prev => ({
-                            ...prev,
-                            permissions: [...prev.permissions, perm.value]
-                          }))
-                        } else {
-                          setCreateForm(prev => ({
-                            ...prev,
-                            permissions: prev.permissions.filter(p => p !== perm.value)
-                          }))
-                        }
-                      }}
-                      className="rounded"
-                    />
-                    <div>
-                      <span className="text-sm font-medium">{perm.label}</span>
-                      <p className="text-xs text-gray-500">{perm.description}</p>
-                    </div>
-                  </label>
-                ))}
+              <Label>Permissions</Label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {createForm.permissions.length === 0 ? (
+                  <span className="text-sm text-gray-500">Select a role to apply permissions</span>
+                ) : (
+                  createForm.permissions.map((perm) => (
+                    <span key={perm} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                      {perm}
+                    </span>
+                  ))
+                )}
               </div>
             </div>
 
@@ -779,7 +792,7 @@ export function APIKeyManagement() {
             {selectedKey && (
               <div className="space-y-2">
                 <p><strong>Name:</strong> {selectedKey.name}</p>
-                <p><strong>User:</strong> {selectedKey.userId}</p>
+                <p><strong>Role:</strong> {selectedKey.role}</p>
                 <p><strong>Permissions:</strong> {selectedKey.permissions.join(", ")}</p>
               </div>
             )}
