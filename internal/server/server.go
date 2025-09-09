@@ -6,22 +6,21 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// Server 代表HTTP服务器
+// Server represents the HTTP server with configured middleware
 type Server struct {
 	Router *mux.Router
 }
 
-// New 创建新的服务器实例
+// New creates a new server instance and attaches middlewares
 func New() *Server {
 	router := mux.NewRouter()
 
-	// 添加中间件（顺序很重要）
-	router.Use(middleware.LoggingMiddleware) // 结构化日志记录
-	router.Use(middleware.CorsMiddleware)    // CORS处理
-	router.Use(middleware.AuthMiddleware)    // 身份认证
+	// Order matters: CORS (preflight), Logging, then Auth
+	router.Use(middleware.CorsMiddleware)
+	router.Use(middleware.LoggingMiddleware)
+	router.Use(middleware.AuthMiddleware)
 
 	return &Server{
 		Router: router,
 	}
 }
-

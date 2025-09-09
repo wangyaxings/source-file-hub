@@ -5,26 +5,28 @@ import (
     "encoding/json"
     "net/http"
     "strings"
-    "time"
-    "os"
 
     "secure-file-hub/internal/auth"
-    "secure-file-hub/internal/database"
 )
 
 // AuthMiddleware handles authentication and exposes public routes
 func AuthMiddleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Health endpoint (public, structured for Operation Center)
-        if strings.Contains(r.URL.Path, "/health") {
-            writeHealthResponse(w)
+        path := r.URL.Path
+
+        // Always allow CORS preflight
+        if r.Method == http.MethodOptions {
+            next.ServeHTTP(w, r)
             return
         }
 
-        // Public routes
-        if strings.Contains(r.URL.Path, "/auth/login") ||
-           strings.Contains(r.URL.Path, "/auth/users") ||
-           strings.Contains(r.URL.Path, "/api/v1/public") {
+        // Public endpoints: health, login, default users, public API, and static files
+        if path == "/api/v1/health" || path == "/api/v1/healthz" ||
+           path == "/api/v1/web/health" || path == "/api/v1/web/healthz" ||
+           strings.HasPrefix(path, "/static/") ||
+           strings.Contains(path, "/auth/login") ||
+           strings.Contains(path, "/auth/users") ||
+           strings.Contains(path, "/api/v1/public") {
             next.ServeHTTP(w, r)
             return
         }
@@ -75,44 +77,4 @@ func writeUnauthorizedResponse(w http.ResponseWriter, message string) {
 }
 
 // writeHealthResponse responds with a structured health payload suitable for Operation Center
-func writeHealthResponse(w http.ResponseWriter) {
-    w.Header().Set("Content-Type", "application/json")
-
-    dbOK := true
-    storageOK := true
-    issues := []string{}
-
-    if db := database.GetDatabase(); db == nil {
-        dbOK = false
-        issues = append(issues, "database not initialized")
-    } else if err := db.GetDB().Ping(); err != nil {
-        dbOK = false
-        issues = append(issues, "database ping failed")
-    }
-    if _, err := os.Stat("downloads"); err != nil {
-        storageOK = false
-        issues = append(issues, "storage path not available")
-    }
-
-    healthy := dbOK && storageOK
-    status := "ok"
-    if !healthy { status = "error" }
-
-    resp := map[string]interface{}{
-        "success":  healthy,
-        "message":  map[bool]string{true: "Service is healthy", false: "Service is unhealthy"}[healthy],
-        "error":    func() string { if healthy || len(issues)==0 { return "" }; return strings.Join(issues, "; ") }(),
-        "data": map[string]interface{}{
-            "service":   "Operation File Server",
-            "status":    status,
-            "connected": healthy,
-            "time":      time.Now().UTC().Format(time.RFC3339),
-        },
-    }
-
-    code := http.StatusOK
-    if !healthy { code = http.StatusServiceUnavailable }
-    w.WriteHeader(code)
-    _ = json.NewEncoder(w).Encode(resp)
-}
-
+// Note: health response is produced by handler; middleware only bypasses auth.
