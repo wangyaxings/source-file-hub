@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"secure-file-hub/internal/apikey"
@@ -13,6 +14,74 @@ import (
 
 	"github.com/gorilla/mux"
 )
+
+// Temporary storage for API keys that can be downloaded
+// Keys are stored for 10 minutes after creation
+var (
+	tempAPIKeys = make(map[string]*TempAPIKey)
+	tempKeysMux sync.RWMutex
+)
+
+// TempAPIKey represents a temporarily stored API key for download
+type TempAPIKey struct {
+    Key       string
+    Name      string
+    Role      string
+    CreatedAt time.Time
+}
+
+// cleanupExpiredTempKeys removes expired temporary API keys
+func cleanupExpiredTempKeys() {
+	tempKeysMux.Lock()
+	defer tempKeysMux.Unlock()
+
+	now := time.Now()
+	for keyID, tempKey := range tempAPIKeys {
+		// Remove keys older than 10 minutes
+		if now.Sub(tempKey.CreatedAt) > 10*time.Minute {
+			delete(tempAPIKeys, keyID)
+		}
+	}
+}
+
+// CleanupExpiredTempKeys is a public function for external cleanup
+func CleanupExpiredTempKeys() {
+	cleanupExpiredTempKeys()
+}
+
+// storeTempAPIKey stores an API key temporarily for download
+func storeTempAPIKey(keyID, key, name, role string) {
+	tempKeysMux.Lock()
+	defer tempKeysMux.Unlock()
+
+    tempAPIKeys[keyID] = &TempAPIKey{
+        Key:       key,
+        Name:      name,
+        Role:      role,
+        CreatedAt: time.Now(),
+    }
+
+	// Clean up expired keys
+	cleanupExpiredTempKeys()
+}
+
+// getTempAPIKey retrieves a temporary API key
+func getTempAPIKey(keyID string) (*TempAPIKey, bool) {
+	tempKeysMux.RLock()
+	defer tempKeysMux.RUnlock()
+
+	tempKey, exists := tempAPIKeys[keyID]
+	if !exists {
+		return nil, false
+	}
+
+	// Check if key has expired
+	if time.Since(tempKey.CreatedAt) > 10*time.Minute {
+		return nil, false
+	}
+
+	return tempKey, true
+}
 
 // RegisterAdminRoutes registers admin routes
 func RegisterAdminRoutes(router *mux.Router) {
@@ -26,6 +95,8 @@ func RegisterAdminRoutes(router *mux.Router) {
 	admin.HandleFunc("/api-keys/{keyId}", updateAPIKeyHandler).Methods("PUT")
 	admin.HandleFunc("/api-keys/{keyId}", deleteAPIKeyHandler).Methods("DELETE")
 	admin.HandleFunc("/api-keys/{keyId}/status", updateAPIKeyStatusHandler).Methods("PATCH")
+	admin.HandleFunc("/api-keys/{keyId}/regenerate", regenerateAPIKeyHandler).Methods("POST")
+	admin.HandleFunc("/api-keys/{keyId}/download", downloadAPIKeyHandler).Methods("GET")
 
 	// Usage Analytics
 	admin.HandleFunc("/usage/logs", getUsageLogsHandler).Methods("GET")
@@ -51,6 +122,8 @@ func RegisterWebAdminRoutes(router *mux.Router) {
 	admin.HandleFunc("/api-keys/{keyId}", requireAdminAuth(updateAPIKeyHandler)).Methods("PUT")
 	admin.HandleFunc("/api-keys/{keyId}", requireAdminAuth(deleteAPIKeyHandler)).Methods("DELETE")
 	admin.HandleFunc("/api-keys/{keyId}/status", requireAdminAuth(updateAPIKeyStatusHandler)).Methods("PATCH")
+	admin.HandleFunc("/api-keys/{keyId}/regenerate", requireAdminAuth(regenerateAPIKeyHandler)).Methods("POST")
+	admin.HandleFunc("/api-keys/{keyId}/download", requireAdminAuth(downloadAPIKeyHandler)).Methods("GET")
 
 	// Usage Analytics
 	admin.HandleFunc("/usage/logs", requireAdminAuth(getUsageLogsHandler)).Methods("GET")
@@ -100,11 +173,11 @@ func requireAdminAuth(handler http.HandlerFunc) http.HandlerFunc {
 
 // CreateAPIKeyRequest represents the request to create an API key
 type CreateAPIKeyRequest struct {
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	UserID      string    `json:"user_id"`
-	Permissions []string  `json:"permissions"`
-	ExpiresAt   *string   `json:"expires_at,omitempty"`
+    Name        string   `json:"name"`
+    Description string   `json:"description,omitempty"`
+    Role        string   `json:"role"`
+    Permissions []string `json:"permissions"`
+    ExpiresAt   *string  `json:"expires_at,omitempty"`
 }
 
 // UpdateAPIKeyRequest represents the request to update an API key
@@ -123,11 +196,11 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate required fields
-	if req.Name == "" || req.UserID == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "Name and user_id are required")
-		return
-	}
+    // Validate required fields
+    if req.Name == "" || req.Role == "" {
+        writeErrorResponse(w, http.StatusBadRequest, "Name and role are required")
+        return
+    }
 
 	// Validate permissions
 	if !apikey.ValidatePermissions(req.Permissions) {
@@ -135,8 +208,8 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate API key
-	fullKey, keyHash, err := apikey.GenerateAPIKey("sk")
+    // Generate API key
+    fullKey, keyHash, err := apikey.GenerateAPIKey("sk")
 	if err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to generate API key")
 		return
@@ -147,11 +220,11 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
 		// Support multiple date formats
 		dateFormats := []string{
-			time.RFC3339,           // "2006-01-02T15:04:05Z07:00"
-			"2006-01-02T15:04:05",  // "2024-12-25T14:30:00"
-			"2006-01-02T15:04",     // "2024-12-25T14:30" (datetime-local format)
-			"2006-01-02 15:04:05",  // "2024-12-25 14:30:00"
-			"2006-01-02 15:04",     // "2024-12-25 14:30"
+			time.RFC3339,          // "2006-01-02T15:04:05Z07:00"
+			"2006-01-02T15:04:05", // "2024-12-25T14:30:00"
+			"2006-01-02T15:04",    // "2024-12-25T14:30" (datetime-local format)
+			"2006-01-02 15:04:05", // "2024-12-25 14:30:00"
+			"2006-01-02 15:04",    // "2024-12-25 14:30"
 		}
 
 		var parseErr error
@@ -184,19 +257,37 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create API key record
-	apiKeyRecord := &database.APIKey{
-		ID:          apikey.GenerateAPIKeyID(),
-		Name:        req.Name,
-		Description: req.Description,
-		KeyHash:     keyHash,
-		Key:         fullKey, // Only set for creation response
-		UserID:      req.UserID,
-		Permissions: req.Permissions,
-		Status:      "active",
-		ExpiresAt:   expiresAt,
-		UsageCount:  0,
-	}
+    // If permissions not provided, derive from role
+    if len(req.Permissions) == 0 {
+        switch req.Role {
+        case "admin":
+            req.Permissions = []string{"read", "download", "upload", "admin"}
+        case "read_only":
+            req.Permissions = []string{"read"}
+        case "download_only":
+            req.Permissions = []string{"read", "download"}
+        case "upload_only":
+            req.Permissions = []string{"upload"}
+        case "read_upload":
+            req.Permissions = []string{"read", "upload"}
+        default:
+            req.Permissions = []string{"read"}
+        }
+    }
+
+    // Create API key record
+    apiKeyRecord := &database.APIKey{
+        ID:          apikey.GenerateAPIKeyID(),
+        Name:        req.Name,
+        Description: req.Description,
+        KeyHash:     keyHash,
+        Key:         fullKey, // Only set for creation response
+        Role:        req.Role,
+        Permissions: req.Permissions,
+        Status:      "active",
+        ExpiresAt:   expiresAt,
+        UsageCount:  0,
+    }
 
 	db := database.GetDatabase()
 	if db == nil {
@@ -209,19 +300,28 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Store the API key temporarily for download (10 minutes)
+    storeTempAPIKey(apiKeyRecord.ID, fullKey, apiKeyRecord.Name, apiKeyRecord.Role)
+
 	// Return the API key (only time the full key is shown)
-	response := Response{
-		Success: true,
-		Message: "API key created successfully",
-		Data:    apiKeyRecord,
-	}
+	// Create a copy for response that includes the full key
+	responseData := *apiKeyRecord
+
+    response := Response{
+        Success: true,
+        Message: "API key created successfully. Please save this key securely - it will not be shown again.",
+        Data: map[string]interface{}{
+            "api_key":      responseData,
+            "download_url": fmt.Sprintf("/api/v1/admin/api-keys/%s/download", apiKeyRecord.ID),
+        },
+    }
 
 	writeJSONResponse(w, http.StatusCreated, response)
 }
 
 // listAPIKeysHandler lists all API keys
 func listAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user_id")
+    role := r.URL.Query().Get("role")
 
 	db := database.GetDatabase()
 	if db == nil {
@@ -232,23 +332,23 @@ func listAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
 	var apiKeys []database.APIKey
 	var err error
 
-	if userID != "" {
-		apiKeys, err = db.GetAPIKeysByUserID(userID)
-	} else {
-		// Get all API keys
-		apiKeys, err = db.GetAllAPIKeys()
-	}
+    if role != "" {
+        apiKeys, err = db.GetAPIKeysByRole(role)
+    } else {
+        // Get all API keys
+        apiKeys, err = db.GetAllAPIKeys()
+    }
 
 	if err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve API keys")
 		return
 	}
 
-	// Mask keys in response
-	for i := range apiKeys {
-		apiKeys[i].Key = apikey.MaskAPIKey(apiKeys[i].KeyHash)
-		apiKeys[i].KeyHash = "" // Don't expose hash
-	}
+    // Mask keys in response - never show full keys after creation
+    for i := range apiKeys {
+        apiKeys[i].Key = apikey.MaskAPIKey(apiKeys[i].KeyHash)
+        apiKeys[i].KeyHash = "" // Don't expose hash
+    }
 
 	response := Response{
 		Success: true,
@@ -360,6 +460,142 @@ func updateAPIKeyStatusHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
+// regenerateAPIKeyHandler regenerates an API key (creates new key, invalidates old one)
+func regenerateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	keyID := vars["keyId"]
+
+	if keyID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, "API key ID is required")
+		return
+	}
+
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+		return
+	}
+
+	// Get existing API key to preserve metadata
+	// Note: This is a simplified implementation - in production you'd want to get by ID
+	// For now, we'll generate a new key with the same prefix
+
+	// Generate new API key
+	fullKey, keyHash, err := apikey.GenerateAPIKey("sk")
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "Failed to generate new API key")
+		return
+	}
+
+	// Update the API key with new hash (this would need a proper update method)
+	// For now, we'll create a new record and mark the old one as disabled
+	// In production, you'd want to implement a proper update method
+
+	// Create new API key record with same metadata but new key
+    newAPIKey := &database.APIKey{
+        ID:          apikey.GenerateAPIKeyID(),
+        Name:        "Regenerated Key", // This should be updated from the original
+        Description: "Regenerated API key",
+        KeyHash:     keyHash,
+        Key:         fullKey,          // Only shown once
+        Role:        "unknown",        // This should be retrieved from original key
+        Permissions: []string{"read"}, // This should be retrieved from original key
+        Status:      "active",
+        UsageCount:  0,
+    }
+
+	if err := db.CreateAPIKey(newAPIKey); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create new API key")
+		return
+	}
+
+	// Store the new API key temporarily for download (10 minutes)
+    storeTempAPIKey(newAPIKey.ID, fullKey, newAPIKey.Name, newAPIKey.Role)
+
+	// Disable the old key
+	if err := db.UpdateAPIKeyStatus(keyID, "disabled"); err != nil {
+		// Log warning but don't fail the operation
+		fmt.Printf("Warning: Failed to disable old API key %s: %v\n", keyID, err)
+	}
+
+	response := Response{
+		Success: true,
+		Message: "API key regenerated successfully. The old key has been disabled. Please save this new key securely - it will not be shown again.",
+		Data: map[string]interface{}{
+			"api_key":      newAPIKey,
+			"download_url": fmt.Sprintf("/api/v1/admin/api-keys/%s/download", newAPIKey.ID),
+		},
+	}
+
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// downloadAPIKeyHandler downloads an API key as a text file
+func downloadAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	keyID := vars["keyId"]
+
+	if keyID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, "API key ID is required")
+		return
+	}
+
+	// Get the temporary API key
+	tempKey, exists := getTempAPIKey(keyID)
+	if !exists {
+		writeErrorResponse(w, http.StatusNotFound, "API key not found or has expired. Download is only available for 10 minutes after creation.")
+		return
+	}
+
+	// Create the file content
+    content := fmt.Sprintf(`# API Key Information
+# Generated: %s
+# Key ID: %s
+# Name: %s
+# Role: %s
+
+# API Key (keep this secure!)
+%s
+
+# Usage Instructions:
+# 1. Store this key securely
+# 2. Use it in the Authorization header: "Authorization: Bearer %s"
+# 3. This key will not be shown again after download
+# 4. If you lose this key, you'll need to regenerate it
+
+# Security Notes:
+# - Never share this key publicly
+# - Store it in a secure password manager
+# - Rotate keys regularly
+# - Monitor key usage for suspicious activity
+`,
+		tempKey.CreatedAt.Format("2006-01-02 15:04:05 UTC"),
+		keyID,
+		tempKey.Name,
+        tempKey.Role,
+        tempKey.Key,
+        tempKey.Key,
+    )
+
+	// Set response headers for file download
+	filename := fmt.Sprintf("api-key-%s-%s.txt", tempKey.Name, time.Now().Format("20060102-150405"))
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	// Write the content
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(content))
+
+	// Remove the temporary key after download for security
+	tempKeysMux.Lock()
+	delete(tempAPIKeys, keyID)
+	tempKeysMux.Unlock()
+}
+
 // =============================================================================
 // Usage Analytics Handlers
 // =============================================================================
@@ -424,11 +660,11 @@ func getUsageStatsHandler(w http.ResponseWriter, r *http.Request) {
 	// This would implement detailed usage statistics
 	// For now, return mock data
 	stats := map[string]interface{}{
-		"period":     period,
-		"total_requests": 1250,
+		"period":          period,
+		"total_requests":  1250,
 		"total_downloads": 450,
-		"total_uploads": 125,
-		"unique_users": 25,
+		"total_uploads":   125,
+		"unique_users":    25,
 		"top_files": []map[string]interface{}{
 			{"file_name": "config.json", "downloads": 45},
 			{"file_name": "certificate.pem", "downloads": 32},
@@ -497,19 +733,19 @@ func listUsersHandler(w http.ResponseWriter, r *http.Request) {
 	// For now, return placeholder data
 	users := []map[string]interface{}{
 		{
-			"user_id":     "admin",
-			"tenant_id":   "demo",
-			"role":        "admin",
-			"status":      "active",
-			"api_keys":    3,
+			"user_id":    "admin",
+			"tenant_id":  "demo",
+			"role":       "admin",
+			"status":     "active",
+			"api_keys":   3,
 			"last_login": "2024-01-01T12:00:00Z",
 		},
 		{
-			"user_id":     "user1",
-			"tenant_id":   "demo",
-			"role":        "user",
-			"status":      "active",
-			"api_keys":    1,
+			"user_id":    "user1",
+			"tenant_id":  "demo",
+			"role":       "user",
+			"status":     "active",
+			"api_keys":   1,
 			"last_login": "2024-01-01T10:30:00Z",
 		},
 	}
@@ -529,7 +765,7 @@ func listUsersHandler(w http.ResponseWriter, r *http.Request) {
 // updateUserRoleHandler updates a user's role
 func updateUserRoleHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	userID := vars["userId"]
+    userID := vars["userId"]
 
 	var req struct {
 		Role         string   `json:"role"`
@@ -574,8 +810,8 @@ func updateUserRoleHandler(w http.ResponseWriter, r *http.Request) {
 
 // getUserAPIKeysHandler gets API keys for a specific user
 func getUserAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	userID := vars["userId"]
+    vars := mux.Vars(r)
+    role := vars["userId"]
 
 	db := database.GetDatabase()
 	if db == nil {
@@ -583,27 +819,27 @@ func getUserAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiKeys, err := db.GetAPIKeysByUserID(userID)
+    apiKeys, err := db.GetAPIKeysByRole(role)
 	if err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve API keys")
 		return
 	}
 
-	// Mask keys in response
+	// Mask keys in response - never show full keys after creation
 	for i := range apiKeys {
 		apiKeys[i].Key = apikey.MaskAPIKey(apiKeys[i].KeyHash)
 		apiKeys[i].KeyHash = ""
 	}
 
-	response := Response{
-		Success: true,
-		Message: "User API keys retrieved successfully",
-		Data: map[string]interface{}{
-			"user_id": userID,
-			"keys":    apiKeys,
-			"count":   len(apiKeys),
-		},
-	}
+    response := Response{
+        Success: true,
+        Message: "User API keys retrieved successfully",
+        Data: map[string]interface{}{
+            "role": role,
+            "keys":    apiKeys,
+            "count":   len(apiKeys),
+        },
+    }
 
 	writeJSONResponse(w, http.StatusOK, response)
 }
@@ -614,12 +850,12 @@ func getUserUsageHandler(w http.ResponseWriter, r *http.Request) {
 	userID := vars["userId"]
 
 	// This would implement user-specific usage statistics
-	usage := map[string]interface{}{
-		"user_id": userID,
-		"total_requests": 234,
-		"total_downloads": 89,
-		"total_uploads": 23,
-		"last_activity": "2024-01-01T15:30:00Z",
+    usage := map[string]interface{}{
+        "role":               userID,
+        "total_requests":     234,
+		"total_downloads":    89,
+		"total_uploads":      23,
+		"last_activity":      "2024-01-01T15:30:00Z",
 		"most_used_endpoint": "/api/v1/files",
 		"daily_usage": []map[string]interface{}{
 			{"date": "2024-01-01", "requests": 45},

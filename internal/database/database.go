@@ -1,15 +1,15 @@
 package database
 
 import (
-    "database/sql"
-    "encoding/json"
-    "fmt"
-    "log"
-    "os"
-    "path/filepath"
-    "time"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"time"
 
-    _ "modernc.org/sqlite"
+	_ "modernc.org/sqlite"
 )
 
 // Database manager struct
@@ -21,31 +21,31 @@ type Database struct {
 type FileStatus string
 
 const (
-	FileStatusActive   FileStatus = "active"   // Active file
-	FileStatusDeleted  FileStatus = "deleted"  // In recycle bin
-	FileStatusPurged   FileStatus = "purged"   // Permanently deleted
+	FileStatusActive  FileStatus = "active"  // Active file
+	FileStatusDeleted FileStatus = "deleted" // In recycle bin
+	FileStatusPurged  FileStatus = "purged"  // Permanently deleted
 )
 
 // FileRecord represents a file record in the database
 type FileRecord struct {
-	ID          string     `json:"id"`
-	OriginalName string    `json:"originalName"`
-	VersionedName string   `json:"versionedName"`
-	FileType    string     `json:"fileType"`
-	FilePath    string     `json:"filePath"`
-	Size        int64      `json:"size"`
-	Description string     `json:"description"`
-	Uploader    string     `json:"uploader"`
-	UploadTime  time.Time  `json:"uploadTime"`
-	Version     int        `json:"version"`
-	IsLatest    bool       `json:"isLatest"`
-	Status      FileStatus `json:"status"`
-	DeletedAt   *time.Time `json:"deletedAt,omitempty"`
-	DeletedBy   string     `json:"deletedBy,omitempty"`
-	FileExists  bool       `json:"fileExists"` // Whether physical file exists
-	Checksum    string     `json:"checksum,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	ID            string     `json:"id"`
+	OriginalName  string     `json:"originalName"`
+	VersionedName string     `json:"versionedName"`
+	FileType      string     `json:"fileType"`
+	FilePath      string     `json:"filePath"`
+	Size          int64      `json:"size"`
+	Description   string     `json:"description"`
+	Uploader      string     `json:"uploader"`
+	UploadTime    time.Time  `json:"uploadTime"`
+	Version       int        `json:"version"`
+	IsLatest      bool       `json:"isLatest"`
+	Status        FileStatus `json:"status"`
+	DeletedAt     *time.Time `json:"deletedAt,omitempty"`
+	DeletedBy     string     `json:"deletedBy,omitempty"`
+	FileExists    bool       `json:"fileExists"`         // Whether physical file exists
+	Checksum      string     `json:"checksum,omitempty"` // SHA256 checksum
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
 }
 
 // RecycleBinItem represents an item in the recycle bin
@@ -56,19 +56,19 @@ type RecycleBinItem struct {
 
 // APIKey represents an API key record
 type APIKey struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
-	KeyHash     string     `json:"-"` // Never expose the hash
-	Key         string     `json:"key,omitempty"` // Only returned on creation
-	UserID      string     `json:"userId"`
-	Permissions []string   `json:"permissions"`
-	Status      string     `json:"status"` // active, disabled, expired
-	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
-	UsageCount  int64      `json:"usageCount"`
-	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+    ID          string     `json:"id"`
+    Name        string     `json:"name"`
+    Description string     `json:"description,omitempty"`
+    KeyHash     string     `json:"-"`             // Never expose the hash
+    Key         string     `json:"key,omitempty"` // Only returned on creation
+    Role        string     `json:"role"`
+    Permissions []string   `json:"permissions"`
+    Status      string     `json:"status"` // active, disabled, expired
+    ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
+    UsageCount  int64      `json:"usageCount"`
+    LastUsedAt  *time.Time `json:"lastUsedAt,omitempty"`
+    CreatedAt   time.Time  `json:"createdAt"`
+    UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 // APIUsageLog represents an API usage log entry
@@ -126,13 +126,92 @@ func InitDatabase(dbPath string) error {
 		return fmt.Errorf("failed to enable WAL mode: %v", err)
 	}
 
-	defaultDB = &Database{db: db}
+    defaultDB = &Database{db: db}
+
+    // Perform lightweight schema migration for api_keys: user_id -> role
+    if err := defaultDB.migrateAPIKeysRoleColumn(); err != nil {
+        return fmt.Errorf("failed to migrate api_keys schema: %v", err)
+    }
 
 	if err := defaultDB.createTables(); err != nil {
 		return fmt.Errorf("failed to create tables: %v", err)
 	}
 
 	return nil
+}
+
+// migrateAPIKeysRoleColumn ensures api_keys table has 'role' column instead of legacy 'user_id'
+func (d *Database) migrateAPIKeysRoleColumn() error {
+    // Check if api_keys table exists
+    var count int
+    if err := d.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_keys'").Scan(&count); err != nil {
+        return err
+    }
+    if count == 0 {
+        // Table doesn't exist yet; nothing to migrate
+        return nil
+    }
+
+    // Check if 'role' column exists
+    var roleCol int
+    if err := d.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('api_keys') WHERE name='role'").Scan(&roleCol); err != nil {
+        return err
+    }
+    if roleCol > 0 {
+        // Already migrated
+        return nil
+    }
+
+    // Legacy table detected: perform migration user_id -> role
+    tx, err := d.db.Begin()
+    if err != nil {
+        return err
+    }
+    defer func() {
+        if err != nil {
+            _ = tx.Rollback()
+        }
+    }()
+
+    steps := []string{
+        // Rename old table
+        "ALTER TABLE api_keys RENAME TO api_keys_old",
+        // Create new table with 'role' column
+        `CREATE TABLE api_keys (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            key_hash TEXT NOT NULL UNIQUE,
+            role TEXT NOT NULL,
+            permissions TEXT NOT NULL DEFAULT '["read"]',
+            status TEXT NOT NULL DEFAULT 'active',
+            expires_at TEXT,
+            usage_count INTEGER DEFAULT 0,
+            last_used_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+        // Copy data mapping user_id -> role
+        `INSERT INTO api_keys (id, name, description, key_hash, role, permissions, status, expires_at, usage_count, last_used_at, created_at, updated_at)
+         SELECT id, name, description, key_hash, user_id AS role, permissions, status, expires_at, usage_count, last_used_at, created_at, updated_at FROM api_keys_old`,
+        // Drop old table
+        "DROP TABLE api_keys_old",
+        // Recreate indexes
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_role ON api_keys(role)",
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status)",
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)",
+    }
+
+    for _, stmt := range steps {
+        if _, err = tx.Exec(stmt); err != nil {
+            return fmt.Errorf("migration step failed: %v", err)
+        }
+    }
+
+    if err = tx.Commit(); err != nil {
+        return err
+    }
+    return nil
 }
 
 // GetDatabase returns the default database instance
@@ -214,27 +293,27 @@ func (d *Database) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_audit_operation_time ON file_audit_logs(operation_time);
 	`
 
-	// API Keys table
-	createAPIKeysTable := `
-	CREATE TABLE IF NOT EXISTS api_keys (
-		id TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		description TEXT,
-		key_hash TEXT NOT NULL UNIQUE,
-		user_id TEXT NOT NULL,
-		permissions TEXT NOT NULL DEFAULT '["read"]', -- JSON array of permissions
-		status TEXT NOT NULL DEFAULT 'active', -- active, disabled, expired
-		expires_at TEXT,
-		usage_count INTEGER DEFAULT 0,
-		last_used_at TEXT,
-		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);
+    // API Keys table
+    createAPIKeysTable := `
+    CREATE TABLE IF NOT EXISTS api_keys (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        key_hash TEXT NOT NULL UNIQUE,
+        role TEXT NOT NULL,
+        permissions TEXT NOT NULL DEFAULT '["read"]', -- JSON array of permissions
+        status TEXT NOT NULL DEFAULT 'active', -- active, disabled, expired
+        expires_at TEXT,
+        usage_count INTEGER DEFAULT 0,
+        last_used_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
 
-	CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
-	CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status);
-	CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
-	`
+    CREATE INDEX IF NOT EXISTS idx_api_keys_role ON api_keys(role);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
+    `
 
 	// API Usage Logs table
 	createAPIUsageTable := `
@@ -753,10 +832,10 @@ func (d *Database) GetDB() *sql.DB {
 
 // Close closes the database connection
 func (d *Database) Close() error {
-    if d.db != nil {
-        return d.db.Close()
-    }
-    return nil
+	if d.db != nil {
+		return d.db.Close()
+	}
+	return nil
 }
 
 // =============================================================================
@@ -765,86 +844,96 @@ func (d *Database) Close() error {
 
 // InsertPackageRecord inserts a new package record
 func (d *Database) InsertPackageRecord(p *PackageRecord) error {
-    p.CreatedAt = time.Now()
-    p.UpdatedAt = time.Now()
-    if p.Timestamp.IsZero() {
-        p.Timestamp = time.Now()
-    }
-    query := `
+	p.CreatedAt = time.Now()
+	p.UpdatedAt = time.Now()
+	if p.Timestamp.IsZero() {
+		p.Timestamp = time.Now()
+	}
+	query := `
     INSERT INTO packages (id, tenant_id, type, file_name, size, path, ip, timestamp, remark, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
-    _, err := d.db.Exec(query,
-        p.ID, p.TenantID, p.Type, p.FileName, p.Size, p.Path, p.IP,
-        p.Timestamp.Format(time.RFC3339), p.Remark,
-        p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339),
-    )
-    return err
+	_, err := d.db.Exec(query,
+		p.ID, p.TenantID, p.Type, p.FileName, p.Size, p.Path, p.IP,
+		p.Timestamp.Format(time.RFC3339), p.Remark,
+		p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339),
+	)
+	return err
 }
 
 // ListPackages lists packages with optional filters and pagination
 func (d *Database) ListPackages(tenant, ptype, search string, page, limit int) ([]PackageRecord, int, error) {
-    if page <= 0 { page = 1 }
-    if limit <= 0 || limit > 1000 { limit = 50 }
-    offset := (page - 1) * limit
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 50
+	}
+	offset := (page - 1) * limit
 
-    base := "SELECT id, tenant_id, type, file_name, size, path, ip, timestamp, remark, created_at, updated_at FROM packages WHERE 1=1"
-    countQ := "SELECT COUNT(1) FROM packages WHERE 1=1"
-    args := []interface{}{}
+	base := "SELECT id, tenant_id, type, file_name, size, path, ip, timestamp, remark, created_at, updated_at FROM packages WHERE 1=1"
+	countQ := "SELECT COUNT(1) FROM packages WHERE 1=1"
+	args := []interface{}{}
 
-    if tenant != "" {
-        base += " AND tenant_id = ?"
-        countQ += " AND tenant_id = ?"
-        args = append(args, tenant)
-    }
-    if ptype != "" {
-        base += " AND type = ?"
-        countQ += " AND type = ?"
-        args = append(args, ptype)
-    }
-    if search != "" {
-        like := "%" + search + "%"
-        base += " AND (file_name LIKE ? OR path LIKE ? OR remark LIKE ?)"
-        countQ += " AND (file_name LIKE ? OR path LIKE ? OR remark LIKE ?)"
-        args = append(args, like, like, like)
-    }
-    base += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	if tenant != "" {
+		base += " AND tenant_id = ?"
+		countQ += " AND tenant_id = ?"
+		args = append(args, tenant)
+	}
+	if ptype != "" {
+		base += " AND type = ?"
+		countQ += " AND type = ?"
+		args = append(args, ptype)
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		base += " AND (file_name LIKE ? OR path LIKE ? OR remark LIKE ?)"
+		countQ += " AND (file_name LIKE ? OR path LIKE ? OR remark LIKE ?)"
+		args = append(args, like, like, like)
+	}
+	base += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
-    // Count first
-    var total int
-    if err := d.db.QueryRow(countQ, args...).Scan(&total); err != nil {
-        return nil, 0, err
-    }
+	// Count first
+	var total int
+	if err := d.db.QueryRow(countQ, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
 
-    // Append pagination params
-    argsWithPage := append(append([]interface{}{}, args...), limit, offset)
-    rows, err := d.db.Query(base, argsWithPage...)
-    if err != nil {
-        return nil, 0, err
-    }
-    defer rows.Close()
+	// Append pagination params
+	argsWithPage := append(append([]interface{}{}, args...), limit, offset)
+	rows, err := d.db.Query(base, argsWithPage...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
 
-    var list []PackageRecord
-    for rows.Next() {
-        var r PackageRecord
-        var ts, ca, ua string
-        if err := rows.Scan(&r.ID, &r.TenantID, &r.Type, &r.FileName, &r.Size, &r.Path, &r.IP, &ts, &r.Remark, &ca, &ua); err != nil {
-            log.Printf("scan package: %v", err)
-            continue
-        }
-        if t, err := time.Parse(time.RFC3339, ts); err == nil { r.Timestamp = t }
-        if t, err := time.Parse(time.RFC3339, ca); err == nil { r.CreatedAt = t }
-        if t, err := time.Parse(time.RFC3339, ua); err == nil { r.UpdatedAt = t }
-        list = append(list, r)
-    }
-    return list, total, nil
+	var list []PackageRecord
+	for rows.Next() {
+		var r PackageRecord
+		var ts, ca, ua string
+		if err := rows.Scan(&r.ID, &r.TenantID, &r.Type, &r.FileName, &r.Size, &r.Path, &r.IP, &ts, &r.Remark, &ca, &ua); err != nil {
+			log.Printf("scan package: %v", err)
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			r.Timestamp = t
+		}
+		if t, err := time.Parse(time.RFC3339, ca); err == nil {
+			r.CreatedAt = t
+		}
+		if t, err := time.Parse(time.RFC3339, ua); err == nil {
+			r.UpdatedAt = t
+		}
+		list = append(list, r)
+	}
+	return list, total, nil
 }
 
 // UpdatePackageRemark updates remark for a package
 func (d *Database) UpdatePackageRemark(id, remark string) error {
-    now := time.Now().Format(time.RFC3339)
-    _, err := d.db.Exec("UPDATE packages SET remark = ?, updated_at = ? WHERE id = ?", remark, now, id)
-    return err
+	now := time.Now().Format(time.RFC3339)
+	_, err := d.db.Exec("UPDATE packages SET remark = ?, updated_at = ? WHERE id = ?", remark, now, id)
+	return err
 }
 
 // =============================================================================
@@ -858,47 +947,47 @@ func (d *Database) CreateAPIKey(apiKey *APIKey) error {
 
 	permissionsJSON, _ := json.Marshal(apiKey.Permissions)
 
-	query := `
-	INSERT INTO api_keys (
-		id, name, description, key_hash, user_id, permissions, status,
-		expires_at, usage_count, created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
+    query := `
+    INSERT INTO api_keys (
+        id, name, description, key_hash, role, permissions, status,
+        expires_at, usage_count, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
 
 	var expiresAtStr sql.NullString
 	if apiKey.ExpiresAt != nil {
 		expiresAtStr = sql.NullString{String: apiKey.ExpiresAt.Format(time.RFC3339), Valid: true}
 	}
 
-	_, err := d.db.Exec(query,
-		apiKey.ID, apiKey.Name, apiKey.Description, apiKey.KeyHash, apiKey.UserID,
-		string(permissionsJSON), apiKey.Status, expiresAtStr, apiKey.UsageCount,
-		apiKey.CreatedAt.Format(time.RFC3339), apiKey.UpdatedAt.Format(time.RFC3339),
-	)
+    _, err := d.db.Exec(query,
+        apiKey.ID, apiKey.Name, apiKey.Description, apiKey.KeyHash, apiKey.Role,
+        string(permissionsJSON), apiKey.Status, expiresAtStr, apiKey.UsageCount,
+        apiKey.CreatedAt.Format(time.RFC3339), apiKey.UpdatedAt.Format(time.RFC3339),
+    )
 
 	return err
 }
 
 // GetAPIKeyByHash retrieves an API key by its hash
 func (d *Database) GetAPIKeyByHash(keyHash string) (*APIKey, error) {
-	query := `
-	SELECT id, name, description, key_hash, user_id, permissions, status,
-		   expires_at, usage_count, last_used_at, created_at, updated_at
-	FROM api_keys
-	WHERE key_hash = ? AND status = 'active'
-	`
+    query := `
+    SELECT id, name, description, key_hash, role, permissions, status,
+           expires_at, usage_count, last_used_at, created_at, updated_at
+    FROM api_keys
+    WHERE key_hash = ? AND status = 'active'
+    `
 
 	var apiKey APIKey
 	var permissionsJSON string
 	var expiresAtStr, lastUsedAtStr sql.NullString
 	var createdAtStr, updatedAtStr string
 
-	err := d.db.QueryRow(query, keyHash).Scan(
-		&apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.KeyHash,
-		&apiKey.UserID, &permissionsJSON, &apiKey.Status,
-		&expiresAtStr, &apiKey.UsageCount, &lastUsedAtStr,
-		&createdAtStr, &updatedAtStr,
-	)
+    err := d.db.QueryRow(query, keyHash).Scan(
+        &apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.KeyHash,
+        &apiKey.Role, &permissionsJSON, &apiKey.Status,
+        &expiresAtStr, &apiKey.UsageCount, &lastUsedAtStr,
+        &createdAtStr, &updatedAtStr,
+    )
 
 	if err != nil {
 		return nil, err
@@ -933,16 +1022,16 @@ func (d *Database) GetAPIKeyByHash(keyHash string) (*APIKey, error) {
 }
 
 // GetAPIKeysByUserID retrieves all API keys for a user
-func (d *Database) GetAPIKeysByUserID(userID string) ([]APIKey, error) {
-	query := `
-	SELECT id, name, description, user_id, permissions, status,
-		   expires_at, usage_count, last_used_at, created_at, updated_at
-	FROM api_keys
-	WHERE user_id = ?
-	ORDER BY created_at DESC
-	`
+func (d *Database) GetAPIKeysByRole(role string) ([]APIKey, error) {
+    query := `
+    SELECT id, name, description, role, permissions, status,
+           expires_at, usage_count, last_used_at, created_at, updated_at
+    FROM api_keys
+    WHERE role = ?
+    ORDER BY created_at DESC
+    `
 
-	rows, err := d.db.Query(query, userID)
+    rows, err := d.db.Query(query, role)
 	if err != nil {
 		return nil, err
 	}
@@ -955,11 +1044,11 @@ func (d *Database) GetAPIKeysByUserID(userID string) ([]APIKey, error) {
 		var expiresAtStr, lastUsedAtStr sql.NullString
 		var createdAtStr, updatedAtStr string
 
-		err := rows.Scan(
-			&apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.UserID,
-			&permissionsJSON, &apiKey.Status, &expiresAtStr, &apiKey.UsageCount,
-			&lastUsedAtStr, &createdAtStr, &updatedAtStr,
-		)
+        err := rows.Scan(
+            &apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.Role,
+            &permissionsJSON, &apiKey.Status, &expiresAtStr, &apiKey.UsageCount,
+            &lastUsedAtStr, &createdAtStr, &updatedAtStr,
+        )
 
 		if err != nil {
 			log.Printf("Error scanning API key record: %v", err)
@@ -998,12 +1087,12 @@ func (d *Database) GetAPIKeysByUserID(userID string) ([]APIKey, error) {
 
 // GetAllAPIKeys retrieves all API keys
 func (d *Database) GetAllAPIKeys() ([]APIKey, error) {
-	query := `
-	SELECT id, name, description, user_id, permissions, status,
-		   expires_at, usage_count, last_used_at, created_at, updated_at
-	FROM api_keys
-	ORDER BY created_at DESC
-	`
+    query := `
+    SELECT id, name, description, role, permissions, status,
+           expires_at, usage_count, last_used_at, created_at, updated_at
+    FROM api_keys
+    ORDER BY created_at DESC
+    `
 
 	rows, err := d.db.Query(query)
 	if err != nil {
@@ -1018,11 +1107,11 @@ func (d *Database) GetAllAPIKeys() ([]APIKey, error) {
 		var expiresAtStr, lastUsedAtStr sql.NullString
 		var createdAtStr, updatedAtStr string
 
-		err := rows.Scan(
-			&apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.UserID,
-			&permissionsJSON, &apiKey.Status, &expiresAtStr, &apiKey.UsageCount,
-			&lastUsedAtStr, &createdAtStr, &updatedAtStr,
-		)
+        err := rows.Scan(
+            &apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.Role,
+            &permissionsJSON, &apiKey.Status, &expiresAtStr, &apiKey.UsageCount,
+            &lastUsedAtStr, &createdAtStr, &updatedAtStr,
+        )
 
 		if err != nil {
 			log.Printf("Error scanning API key record: %v", err)
@@ -1271,15 +1360,15 @@ func (d *Database) GetUserRole(userID string) (*UserRole, error) {
 
 // PackageRecord represents an uploaded package (assets/others)
 type PackageRecord struct {
-    ID         string    `json:"id"`
-    TenantID   string    `json:"tenantId"`
-    Type       string    `json:"type"` // assets or others
-    FileName   string    `json:"fileName"`
-    Size       int64     `json:"size"`
-    Path       string    `json:"path"`
-    IP         string    `json:"ip"`
-    Timestamp  time.Time `json:"timestamp"`
-    Remark     string    `json:"remark"`
-    CreatedAt  time.Time `json:"createdAt"`
-    UpdatedAt  time.Time `json:"updatedAt"`
+	ID        string    `json:"id"`
+	TenantID  string    `json:"tenantId"`
+	Type      string    `json:"type"` // assets or others
+	FileName  string    `json:"fileName"`
+	Size      int64     `json:"size"`
+	Path      string    `json:"path"`
+	IP        string    `json:"ip"`
+	Timestamp time.Time `json:"timestamp"`
+	Remark    string    `json:"remark"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
