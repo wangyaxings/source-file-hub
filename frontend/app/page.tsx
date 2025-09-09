@@ -12,6 +12,7 @@ import { FileList } from "@/components/file/file-list"
 import { RecycleBin } from "@/components/file/recycle-bin"
 import { Toaster } from "@/components/ui/toaster"
 import { apiClient, type UserInfo } from "@/lib/api"
+import { APIKeyManagement } from "@/components/admin/api-key-management"
 import {
   LogOut,
   Upload,
@@ -84,6 +85,9 @@ export default function HomePage() {
     // Trigger file list refresh
     setRefreshTrigger(prev => prev + 1)
   }
+
+  const isAdmin = currentUser?.username === 'admin'
+  const tabsColsClass = isAdmin ? 'grid-cols-5' : 'grid-cols-4'
 
   if (isLoading) {
     return (
@@ -183,7 +187,7 @@ export default function HomePage() {
       {/* 主要内容 */}
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Tabs defaultValue="upload" className="space-y-6">
-          <TabsList className={`grid w-full grid-cols-4 max-w-3xl`}>
+          <TabsList className={`grid w-full ${tabsColsClass} max-w-3xl`}>
             <TabsTrigger value="upload" className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
               Upload
@@ -200,7 +204,12 @@ export default function HomePage() {
               <Files className="h-4 w-4" />
               Packages
             </TabsTrigger>
-            
+            {isAdmin && (
+              <TabsTrigger value="admin" className="flex items-center gap-2">
+                <Shield className="h-4 w-4" />
+                API Keys
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="upload" className="space-y-6">
@@ -219,7 +228,11 @@ export default function HomePage() {
             <PackagesPanel />
           </TabsContent>
 
-          
+          {isAdmin && (
+            <TabsContent value="admin" className="space-y-6">
+              <APIKeyManagement />
+            </TabsContent>
+          )}
         </Tabs>
       </main>
 

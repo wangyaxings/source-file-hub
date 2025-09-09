@@ -133,7 +133,8 @@ func RegisterRoutes(router *mux.Router) {
 		apiUpdatePackageRemarkHandler(w, r)
 	}).Methods("PATCH")
 
-	// Admin web routes removed per requirements
+	// Admin web routes (for frontend admin panel)
+	RegisterWebAdminRoutes(webAPI)
 
 		// =============================================================================
 	// Public API Routes (require API key authentication) - 注册在更具体的路径
