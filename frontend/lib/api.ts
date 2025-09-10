@@ -58,6 +58,7 @@ class ApiClient {
     // 确保headers存在
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
       ...((options.headers as Record<string, string>) || {})
     }
 
@@ -93,11 +94,19 @@ class ApiClient {
 
       const data = await response.json()
 
-      if (!data.success) {
-        throw new Error(data.error || data.message || 'Request failed')
+      if (typeof (data?.success) === 'boolean') {
+        if (!data.success) {
+          throw new Error(data.error || data.message || 'Request failed')
+        }
+        return data
       }
 
-      return data
+      // Fallback for Authboss JSON responses that use { status: "success" }
+      if ((data as any)?.status === 'success') {
+        return { success: true, data } as any
+      }
+
+      throw new Error((data as any)?.error || (data as any)?.message || 'Request failed')
     } catch (error) {
       console.error(`Request failed for ${url}:`, error)
 
@@ -144,20 +153,52 @@ class ApiClient {
 
   // 认证相关
   async login(data: LoginRequest): Promise<LoginResponse> {
-    const response = await this.request<LoginResponse>('/auth/login', {
+    // Use manual fetch to handle Authboss JSON redirect under /auth/ab/*
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    }
+    if (this.token) headers.Authorization = `Bearer ${this.token}`
+
+    const res = await fetch(`${this.baseUrl}/auth/ab/login`, {
       method: 'POST',
-      body: JSON.stringify(data)
+      headers,
+      body: JSON.stringify(data),
+      credentials: 'same-origin',
     })
+
+    if (res.status >= 300 && res.status < 400) {
+      // Authboss JSON redirect payload
+      const redir = await res.json().catch(() => ({} as any))
+      const loc: string | undefined = (redir as any)?.location
+      if (loc) {
+        // Follow redirect by calling target endpoint
+        let followEp = loc
+        if (followEp.startsWith(this.baseUrl)) followEp = followEp.substring(this.baseUrl.length)
+        else if (followEp.startsWith('/api/v1/web')) followEp = followEp.substring('/api/v1/web'.length)
+        await this.request(followEp, { method: 'GET' })
+      } else {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+      }
+    } else if (!res.ok) {
+      // Try to surface JSON error
+      try {
+        const j = await res.json()
+        throw new Error(j.error || j.message || `HTTP ${res.status}: ${res.statusText}`)
+      } catch {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+      }
+    }
 
     // After Authboss login, session cookie is set; load current user
     const me = await this.request<{ user: { username: string; role?: string } }>(`/auth/me`)
     if (me.success && me.data && (me.data as any).user) {
       const u = (me.data as any).user
       this.setUser({ username: u.username, role: u.role })
-      return response.data as any
+      return { status: 'success' }
     }
 
-    throw new Error(response.error || 'Login failed')
+    throw new Error('Login failed')
   }
 
   async changePassword(oldPassword: string, newPassword: string): Promise<void> {
@@ -170,7 +211,8 @@ class ApiClient {
 
   async logoutUser(): Promise<void> {
     try {
-      await this.request('/auth/logout', { method: 'POST' })
+      // Authboss logout under /auth/ab/logout
+      await fetch(`${this.baseUrl}/auth/ab/logout`, { method: 'POST', headers: { 'Accept': 'application/json' } })
     } finally {
       this.logout()
     }
@@ -397,6 +439,12 @@ class ApiClient {
   async adminDisable2FA(userId: string): Promise<void> {
     const resp = await this.request(`/admin/users/${encodeURIComponent(userId)}/2fa/disable`, { method: 'POST' })
     if (!resp.success) throw new Error(resp.error || 'Disable 2FA failed')
+  }
+
+  async adminResetPassword(userId: string): Promise<{ username: string; temporary_password: string }> {
+    const resp = await this.request<{ username: string; temporary_password: string }>(`/admin/users/${encodeURIComponent(userId)}/reset-password`, { method: 'POST' })
+    if (!resp.success) throw new Error(resp.error || 'Reset password failed')
+    return (resp.data || {}) as any
   }
 
   async adminUpdateUser(userId: string, payload: Partial<{ role: string; twofa_enabled: boolean; reset_2fa: boolean }>): Promise<void> {

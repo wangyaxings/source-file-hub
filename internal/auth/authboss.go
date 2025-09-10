@@ -34,6 +34,11 @@ func InitAuthboss() (*ab.Authboss, error) {
     a.Config.Core.ViewRenderer = renderer
     a.Config.Core.Responder = defaults.NewResponder(renderer)
     a.Config.Core.Redirector = defaults.NewRedirector(renderer, ab.FormValueRedirect)
+    // For API clients, respond 200 with JSON on redirects
+    if dr, ok := a.Config.Core.Redirector.(*defaults.Redirector); ok && dr != nil {
+        dr.CorceRedirectTo200 = true
+    }
+    a.Config.Core.ErrorHandler = defaults.NewErrorHandler(defaults.NewLogger(os.Stdout))
     a.Config.Core.BodyReader = defaults.NewHTTPBodyReader(true, true) // username, JSON
     a.Config.Core.Logger = defaults.NewLogger(os.Stdout)
     a.Config.Core.Hasher = ab.NewBCryptHasher(12)

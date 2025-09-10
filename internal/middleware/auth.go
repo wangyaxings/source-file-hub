@@ -26,7 +26,8 @@ func AuthMiddleware(next http.Handler) http.Handler {
         if path == "/api/v1/health" || path == "/api/v1/healthz" ||
             path == "/api/v1/web/health" || path == "/api/v1/web/healthz" ||
             strings.HasPrefix(path, "/static/") ||
-            strings.HasPrefix(path, "/api/v1/web/auth/") ||
+            // Allow Authboss endpoints under /auth/ab/* without session
+            strings.HasPrefix(path, "/api/v1/web/auth/ab/") ||
             strings.Contains(path, "/auth/users") ||
             strings.Contains(path, "/api/v1/public") {
             next.ServeHTTP(w, r)

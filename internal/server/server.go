@@ -22,10 +22,10 @@ func New() *Server {
     router.Use(middleware.CorsMiddleware)
     router.Use(middleware.LoggingMiddleware)
 
-    // Initialize Authboss and mount routes under /api/v1/web/auth
+    // Initialize Authboss and mount routes under /api/v1/web/auth/ab to avoid collisions
     if ab, err := auth.InitAuthboss(); err == nil && ab != nil {
         router.Use(func(next http.Handler) http.Handler { return ab.LoadClientStateMiddleware(next) })
-        router.PathPrefix("/api/v1/web/auth").Handler(http.StripPrefix("/api/v1/web/auth", http.StripPrefix("", ab.Config.Core.Router)))
+        router.PathPrefix("/api/v1/web/auth/ab").Handler(http.StripPrefix("/api/v1/web/auth/ab", ab.Config.Core.Router))
     }
 
     // Our auth middleware now relies on Authboss session

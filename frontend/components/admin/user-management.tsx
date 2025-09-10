@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/lib/use-toast"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 
 type UserRow = {
   user_id: string
@@ -20,6 +21,8 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<UserRow[]>([])
   const [filter, setFilter] = useState('')
+  const [credOpen, setCredOpen] = useState(false)
+  const [cred, setCred] = useState<{ username?: string; password?: string } | null>(null)
   const { toast } = useToast()
 
   const load = async () => {
@@ -105,7 +108,14 @@ export default function UserManagement() {
         </div>
       </div>
 
-      <CreateUserPanel onCreated={() => load()} />
+      <CreateUserModal onCreated={(u, pwd) => {
+        toast({ title: 'User created', description: u })
+        setCred({ username: u, password: pwd })
+        setCredOpen(true)
+        load()
+      }} />
+
+      <CredentialsModal open={credOpen} onOpenChange={setCredOpen} creds={cred} />
 
       <div className="overflow-x-auto border rounded-md">
         <table className="min-w-full text-sm">
@@ -150,6 +160,10 @@ export default function UserManagement() {
                   {u.status !== 'suspended' && (
                     <Button size="sm" variant="destructive" onClick={() => onSuspend(u)}>Suspend</Button>
                   )}
+                  <ResetPasswordButton user={u} onDone={(pwd) => {
+                    setCred({ username: u.user_id, password: pwd })
+                    setCredOpen(true)
+                  }} />
                 </td>
               </tr>
             ))}
@@ -163,13 +177,14 @@ export default function UserManagement() {
   )
 }
 
-function CreateUserPanel({ onCreated }: { onCreated: () => void }) {
+function CreateUserModal({ onCreated }: { onCreated: (username: string, password: string) => void }) {
   const { toast } = useToast()
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [role, setRole] = useState("viewer")
   const [mustReset, setMustReset] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
 
   const createUser = async () => {
     if (!username) {
@@ -179,13 +194,13 @@ function CreateUserPanel({ onCreated }: { onCreated: () => void }) {
     setBusy(true)
     try {
       const resp = await apiClient.adminCreateUser({ username, email, role, must_reset: mustReset })
-      const pwd = (resp as any)?.initial_password || '(hidden)'
-      toast({ title: 'User created', description: `Initial password: ${pwd}` })
+      const pwd = (resp as any)?.initial_password || ''
+      onCreated(username, pwd)
       setUsername("")
       setEmail("")
       setRole("viewer")
       setMustReset(true)
-      onCreated()
+      setOpen(false)
     } catch (err: any) {
       toast({ title: 'Create failed', description: err?.message || String(err), variant: 'destructive' })
     } finally {
@@ -194,25 +209,132 @@ function CreateUserPanel({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <div className="border rounded-md p-4 space-y-3">
-      <div className="font-medium">Create User</div>
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-        <Input placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
-        <Input placeholder="Email (optional)" value={email} onChange={e => setEmail(e.target.value)} />
-        <Select value={role} onValueChange={setRole}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="viewer">viewer</SelectItem>
-            <SelectItem value="administrator">administrator</SelectItem>
-          </SelectContent>
-        </Select>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={mustReset} onChange={e => setMustReset(e.target.checked)} />
-          Force password reset
-        </label>
-        <Button onClick={createUser} disabled={busy}>{busy ? 'Creating...' : 'Create'}</Button>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <div className="flex items-center justify-between">
+        <DialogTrigger asChild>
+          <Button>Create User</Button>
+        </DialogTrigger>
       </div>
-      <div className="text-xs text-muted-foreground">After creation, an initial password will be generated and shown once. Ask the user to login and change password immediately.</div>
-    </div>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Create User</DialogTitle>
+          <DialogDescription>Generate a one-time password and optionally force reset.</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Input placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
+          <Input placeholder="Email (optional)" value={email} onChange={e => setEmail(e.target.value)} />
+          <div>
+            <div className="text-xs mb-1 text-muted-foreground">Role</div>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="viewer">viewer</SelectItem>
+                <SelectItem value="administrator">administrator</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={mustReset} onChange={e => setMustReset(e.target.checked)} />
+            Force password reset
+          </label>
+        </div>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
+          <Button onClick={createUser} disabled={busy}>{busy ? 'Creating...' : 'Create'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ResetPasswordButton({ user, onDone }: { user: UserRow; onDone: (password: string) => void }) {
+  const { toast } = useToast()
+  const [busy, setBusy] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const onReset = async () => {
+    setBusy(true)
+    try {
+      const data = await apiClient.adminResetPassword(user.user_id)
+      const pwd = data?.temporary_password || ''
+      onDone(pwd)
+      toast({ title: 'Password reset', description: user.user_id })
+      setConfirmOpen(false)
+    } catch (err: any) {
+      toast({ title: 'Reset failed', description: err?.message || String(err), variant: 'destructive' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">Reset Password</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reset password for {user.user_id}?</DialogTitle>
+          <DialogDescription>This generates a new temporary password and forces reset on next login.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => setConfirmOpen(false)} disabled={busy}>Cancel</Button>
+          <Button variant="destructive" onClick={onReset} disabled={busy}>{busy ? 'Resetting...' : 'Reset Password'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function CredentialsModal({ open, onOpenChange, creds }: { open: boolean; onOpenChange: (v: boolean) => void; creds: { username?: string; password?: string } | null }) {
+  const username = creds?.username || ''
+  const password = creds?.password || ''
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(password)
+    } catch {
+      // ignore
+    }
+  }
+
+  const download = () => {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-')
+    const name = `credentials-${username}-${ts}.txt`
+    const content = `Username: ${username}\nTemporary Password: ${password}\nIssued At: ${new Date().toISOString()}\n`;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Temporary Credentials</DialogTitle>
+          <DialogDescription>Copy or download the password now. It won’t be shown again.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <div className="text-sm">Username</div>
+          <Input readOnly value={username} />
+          <div className="text-sm">Temporary Password</div>
+          <div className="flex gap-2">
+            <Input readOnly value={password} />
+            <Button onClick={copy} variant="outline">Copy</Button>
+            <Button onClick={download}>Download</Button>
+          </div>
+          <div className="text-xs text-muted-foreground">Ask the user to login and change the password immediately.</div>
+        </div>
+        <DialogFooter>
+          <Button onClick={() => onOpenChange(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -111,6 +111,7 @@ func RegisterAdminRoutes(router *mux.Router) {
     admin.HandleFunc("/users/{userId}/approve", middleware.RequireAuthorization(approveUserHandler)).Methods("POST")
     admin.HandleFunc("/users/{userId}/suspend", middleware.RequireAuthorization(suspendUserHandler)).Methods("POST")
     admin.HandleFunc("/users/{userId}/2fa/disable", middleware.RequireAuthorization(disableUser2FAHandler)).Methods("POST")
+    admin.HandleFunc("/users/{userId}/reset-password", middleware.RequireAuthorization(resetUserPasswordHandler)).Methods("POST")
     admin.HandleFunc("/users/{userId}/role", middleware.RequireAuthorization(updateUserRoleHandler)).Methods("PUT")
     admin.HandleFunc("/users/{userId}/api-keys", middleware.RequireAuthorization(getUserAPIKeysHandler)).Methods("GET")
     admin.HandleFunc("/users/{userId}/usage", middleware.RequireAuthorization(getUserUsageHandler)).Methods("GET")
@@ -146,6 +147,7 @@ func RegisterWebAdminRoutes(router *mux.Router) {
     admin.HandleFunc("/users/{userId}/approve", middleware.RequireAuthorization(approveUserHandler)).Methods("POST")
     admin.HandleFunc("/users/{userId}/suspend", middleware.RequireAuthorization(suspendUserHandler)).Methods("POST")
     admin.HandleFunc("/users/{userId}/2fa/disable", middleware.RequireAuthorization(disableUser2FAHandler)).Methods("POST")
+    admin.HandleFunc("/users/{userId}/reset-password", middleware.RequireAuthorization(resetUserPasswordHandler)).Methods("POST")
     admin.HandleFunc("/users/{userId}/role", middleware.RequireAuthorization(updateUserRoleHandler)).Methods("PUT")
     admin.HandleFunc("/users/{userId}/api-keys", middleware.RequireAuthorization(getUserAPIKeysHandler)).Methods("GET")
     admin.HandleFunc("/users/{userId}/usage", middleware.RequireAuthorization(getUserUsageHandler)).Methods("GET")
@@ -1033,4 +1035,46 @@ func generateRandomPassword(length int) string {
         b[i] = letters[int(time.Now().UnixNano()+int64(i))%len(letters)]
     }
     return string(b)
+}
+
+// resetUserPasswordHandler regenerates a user's password and forces reset on next login
+func resetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    userID := vars["userId"]
+    if userID == "" {
+        writeErrorResponse(w, http.StatusBadRequest, "userId is required")
+        return
+    }
+
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+        return
+    }
+
+    // Ensure user exists
+    if _, err := db.GetUser(userID); err != nil {
+        writeErrorResponse(w, http.StatusNotFound, "User not found")
+        return
+    }
+
+    // Generate new password and update hash
+    newPassword := generateRandomPassword(16)
+    hashed, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+    if err := db.UpdateUserPassword(userID, string(hashed)); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to update password")
+        return
+    }
+
+    // Force password reset on next login
+    _ = db.SetUserMustReset(userID, true)
+
+    writeJSONResponse(w, http.StatusOK, Response{
+        Success: true,
+        Message: "Password reset. Provide the temporary password to the user.",
+        Data: map[string]interface{}{
+            "username": userID,
+            "temporary_password": newPassword,
+        },
+    })
 }

@@ -1,8 +1,12 @@
 package auth
 
 import (
+    "encoding/json"
     "net/http"
     "os"
+    "path/filepath"
+    "sync"
+    "log"
 
     ab "github.com/aarondl/authboss/v3"
     "github.com/gorilla/securecookie"
@@ -24,14 +28,7 @@ type cookieStateRW struct {
 }
 
 func newCookieStateRW(name string, persistent bool) cookieStateRW {
-    authKey := []byte(os.Getenv("SESSION_AUTH_KEY"))
-    encKey := []byte(os.Getenv("SESSION_ENC_KEY"))
-    if len(authKey) == 0 {
-        authKey = securecookie.GenerateRandomKey(32)
-    }
-    if len(encKey) == 0 {
-        encKey = securecookie.GenerateRandomKey(32)
-    }
+    authKey, encKey := loadCookieKeys()
     sc := securecookie.New(authKey, encKey)
     sc.SetSerializer(securecookie.JSONEncoder{})
     return cookieStateRW{CookieName: name, Persistent: persistent, sc: sc}
@@ -86,4 +83,73 @@ func (c cookieStateRW) WriteState(w http.ResponseWriter, state ab.ClientState, e
     }
     http.SetCookie(w, ck)
     return nil
+}
+
+// -----------------------------------------------------------------------------
+// Cookie Keys Loader
+// -----------------------------------------------------------------------------
+
+var (
+    cookieKeysOnce sync.Once
+    cachedAuthKey  []byte
+    cachedEncKey   []byte
+)
+
+type sessionConfig struct {
+    Session struct {
+        AuthKey string `json:"auth_key"`
+        EncKey  string `json:"enc_key"`
+    } `json:"session"`
+}
+
+// loadCookieKeys loads securecookie keys from configs/config.json, then env vars, then random
+func loadCookieKeys() ([]byte, []byte) {
+    cookieKeysOnce.Do(func() {
+        // 1) Try configs/config.json
+        cfgPath := filepath.Join("configs", "config.json")
+        if b, err := os.ReadFile(cfgPath); err == nil {
+            var cfg sessionConfig
+            if json.Unmarshal(b, &cfg) == nil {
+                if cfg.Session.AuthKey != "" {
+                    cachedAuthKey = []byte(cfg.Session.AuthKey)
+                }
+                if cfg.Session.EncKey != "" {
+                    cachedEncKey = []byte(cfg.Session.EncKey)
+                }
+            }
+        }
+
+        // 2) Fallback to environment variables (backward compatible)
+        envAuth := os.Getenv("SESSION_AUTH_KEY")
+        envEnc := os.Getenv("SESSION_ENC_KEY")
+        fromConfigAuth := len(cachedAuthKey) != 0
+        fromConfigEnc := len(cachedEncKey) != 0
+        if len(cachedAuthKey) == 0 && envAuth != "" {
+            cachedAuthKey = []byte(envAuth)
+        }
+        if len(cachedEncKey) == 0 && envEnc != "" {
+            cachedEncKey = []byte(envEnc)
+        }
+
+        // 3) Final fallback: generate random keys and log a warning
+        if len(cachedAuthKey) == 0 {
+            cachedAuthKey = securecookie.GenerateRandomKey(32)
+        }
+        if len(cachedEncKey) == 0 {
+            cachedEncKey = securecookie.GenerateRandomKey(32)
+        }
+
+        // If either key came from random generation, emit a warning to stdout
+        // to avoid unexpected session invalidation on restart.
+        // We detect random by length check right after generation time window.
+        // Note: This simple heuristic logs when keys were missing from config/env.
+        if os.Getenv("SILENCE_COOKIE_KEY_WARN") == "" { // allow disabling in tests
+            if !fromConfigAuth && !fromConfigEnc && envAuth == "" && envEnc == "" {
+                // No env provided; if config also missing, warn.
+                // We can't easily know config presence beyond our checks; log generic warning.
+                log.Printf("[WARN] Secure cookie keys not set in configs/config.json (session.auth_key/enc_key) or env; generated random keys. Sessions may be invalidated after restart.")
+            }
+        }
+    })
+    return cachedAuthKey, cachedEncKey
 }
