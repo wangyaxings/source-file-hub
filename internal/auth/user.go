@@ -267,12 +267,24 @@ func Register(username, password, email string) error {
     if _, err := db.GetUser(username); err == nil {
         return errors.New("user already exists")
     }
-    return db.CreateUser(&database.AppUser{
+    if err := db.CreateUser(&database.AppUser{
         Username:     username,
         Email:        email,
         PasswordHash: hashPassword(password),
         Role:         "viewer",
+    }); err != nil {
+        return err
+    }
+    // Put a default role record with pending status for approval flow
+    _ = db.CreateOrUpdateUserRole(&database.UserRole{
+        UserID:       username,
+        Role:         "viewer",
+        Permissions:  []string{"read"},
+        QuotaDaily:   -1,
+        QuotaMonthly: -1,
+        Status:       "pending",
     })
+    return nil
 }
 
 // StartTOTPSetup generates a new TOTP secret and returns the provisioning URL

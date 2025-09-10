@@ -89,16 +89,12 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI := router.PathPrefix("/api/v1/web").Subrouter()
 
 	// 认证相关路由（无需认证）
-    webAPI.HandleFunc("/auth/login", loginHandler).Methods("POST")
-    webAPI.HandleFunc("/auth/register", registerHandler).Methods("POST")
-    webAPI.HandleFunc("/auth/logout", logoutHandler).Methods("POST")
+    // Authboss handles /auth/* endpoints (mounted in server). Provide /auth/me for current user info and change-password for forced reset.
+    webAPI.HandleFunc("/auth/me", meHandler).Methods("GET")
     webAPI.HandleFunc("/auth/change-password", changePasswordHandler).Methods("POST")
     webAPI.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
 
-    // 2FA related (must be authenticated except setup info can be fetched after login)
-    webAPI.HandleFunc("/auth/2fa/setup", twoFASetupHandler).Methods("POST")
-    webAPI.HandleFunc("/auth/2fa/enable", twoFAEnableHandler).Methods("POST")
-    webAPI.HandleFunc("/auth/2fa/disable", twoFADisableHandler).Methods("POST")
+    // 2FA handled by Authboss TOTP under /auth/2fa/totp/*
 
 	// Web API根信息页面（无需认证）
 	webAPI.HandleFunc("", apiInfoHandler).Methods("GET")
@@ -451,30 +447,8 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// registerHandler 用户注册处理器
-func registerHandler(w http.ResponseWriter, r *http.Request) {
-    var req struct{
-        Username string `json:"username"`
-        Password string `json:"password"`
-        Email    string `json:"email,omitempty"`
-    }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
-        return
-    }
-    if req.Username == "" || req.Password == "" {
-        writeErrorResponse(w, http.StatusBadRequest, "username and password are required")
-        return
-    }
-    if err := auth.Register(req.Username, req.Password, req.Email); err != nil {
-        writeErrorResponse(w, http.StatusBadRequest, err.Error())
-        return
-    }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Registration successful"})
-}
-
-// twoFASetupHandler begins TOTP setup for current user
-func twoFASetupHandler(w http.ResponseWriter, r *http.Request) {
+// meHandler returns current user info from session (Authboss)
+func meHandler(w http.ResponseWriter, r *http.Request) {
     userCtx := r.Context().Value("user")
     if userCtx == nil {
         writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
@@ -485,61 +459,9 @@ func twoFASetupHandler(w http.ResponseWriter, r *http.Request) {
         writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
         return
     }
-    secret, url, err := auth.StartTOTPSetup(u.Username, "Secure File Hub")
-    if err != nil {
-        writeErrorResponse(w, http.StatusBadRequest, err.Error())
-        return
-    }
-    writeJSONResponse(w, http.StatusOK, Response{
-        Success: true,
-        Data: map[string]interface{}{
-            "secret": secret,
-            "otpauth_url": url,
-        },
-    })
-}
-
-// twoFAEnableHandler verifies user-provided TOTP code and enables 2FA
-func twoFAEnableHandler(w http.ResponseWriter, r *http.Request) {
-    userCtx := r.Context().Value("user")
-    if userCtx == nil {
-        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
-        return
-    }
-    u, ok := userCtx.(*auth.User)
-    if !ok {
-        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
-        return
-    }
-    var req struct{ Code string `json:"code"` }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Code == "" {
-        writeErrorResponse(w, http.StatusBadRequest, "code is required")
-        return
-    }
-    if err := auth.EnableTOTP(u.Username, req.Code); err != nil {
-        writeErrorResponse(w, http.StatusBadRequest, err.Error())
-        return
-    }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA enabled"})
-}
-
-// twoFADisableHandler disables 2FA for current user
-func twoFADisableHandler(w http.ResponseWriter, r *http.Request) {
-    userCtx := r.Context().Value("user")
-    if userCtx == nil {
-        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
-        return
-    }
-    u, ok := userCtx.(*auth.User)
-    if !ok {
-        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
-        return
-    }
-    if err := auth.DisableTOTP(u.Username); err != nil {
-        writeErrorResponse(w, http.StatusBadRequest, err.Error())
-        return
-    }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA disabled"})
+    writeJSONResponse(w, http.StatusOK, Response{ Success: true, Data: map[string]interface{}{
+        "user": map[string]interface{}{ "username": u.Username, "role": u.Role },
+    }})
 }
 
 // changePasswordHandler allows the current user to change password
@@ -572,6 +494,9 @@ func changePasswordHandler(w http.ResponseWriter, r *http.Request) {
     if err := auth.ChangePassword(user.Username, req.OldPassword, req.NewPassword); err != nil {
         writeErrorResponse(w, http.StatusBadRequest, err.Error())
         return
+    }
+    if db := database.GetDatabase(); db != nil {
+        _ = db.SetUserMustReset(user.Username, false)
     }
 
     response := Response{ Success: true, Message: "Password changed successfully" }

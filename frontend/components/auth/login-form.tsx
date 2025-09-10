@@ -25,6 +25,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     password: ""
   })
   const [isLoading, setIsLoading] = useState(false)
+  const [showOtpInfo, setShowOtpInfo] = useState(true)
   const [error, setError] = useState("")
 
   const handleUserSelect = (value: string) => {
@@ -104,6 +105,14 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               required
             />
           </div>
+
+          {showOtpInfo && (
+            <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded">
+              If your account has 2FA enabled, you may be prompted to verify with a one-time code. After login, visit
+              <code className="px-1">/api/v1/web/auth/2fa/totp/validate</code> to enter your 2FA code or
+              set up via <code className="px-1">/api/v1/web/auth/2fa/totp/setup</code>.
+            </div>
+          )}
 
           {error && (
             <div className="text-sm text-red-500 bg-red-50 p-3 rounded-md border border-red-200">

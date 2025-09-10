@@ -1,12 +1,14 @@
 package middleware
 
 import (
-	"context"
-	"encoding/json"
-	"net/http"
-	"strings"
+    "context"
+    "encoding/json"
+    "net/http"
+    "strings"
 
-	"secure-file-hub/internal/auth"
+    ab "github.com/aarondl/authboss/v3"
+    "secure-file-hub/internal/auth"
+    "secure-file-hub/internal/database"
 )
 
 // AuthMiddleware handles authentication and exposes public routes
@@ -24,45 +26,45 @@ func AuthMiddleware(next http.Handler) http.Handler {
         if path == "/api/v1/health" || path == "/api/v1/healthz" ||
             path == "/api/v1/web/health" || path == "/api/v1/web/healthz" ||
             strings.HasPrefix(path, "/static/") ||
-            strings.Contains(path, "/auth/login") ||
-            strings.Contains(path, "/auth/register") ||
+            strings.HasPrefix(path, "/api/v1/web/auth/") ||
             strings.Contains(path, "/auth/users") ||
             strings.Contains(path, "/api/v1/public") {
             next.ServeHTTP(w, r)
             return
         }
 
-		// Authorization header
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			writeUnauthorizedResponse(w, "Missing Authorization header")
-			return
-		}
+        // Use Authboss session instead of Authorization header
+        if pid, ok := ab.GetSession(r, ab.SessionKey); ok && pid != "" {
+            // Load user from DB
+            var user *auth.User
+            if db := database.GetDatabase(); db != nil {
+                if au, err := db.GetUser(pid); err == nil && au != nil {
+                    user = &auth.User{Username: au.Username, Role: au.Role, Email: au.Email, TwoFAEnabled: au.TwoFAEnabled}
+                    // Enforce must reset password if flagged
+                    if au.MustReset {
+                        // Allow change-password and auth endpoints
+                        if !(strings.HasPrefix(path, "/api/v1/web/auth/change-password") || strings.HasPrefix(path, "/api/v1/web/auth")) {
+                            writeUnauthorizedResponse(w, "PASSWORD_RESET_REQUIRED")
+                            return
+                        }
+                    }
+                }
+            }
+            if user == nil {
+                writeUnauthorizedResponse(w, "User not found")
+                return
+            }
+            ctx := context.WithValue(r.Context(), "user", user)
+            r = r.WithContext(ctx)
+            w.Header().Set("X-User-Username", user.Username)
+            next.ServeHTTP(w, r)
+            return
+        }
 
-		// Bearer token format
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			writeUnauthorizedResponse(w, "Invalid Authorization header format, should be: Bearer <token>")
-			return
-		}
-		token := parts[1]
+        writeUnauthorizedResponse(w, "Authentication required")
+        return
 
-		// Validate token
-		user, err := auth.ValidateToken(token)
-		if err != nil {
-			writeUnauthorizedResponse(w, err.Error())
-			return
-		}
-
-		// Attach user to context
-		ctx := context.WithValue(r.Context(), "user", user)
-		r = r.WithContext(ctx)
-
-		// Helpful debug headers
-		w.Header().Set("X-User-Username", user.Username)
-
-		next.ServeHTTP(w, r)
-	})
+    })
 }
 
 // writeUnauthorizedResponse writes an unauthorized response payload

@@ -16,15 +16,12 @@ export interface FileInfo {
 export interface LoginRequest {
   username: string
   password: string
+  otp?: string
 }
 
 export interface LoginResponse {
-  token: string
-  expiresIn: number
-  user: {
-    username: string
-    role?: string
-  }
+  status?: string
+  location?: string
 }
 
 export interface UserInfo {
@@ -113,6 +110,7 @@ class ApiClient {
   }
 
   setToken(token: string) {
+    // Deprecated: switching to cookie-based session via Authboss
     this.token = token
     if (typeof window !== 'undefined') {
       localStorage.setItem('token', token)
@@ -140,7 +138,8 @@ class ApiClient {
   }
 
   isAuthenticated(): boolean {
-    return !!this.token
+    // Cookie-session based; consider currentUser as the source of truth
+    return !!this.currentUser
   }
 
   // 认证相关
@@ -150,13 +149,12 @@ class ApiClient {
       body: JSON.stringify(data)
     })
 
-    if (response.success && response.data) {
-      this.setToken(response.data.token)
-      this.setUser({
-        username: response.data.user.username,
-        role: response.data.user.role,
-      })
-      return response.data
+    // After Authboss login, session cookie is set; load current user
+    const me = await this.request<{ user: { username: string; role?: string } }>(`/auth/me`)
+    if (me.success && me.data && (me.data as any).user) {
+      const u = (me.data as any).user
+      this.setUser({ username: u.username, role: u.role })
+      return response.data as any
     }
 
     throw new Error(response.error || 'Login failed')
@@ -369,6 +367,44 @@ class ApiClient {
     if (!result.success) {
       throw new Error(result.error || 'Clear recycle bin failed')
     }
+  }
+
+  // Admin: Users management (web namespace)
+  async adminListUsers(): Promise<any[]> {
+    const resp = await this.request<{ users: any[] }>(`/admin/users`)
+    return (resp.data as any)?.users || []
+  }
+
+  async adminCreateUser(payload: { username: string; email?: string; role?: string; must_reset?: boolean }): Promise<any> {
+    const resp = await this.request(`/admin/users`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+    if (!resp.success) throw new Error(resp.error || 'Create user failed')
+    return resp.data
+  }
+
+  async adminApproveUser(userId: string): Promise<void> {
+    const resp = await this.request(`/admin/users/${encodeURIComponent(userId)}/approve`, { method: 'POST' })
+    if (!resp.success) throw new Error(resp.error || 'Approve failed')
+  }
+
+  async adminSuspendUser(userId: string): Promise<void> {
+    const resp = await this.request(`/admin/users/${encodeURIComponent(userId)}/suspend`, { method: 'POST' })
+    if (!resp.success) throw new Error(resp.error || 'Suspend failed')
+  }
+
+  async adminDisable2FA(userId: string): Promise<void> {
+    const resp = await this.request(`/admin/users/${encodeURIComponent(userId)}/2fa/disable`, { method: 'POST' })
+    if (!resp.success) throw new Error(resp.error || 'Disable 2FA failed')
+  }
+
+  async adminUpdateUser(userId: string, payload: Partial<{ role: string; twofa_enabled: boolean; reset_2fa: boolean }>): Promise<void> {
+    const resp = await this.request(`/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+    if (!resp.success) throw new Error(resp.error || 'Update user failed')
   }
 
   async getApiInfo(): Promise<any> {

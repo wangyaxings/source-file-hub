@@ -12,7 +12,8 @@ import (
     "secure-file-hub/internal/database"
     "secure-file-hub/internal/middleware"
 
-	"github.com/gorilla/mux"
+    "github.com/gorilla/mux"
+    "golang.org/x/crypto/bcrypt"
 )
 
 // Temporary storage for API keys that can be downloaded
@@ -103,8 +104,13 @@ func RegisterAdminRoutes(router *mux.Router) {
     admin.HandleFunc("/usage/stats", middleware.RequireAuthorization(getUsageStatsHandler)).Methods("GET")
     admin.HandleFunc("/usage/summary", middleware.RequireAuthorization(getUsageSummaryHandler)).Methods("GET")
 
-	// User Management
+    // User Management
+    admin.HandleFunc("/users", middleware.RequireAuthorization(createUserHandler)).Methods("POST")
     admin.HandleFunc("/users", middleware.RequireAuthorization(listUsersHandler)).Methods("GET")
+    admin.HandleFunc("/users/{userId}", middleware.RequireAuthorization(updateUserHandler)).Methods("PATCH")
+    admin.HandleFunc("/users/{userId}/approve", middleware.RequireAuthorization(approveUserHandler)).Methods("POST")
+    admin.HandleFunc("/users/{userId}/suspend", middleware.RequireAuthorization(suspendUserHandler)).Methods("POST")
+    admin.HandleFunc("/users/{userId}/2fa/disable", middleware.RequireAuthorization(disableUser2FAHandler)).Methods("POST")
     admin.HandleFunc("/users/{userId}/role", middleware.RequireAuthorization(updateUserRoleHandler)).Methods("PUT")
     admin.HandleFunc("/users/{userId}/api-keys", middleware.RequireAuthorization(getUserAPIKeysHandler)).Methods("GET")
     admin.HandleFunc("/users/{userId}/usage", middleware.RequireAuthorization(getUserUsageHandler)).Methods("GET")
@@ -133,8 +139,13 @@ func RegisterWebAdminRoutes(router *mux.Router) {
 	// Enhanced Analytics
 	RegisterAnalyticsRoutes(admin)
 
-	// User Management
+    // User Management
+    admin.HandleFunc("/users", middleware.RequireAuthorization(createUserHandler)).Methods("POST")
     admin.HandleFunc("/users", middleware.RequireAuthorization(listUsersHandler)).Methods("GET")
+    admin.HandleFunc("/users/{userId}", middleware.RequireAuthorization(updateUserHandler)).Methods("PATCH")
+    admin.HandleFunc("/users/{userId}/approve", middleware.RequireAuthorization(approveUserHandler)).Methods("POST")
+    admin.HandleFunc("/users/{userId}/suspend", middleware.RequireAuthorization(suspendUserHandler)).Methods("POST")
+    admin.HandleFunc("/users/{userId}/2fa/disable", middleware.RequireAuthorization(disableUser2FAHandler)).Methods("POST")
     admin.HandleFunc("/users/{userId}/role", middleware.RequireAuthorization(updateUserRoleHandler)).Methods("PUT")
     admin.HandleFunc("/users/{userId}/api-keys", middleware.RequireAuthorization(getUserAPIKeysHandler)).Methods("GET")
     admin.HandleFunc("/users/{userId}/usage", middleware.RequireAuthorization(getUserUsageHandler)).Methods("GET")
@@ -702,37 +713,141 @@ func getUsageSummaryHandler(w http.ResponseWriter, r *http.Request) {
 
 // listUsersHandler lists all users with their roles
 func listUsersHandler(w http.ResponseWriter, r *http.Request) {
-	// This would get all users from the authentication system
-	// For now, return placeholder data
-	users := []map[string]interface{}{
-		{
-			"user_id":    "admin",
-			"tenant_id":  "demo",
-			"role":       "admin",
-			"status":     "active",
-			"api_keys":   3,
-			"last_login": "2024-01-01T12:00:00Z",
-		},
-		{
-			"user_id":    "user1",
-			"tenant_id":  "demo",
-			"role":       "user",
-			"status":     "active",
-			"api_keys":   1,
-			"last_login": "2024-01-01T10:30:00Z",
-		},
-	}
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+        return
+    }
 
-	response := Response{
-		Success: true,
-		Message: "Users retrieved successfully",
-		Data: map[string]interface{}{
-			"users": users,
-			"count": len(users),
-		},
-	}
+    list, err := db.ListUsers()
+    if err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to list users")
+        return
+    }
 
-	writeJSONResponse(w, http.StatusOK, response)
+    // Build response combining role status from user_roles
+    users := make([]map[string]interface{}, 0, len(list))
+    for _, u := range list {
+        status := "active"
+        if ur, err := db.GetUserRole(u.Username); err == nil && ur != nil {
+            if ur.Status != "" {
+                status = ur.Status
+            }
+            // Prefer role from users table; but if empty, take from user_roles
+            if u.Role == "" {
+                u.Role = ur.Role
+            }
+        }
+
+        users = append(users, map[string]interface{}{
+            "user_id":     u.Username,
+            "email":       u.Email,
+            "role":        u.Role,
+            "status":      status,
+            "two_fa":      u.TwoFAEnabled,
+            "last_login":  func() string { if u.LastLoginAt != nil { return u.LastLoginAt.UTC().Format(time.RFC3339) }; return "" }(),
+        })
+    }
+
+    response := Response{
+        Success: true,
+        Message: "Users retrieved successfully",
+        Data: map[string]interface{}{
+            "users": users,
+            "count": len(users),
+        },
+    }
+
+    writeJSONResponse(w, http.StatusOK, response)
+}
+
+// updateUserHandler partially updates user fields (role, 2fa)
+func updateUserHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    userID := vars["userId"]
+
+    var req struct {
+        Role         *string `json:"role,omitempty"`
+        TwoFAEnabled *bool   `json:"twofa_enabled,omitempty"`
+        Reset2FA     *bool   `json:"reset_2fa,omitempty"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
+        return
+    }
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+        return
+    }
+    u, err := db.GetUser(userID)
+    if err != nil {
+        writeErrorResponse(w, http.StatusNotFound, "User not found")
+        return
+    }
+    if req.Role != nil {
+        u.Role = *req.Role
+    }
+    if req.TwoFAEnabled != nil {
+        u.TwoFAEnabled = *req.TwoFAEnabled
+        if !u.TwoFAEnabled {
+            u.TOTPSecret = ""
+        }
+    }
+    if req.Reset2FA != nil && *req.Reset2FA {
+        u.TwoFAEnabled = false
+        u.TOTPSecret = ""
+    }
+    if err := db.UpdateUser(u); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to update user")
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User updated"})
+}
+
+func approveUserHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    userID := vars["userId"]
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+        return
+    }
+    if err := db.CreateOrUpdateUserRole(&database.UserRole{UserID: userID, Status: "active"}); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to approve user")
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User approved"})
+}
+
+func suspendUserHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    userID := vars["userId"]
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+        return
+    }
+    if err := db.CreateOrUpdateUserRole(&database.UserRole{UserID: userID, Status: "suspended"}); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to suspend user")
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User suspended"})
+}
+
+func disableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    userID := vars["userId"]
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+        return
+    }
+    if err := db.SetUser2FA(userID, false, ""); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to disable 2FA")
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA disabled"})
 }
 
 // updateUserRoleHandler updates a user's role
@@ -843,4 +958,79 @@ func getUserUsageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONResponse(w, http.StatusOK, response)
+}
+// createUserHandler creates a new application user with an initial password
+func createUserHandler(w http.ResponseWriter, r *http.Request) {
+    var req struct{
+        Username   string  `json:"username"`
+        Email      string  `json:"email,omitempty"`
+        Role       string  `json:"role,omitempty"`
+        MustReset  *bool   `json:"must_reset,omitempty"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
+        return
+    }
+    if req.Username == "" {
+        writeErrorResponse(w, http.StatusBadRequest, "username is required")
+        return
+    }
+    if req.Role == "" {
+        req.Role = "viewer"
+    }
+    mustReset := true
+    if req.MustReset != nil {
+        mustReset = *req.MustReset
+    }
+
+    // Generate initial password
+    initialPassword := generateRandomPassword(16)
+
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+        return
+    }
+
+    // Create user
+    if _, err := db.GetUser(req.Username); err == nil {
+        writeErrorResponse(w, http.StatusBadRequest, "user already exists")
+        return
+    }
+
+    // Hash password
+    hashed, _ := bcrypt.GenerateFromPassword([]byte(initialPassword), bcrypt.DefaultCost)
+    user := &database.AppUser{
+        Username:     req.Username,
+        Email:        req.Email,
+        PasswordHash: string(hashed),
+        Role:         req.Role,
+        TwoFAEnabled: false,
+        MustReset:    mustReset,
+    }
+    if err := db.CreateUser(user); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to create user")
+        return
+    }
+    // Create/Update user role record as active
+    _ = db.CreateOrUpdateUserRole(&database.UserRole{UserID: req.Username, Role: req.Role, Status: "active"})
+
+    writeJSONResponse(w, http.StatusOK, Response{
+        Success: true,
+        Message: "User created",
+        Data: map[string]interface{}{
+            "username": req.Username,
+            "initial_password": initialPassword,
+            "must_reset": mustReset,
+        },
+    })
+}
+
+func generateRandomPassword(length int) string {
+    const letters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*()_+"
+    b := make([]byte, length)
+    for i := range b {
+        b[i] = letters[int(time.Now().UnixNano()+int64(i))%len(letters)]
+    }
+    return string(b)
 }

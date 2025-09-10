@@ -1,9 +1,11 @@
 package server
 
 import (
-	"secure-file-hub/internal/middleware"
+    "net/http"
+    "secure-file-hub/internal/auth"
+    "secure-file-hub/internal/middleware"
 
-	"github.com/gorilla/mux"
+    "github.com/gorilla/mux"
 )
 
 // Server represents the HTTP server with configured middleware
@@ -13,13 +15,21 @@ type Server struct {
 
 // New creates a new server instance and attaches middlewares
 func New() *Server {
-	router := mux.NewRouter()
+    router := mux.NewRouter()
 
 	// Order matters: HTTPS redirect, CORS (preflight), Logging, then Auth
-	router.Use(middleware.HTTPSRedirectMiddleware)
-	router.Use(middleware.CorsMiddleware)
-	router.Use(middleware.LoggingMiddleware)
-	router.Use(middleware.AuthMiddleware)
+    router.Use(middleware.HTTPSRedirectMiddleware)
+    router.Use(middleware.CorsMiddleware)
+    router.Use(middleware.LoggingMiddleware)
+
+    // Initialize Authboss and mount routes under /api/v1/web/auth
+    if ab, err := auth.InitAuthboss(); err == nil && ab != nil {
+        router.Use(func(next http.Handler) http.Handler { return ab.LoadClientStateMiddleware(next) })
+        router.PathPrefix("/api/v1/web/auth").Handler(http.StripPrefix("/api/v1/web/auth", http.StripPrefix("", ab.Config.Core.Router)))
+    }
+
+    // Our auth middleware now relies on Authboss session
+    router.Use(middleware.AuthMiddleware)
 
 	return &Server{
 		Router: router,

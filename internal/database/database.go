@@ -111,6 +111,9 @@ type AppUser struct {
     Role         string    `json:"role"` // viewer, administrator
     TwoFAEnabled bool      `json:"twoFAEnabled"`
     TOTPSecret   string    `json:"-"`
+    TOTPLastCode string    `json:"-"`
+    RecoveryCodes string   `json:"-"`
+    MustReset    bool      `json:"mustReset"`
     CreatedAt    time.Time `json:"createdAt"`
     UpdatedAt    time.Time `json:"updatedAt"`
     LastLoginAt  *time.Time `json:"lastLoginAt,omitempty"`
@@ -386,6 +389,9 @@ func (d *Database) createTables() error {
         role TEXT NOT NULL DEFAULT 'viewer',
         twofa_enabled BOOLEAN NOT NULL DEFAULT 0,
         totp_secret TEXT,
+        totp_last_code TEXT,
+        recovery_codes TEXT,
+        must_reset BOOLEAN NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_login_at TEXT
@@ -1407,8 +1413,8 @@ func (d *Database) CreateUser(u *AppUser) error {
     u.UpdatedAt = now
 
     _, err := d.db.Exec(`
-        INSERT INTO users (username, email, password_hash, role, twofa_enabled, totp_secret, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (username, email, password_hash, role, twofa_enabled, totp_secret, totp_last_code, recovery_codes, must_reset, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
         u.Username,
         u.Email,
@@ -1416,6 +1422,9 @@ func (d *Database) CreateUser(u *AppUser) error {
         u.Role,
         u.TwoFAEnabled,
         u.TOTPSecret,
+        u.TOTPLastCode,
+        u.RecoveryCodes,
+        u.MustReset,
         u.CreatedAt.Format(time.RFC3339),
         u.UpdatedAt.Format(time.RFC3339),
     )
@@ -1428,14 +1437,14 @@ func (d *Database) GetUser(username string) (*AppUser, error) {
         return nil, fmt.Errorf("username is required")
     }
     row := d.db.QueryRow(`
-        SELECT username, email, password_hash, role, twofa_enabled, totp_secret, created_at, updated_at, last_login_at
+        SELECT username, email, password_hash, role, twofa_enabled, totp_secret, totp_last_code, recovery_codes, must_reset, created_at, updated_at, last_login_at
         FROM users WHERE username = ?
     `, username)
 
     var u AppUser
     var createdAtStr, updatedAtStr string
     var lastLogin sql.NullString
-    if err := row.Scan(&u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.TwoFAEnabled, &u.TOTPSecret, &createdAtStr, &updatedAtStr, &lastLogin); err != nil {
+    if err := row.Scan(&u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.TwoFAEnabled, &u.TOTPSecret, &u.TOTPLastCode, &u.RecoveryCodes, &u.MustReset, &createdAtStr, &updatedAtStr, &lastLogin); err != nil {
         return nil, err
     }
     if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil { u.CreatedAt = t }
@@ -1455,13 +1464,16 @@ func (d *Database) UpdateUser(u *AppUser) error {
     }
     u.UpdatedAt = time.Now()
     _, err := d.db.Exec(`
-        UPDATE users SET email = ?, role = ?, twofa_enabled = ?, totp_secret = ?, updated_at = ?
+        UPDATE users SET email = ?, role = ?, twofa_enabled = ?, totp_secret = ?, totp_last_code = ?, recovery_codes = ?, must_reset = ?, updated_at = ?
         WHERE username = ?
     `,
         u.Email,
         u.Role,
         u.TwoFAEnabled,
         u.TOTPSecret,
+        u.TOTPLastCode,
+        u.RecoveryCodes,
+        u.MustReset,
         u.UpdatedAt.Format(time.RFC3339),
         u.Username,
     )
@@ -1495,6 +1507,44 @@ func (d *Database) SetUserLastLogin(username string, when time.Time) error {
     }
     _, err := d.db.Exec(`UPDATE users SET last_login_at = ?, updated_at = ? WHERE username = ?`, when.Format(time.RFC3339), time.Now().Format(time.RFC3339), username)
     return err
+}
+
+// SetUserMustReset sets the must_reset flag for a user
+func (d *Database) SetUserMustReset(username string, mustReset bool) error {
+    if username == "" {
+        return fmt.Errorf("username is required")
+    }
+    _, err := d.db.Exec(`UPDATE users SET must_reset = ?, updated_at = ? WHERE username = ?`, mustReset, time.Now().Format(time.RFC3339), username)
+    return err
+}
+
+// ListUsers returns all users from users table
+func (d *Database) ListUsers() ([]AppUser, error) {
+    rows, err := d.db.Query(`
+        SELECT username, email, password_hash, role, twofa_enabled, totp_secret, created_at, updated_at, last_login_at
+        FROM users ORDER BY username ASC
+    `)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var users []AppUser
+    for rows.Next() {
+        var u AppUser
+        var createdAtStr, updatedAtStr string
+        var lastLogin sql.NullString
+        if err := rows.Scan(&u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.TwoFAEnabled, &u.TOTPSecret, &createdAtStr, &updatedAtStr, &lastLogin); err != nil {
+            return nil, err
+        }
+        if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil { u.CreatedAt = t }
+        if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil { u.UpdatedAt = t }
+        if lastLogin.Valid {
+            if t, err := time.Parse(time.RFC3339, lastLogin.String); err == nil { u.LastLoginAt = &t }
+        }
+        users = append(users, u)
+    }
+    return users, nil
 }
 
 // PackageRecord represents an uploaded package (assets/others)
