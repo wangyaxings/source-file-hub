@@ -234,18 +234,22 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <strong>File Name:</strong> {selectedFile?.name}
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between">
+                <strong>File Name:</strong>
+                <span className="text-right flex-1 ml-2">{selectedFile?.name}</span>
               </div>
-              <div>
-                <strong>File Size:</strong> {selectedFile && formatFileSize(selectedFile.size)}
+              <div className="flex justify-between">
+                <strong>File Size:</strong>
+                <span className="text-right flex-1 ml-2">{selectedFile && formatFileSize(selectedFile.size)}</span>
               </div>
-              <div>
-                <strong>File Type:</strong> {allowedFileTypes.find(t => t.value === fileType)?.label}
+              <div className="flex justify-between">
+                <strong>File Type:</strong>
+                <span className="text-right flex-1 ml-2 whitespace-nowrap">{allowedFileTypes.find(t => t.value === fileType)?.label}</span>
               </div>
-              <div>
-                <strong>Description:</strong> {description || "None"}
+              <div className="flex justify-between">
+                <strong>Description:</strong>
+                <span className="text-right flex-1 ml-2">{description || "None"}</span>
               </div>
             </div>
           </div>

@@ -17,8 +17,8 @@ import (
 
 	"secure-file-hub/internal/auth"
 	"secure-file-hub/internal/database"
-    "secure-file-hub/internal/logger"
-    "secure-file-hub/internal/middleware"
+	"secure-file-hub/internal/logger"
+	"secure-file-hub/internal/middleware"
 
 	"github.com/gorilla/mux"
 )
@@ -748,16 +748,32 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	fileInfo.Version = version
 	fileInfo.IsLatest = true
 
-	// 创建目标目录
+    // Build machine version_id (UTC, vYYYYMMDDHHMMSSZ) and timestamp suffix
+    ts := time.Now().UTC().Format("20060102150405") + "Z"
+    versionID := "v" + ts
+
+	// 创建目标目录 - 直接使用UTC时间格式的文件夹
 	targetDir := filepath.Join("downloads", fileType+"s")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create directory: "+err.Error())
 		return
 	}
 
-	// 保存文件
-	targetPath := filepath.Join(targetDir, versionedFileName)
+	// 生成最终文件名：<type>_<versionID>.<ext>
+	ext = strings.ToLower(filepath.Ext(fixedOriginalName))
+	finalFileName := fmt.Sprintf("%s_%s%s", fileType, versionID, ext)
+
+	// 创建版本目录
+	versionDir := filepath.Join(targetDir, versionID)
+	if err := os.MkdirAll(versionDir, 0755); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create version directory: "+err.Error())
+		return
+	}
+
+	// 保存文件到版本目录
+	targetPath := filepath.Join(versionDir, finalFileName)
 	fileInfo.Path = targetPath
+	fileInfo.FileName = finalFileName
 
 	dst, err := os.Create(targetPath)
 	if err != nil {
@@ -790,10 +806,6 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
         log.Printf("Warning: Failed to calculate SHA256 checksum: %v", err)
     }
 
-    // Build machine version_id (UTC, vYYYYMMDDHHMMSSZ) and timestamp suffix
-    ts := time.Now().UTC().Format("20060102150405") + "Z"
-    versionID := "v" + ts
-
     // Create database record
     db := database.GetDatabase()
 	if db == nil {
@@ -804,7 +816,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	record := &database.FileRecord{
 		ID:            fileInfo.ID,
 		OriginalName:  fixedOriginalName,
-		VersionedName: versionedFileName,
+		VersionedName: finalFileName,
 		FileType:      fileType,
 		FilePath:      targetPath,
 		Size:          fileInfo.Size,
@@ -825,22 +837,8 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    // For roadmap/recommendation, rename saved file to include timestamp suffix
-    if fileType == "roadmap" || fileType == "recommendation" {
-        ext2 := strings.ToLower(filepath.Ext(fixedOriginalName))
-        base2 := strings.TrimSuffix(fixedOriginalName, ext2)
-        stampedName := fmt.Sprintf("%s_%s%s", base2, ts, ext2)
-        stampedPath := filepath.Join(targetDir, stampedName)
-        // move/rename to stamped path
-        if err := os.Rename(targetPath, stampedPath); err == nil {
-            targetPath = stampedPath
-            fileInfo.FileName = stampedName
-            record.VersionedName = stampedName
-            record.FilePath = stampedPath
-        }
-    }
 
-    // Write versioning artifacts for roadmap/recommendation (manifest next to file, no versions folder)
+    // Write versioning artifacts for roadmap/recommendation (manifest in the same version directory)
     if err := writeWebVersionArtifacts(fileType, versionID, fileInfo.FileName, targetPath, checksum, versionTags); err != nil {
         log.Printf("Warning: failed to write version artifacts: %v", err)
     }
@@ -1224,12 +1222,9 @@ func writeWebVersionArtifacts(fileType, versionID, storedName, targetPath, check
     if fileType != "roadmap" && fileType != "recommendation" {
         return nil
     }
-    baseDir := filepath.Join("downloads", fileType+"s")
-    if err := os.MkdirAll(baseDir, 0755); err != nil {
-        return err
-    }
-    stem := strings.TrimSuffix(storedName, filepath.Ext(storedName))
-    manifestPath := filepath.Join(baseDir, stem+".manifest.json")
+    // Use the same directory as the target file (version directory)
+    baseDir := filepath.Dir(targetPath)
+    manifestPath := filepath.Join(baseDir, "manifest.json")
 
     manifest := map[string]interface{}{
         "version_id":   versionID,
@@ -1293,28 +1288,13 @@ func webGetVersionManifestHandler(w http.ResponseWriter, r *http.Request) {
         writeErrorResponse(w, http.StatusBadRequest, "versionId required")
         return
     }
-    baseDir := filepath.Join("downloads", ft+"s")
-    entries, err := os.ReadDir(baseDir)
-    if err != nil {
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to read directory")
+    baseDir := filepath.Join("downloads", ft+"s", vid)
+    manifestPath := filepath.Join(baseDir, "manifest.json")
+    if b, err := os.ReadFile(manifestPath); err == nil {
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusOK)
+        _, _ = w.Write(b)
         return
-    }
-    for _, e := range entries {
-        if e.IsDir() {
-            continue
-        }
-        name := e.Name()
-        if strings.HasSuffix(strings.ToLower(name), ".manifest.json") {
-            p := filepath.Join(baseDir, name)
-            m, err := readJSONFileGeneric(p)
-            if err == nil && m["version_id"] == vid {
-                b, _ := os.ReadFile(p)
-                w.Header().Set("Content-Type", "application/json")
-                w.WriteHeader(http.StatusOK)
-                _, _ = w.Write(b)
-                return
-            }
-        }
     }
     writeErrorResponse(w, http.StatusNotFound, "Manifest not found")
 }
@@ -1335,20 +1315,20 @@ func webGetVersionsListHandler(w http.ResponseWriter, r *http.Request) {
     }
     list := []interface{}{}
     for _, e := range entries {
-        if e.IsDir() {
-            continue
-        }
-        name := e.Name()
-        if strings.HasSuffix(strings.ToLower(name), ".manifest.json") {
-            p := filepath.Join(baseDir, name)
-            if m, err := readJSONFileGeneric(p); err == nil {
-                list = append(list, map[string]interface{}{
-                    "version_id": m["version_id"],
-                    "tags":       m["version_tags"],
-                    "status":     "active",
-                    "date":       m["build"].(map[string]interface{})["time"],
-                })
+        if !e.IsDir() { continue }
+        // Expect folder name equals versionID (vYYYYMMDDHHMMSSZ)
+        mpath := filepath.Join(baseDir, e.Name(), "manifest.json")
+        if m, err := readJSONFileGeneric(mpath); err == nil {
+            date := ""
+            if b, ok := m["build"].(map[string]interface{}); ok {
+                if t, ok2 := b["time"].(string); ok2 { date = t }
             }
+            list = append(list, map[string]interface{}{
+                "version_id": m["version_id"],
+                "tags":       m["version_tags"],
+                "status":     "active",
+                "date":       date,
+            })
         }
     }
     writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"versions": list}})
@@ -1386,7 +1366,7 @@ func webUpdateVersionTagsHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Update manifest
-    manifestPath := filepath.Join("downloads", ft+"s", "versions", vid, "manifest.json")
+    manifestPath := filepath.Join("downloads", ft+"s", vid, "manifest.json")
     m, err := readJSONFileGeneric(manifestPath)
     if err != nil {
         writeErrorResponse(w, http.StatusNotFound, "Manifest not found")

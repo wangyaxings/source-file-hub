@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { LoginForm } from "@/components/auth/login-form"
+import { TwoFASetupDialog } from "@/components/auth/twofa-setup-dialog"
 import { FileUpload } from "@/components/file/file-upload"
 import { PackagesPanel } from "@/components/packages/packages-panel"
 import { FileList } from "@/components/file/file-list"
@@ -29,7 +30,7 @@ import {
   CheckCircle,
   AlertTriangle,
   Trash2,
-  
+
 } from "lucide-react"
 
 export default function HomePage() {
@@ -56,6 +57,7 @@ export default function HomePage() {
   const [showProfile, setShowProfile] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
   const [apiInfo, setApiInfo] = useState<any | null>(null)
+  const [showTwoFASetup, setShowTwoFASetup] = useState(false)
 
   useEffect(() => {
     if (!showUserMenu) return
@@ -91,6 +93,19 @@ export default function HomePage() {
       if (authenticated) {
         const user = apiClient.getCurrentUser()
         setCurrentUser(user)
+
+        // Check if user needs to set up 2FA
+        if (user && user.twoFAEnabled === false) {
+          // Check if user has a TOTP secret but hasn't enabled 2FA yet
+          try {
+            const userDetails = await apiClient.request('/auth/me', { method: 'GET' })
+            if (userDetails.success && userDetails.data && userDetails.data.totpSecret && !userDetails.data.twoFAEnabled) {
+              setShowTwoFASetup(true)
+            }
+          } catch (error) {
+            // Ignore errors when checking 2FA status
+          }
+        }
       }
 
       setIsLoading(false)
@@ -127,6 +142,16 @@ export default function HomePage() {
     setIsAuthenticated(true)
     const user = apiClient.getCurrentUser()
     setCurrentUser(user)
+  }
+
+  const handleTwoFASetupComplete = () => {
+    // Refresh user info to get updated 2FA status
+    const user = apiClient.getCurrentUser()
+    setCurrentUser(user)
+    toast({
+      title: "2FA Enabled",
+      description: "Two-factor authentication has been successfully enabled for your account"
+    })
   }
 
   const handleLogout = async () => {
@@ -461,18 +486,6 @@ export default function HomePage() {
           </DialogHeader>
           <div className="space-y-2 text-sm text-gray-700">
             <div>Version: {apiInfo?.version || 'N/A'}</div>
-            {apiInfo?.build && (
-              <div className="text-xs text-gray-600">
-                Build time: {apiInfo.build.time || 'N/A'} | Commit: {apiInfo.build.commit || 'N/A'}
-              </div>
-            )}
-            <div>Frontend: Next.js</div>
-            <div>Backend: Go + HTTPS</div>
-            {apiInfo?.server_info && (
-              <div className="text-xs text-gray-600">
-                Go: {apiInfo.server_info.golang_version || 'N/A'} | Server time: {apiInfo.server_info.timestamp || 'N/A'}
-              </div>
-            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={()=> setShowAbout(false)}>Close</Button>
@@ -495,6 +508,13 @@ export default function HomePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 2FA Setup Dialog */}
+      <TwoFASetupDialog
+        open={showTwoFASetup}
+        onOpenChange={setShowTwoFASetup}
+        onSetupComplete={handleTwoFASetupComplete}
+      />
     </div>
   )
 }

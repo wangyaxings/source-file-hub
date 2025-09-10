@@ -230,7 +230,11 @@ function EditRoleButton({ user, onSaved }: { user: UserRow; onSaved: () => void 
       if (quotaD) payload.quota_daily = parseInt(quotaD, 10)
       if (quotaM) payload.quota_monthly = parseInt(quotaM, 10)
       await apiClient.adminSetUserRole(user.user_id, payload)
-      toast({ title: 'Saved', description: `${user.user_id} -> ${role}` })
+      toast({
+        title: 'Saved',
+        description: `Role updated for ${user.user_id}. User may need to re-login to see changes.`,
+        duration: 5000
+      })
       setOpen(false)
       onSaved()
     } catch (err: any) {

@@ -301,40 +301,40 @@ export function FileList({ refreshTrigger }: FileListProps) {
             ) : (versionsDialog.versions.length === 0 ? (
               <div className="p-6 text-sm text-gray-500">No versions</div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
                 <thead>
-                  <tr className="text-left border-b">
-                    <th className="py-2 w-64">Version ID</th>
-                    <th className="py-2">Tags</th>
-                    <th className="py-2 w-40">Date</th>
-                    <th className="py-2 w-40">SHA256</th>
-                    <th className="py-2 w-24">Size</th>
-                    <th className="py-2 w-40">Actions</th>
+                  <tr className="text-left border-b text-gray-600 bg-gray-50">
+                    <th className="py-3 px-4 w-56 font-medium text-xs uppercase tracking-wide">Version ID</th>
+                    <th className="py-3 px-4 font-medium text-xs uppercase tracking-wide">Tags</th>
+                    <th className="py-3 px-4 w-40 font-medium text-xs uppercase tracking-wide">Date</th>
+                    <th className="py-3 px-4 w-44 font-medium text-xs uppercase tracking-wide">SHA256</th>
+                    <th className="py-3 px-4 w-24 font-medium text-xs uppercase tracking-wide">Size</th>
+                    <th className="py-3 px-4 w-40 font-medium text-xs uppercase tracking-wide">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {versionsDialog.versions.map(v => (
-                    <tr key={v.versionId} className="border-b last:border-0">
-                      <td className="py-2 font-mono">{v.versionId}</td>
-                      <td className="py-2">
+                    <tr key={v.versionId} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="py-3 px-4 font-mono text-sm truncate" title={v.versionId}>{v.versionId}</td>
+                      <td className="py-3 px-4 text-sm truncate" title={(v.tags||[]).join(', ')}>
                         {(v.tags || []).length === 0 ? (
-                          <span className="text-gray-400">—</span>
+                          <span className="text-gray-400">-</span>
                         ) : (
                           <span>{v.tags.join(', ')}</span>
                         )}
                       </td>
-                      <td className="py-2 text-gray-600">{v.date ? formatDate(v.date) : ''}</td>
-                      <td className="py-2 font-mono">{v.sha256 ? v.sha256.slice(0, 12) : ''}</td>
-                      <td className="py-2">{typeof v.size === 'number' ? formatFileSize(v.size) : ''}</td>
-                      <td className="py-2">
+                      <td className="py-3 px-4 text-sm text-gray-600 truncate" title={v.date || ''}>{v.date ? formatDate(v.date) : ''}</td>
+                      <td className="py-3 px-4 font-mono text-sm truncate" title={v.sha256 || ''}>{v.sha256 ? v.sha256.slice(0, 12) : ''}</td>
+                      <td className="py-3 px-4 text-sm">{typeof v.size === 'number' ? formatFileSize(v.size) : ''}</td>
+                      <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
                           {v.path && (
-                            <Button variant="outline" size="sm" onClick={() => apiClient.downloadFile(v.path!)}>
+                            <Button variant="outline" size="sm" onClick={() => apiClient.downloadFile(v.path!)} title="Download file">
                               <Download className="h-4 w-4" />
                             </Button>
                           )}
                           {isAdmin && (
-                            <Button variant="ghost" size="sm" onClick={() => setEditTags({ open: true, fileType: versionsDialog.fileType, versionId: v.versionId, text: (v.tags||[]).join(', ') })}>
+                            <Button variant="ghost" size="sm" onClick={() => setEditTags({ open: true, fileType: versionsDialog.fileType, versionId: v.versionId, text: (v.tags||[]).join(', ') })} title="Edit tags">
                               <Settings className="h-4 w-4" /> Edit Tags
                             </Button>
                           )}

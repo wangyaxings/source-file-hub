@@ -208,10 +208,21 @@ export function APIKeyManagement() {
         throw new Error('Invalid server response: missing api_key')
       }
 
+      console.log('Setting new key:', createdKey.key) // Debug log
+      console.log('Setting selected key:', createdKey) // Debug log
+
+      // Update states
       setNewKey(createdKey.key)
       setSelectedKey(createdKey)
+
+      // Close create dialog and show key dialog
       setShowCreateDialog(false)
-      setShowKeyDialog(true)
+
+      // Use setTimeout to ensure state updates are processed
+      setTimeout(() => {
+        setShowKeyDialog(true)
+        console.log('Dialog states set - showKeyDialog should be true') // Debug log
+      }, 100)
 
       // Reset form
       setCreateForm({

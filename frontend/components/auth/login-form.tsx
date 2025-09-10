@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { apiClient, type LoginRequest } from "@/lib/api"
 import { LogIn, Loader2 } from "lucide-react"
 
@@ -13,11 +12,6 @@ interface LoginFormProps {
   onLogin: () => void
 }
 
-const defaultUsers = [
-  { username: "admin", description: "Administrator Account" },
-  { username: "user1", description: "Regular User Account" },
-  { username: "test", description: "Test Account" }
-]
 
 export function LoginForm({ onLogin }: LoginFormProps) {
   const [formData, setFormData] = useState<LoginRequest>({
@@ -28,12 +22,6 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   const [showOtpInfo, setShowOtpInfo] = useState(true)
   const [error, setError] = useState("")
 
-  const handleUserSelect = (value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      username: value
-    }))
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -55,32 +43,12 @@ export function LoginForm({ onLogin }: LoginFormProps) {
       <CardHeader className="space-y-1">
         <CardTitle className="text-2xl font-bold">System Login</CardTitle>
         <CardDescription>
-          Select user account or manually enter credentials
+          Enter your credentials to access the system
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="user-select">Select User</Label>
-            <Select onValueChange={handleUserSelect}>
-              <SelectTrigger id="user-select">
-                <SelectValue placeholder="Select preset user" />
-              </SelectTrigger>
-              <SelectContent>
-                {defaultUsers.map((user) => (
-                  <SelectItem
-                    key={user.username}
-                    value={user.username}
-                  >
-                    <div className="flex flex-col">
-                      <span>{user.username}</span>
-                      <span className="text-xs text-muted-foreground">{user.description}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Removed preset user select for production security */}
 
           <div className="space-y-2">
             <Label htmlFor="username">Username</Label>

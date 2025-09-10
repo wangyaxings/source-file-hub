@@ -1,14 +1,15 @@
 package middleware
 
 import (
-    "context"
-    "encoding/json"
-    "net/http"
-    "strings"
+	"context"
+	"encoding/json"
+	"net/http"
+	"strings"
 
-    ab "github.com/aarondl/authboss/v3"
-    "secure-file-hub/internal/auth"
-    "secure-file-hub/internal/database"
+	"secure-file-hub/internal/auth"
+	"secure-file-hub/internal/database"
+
+	ab "github.com/aarondl/authboss/v3"
 )
 
 // AuthMiddleware handles authentication and exposes public routes
@@ -40,6 +41,19 @@ func AuthMiddleware(next http.Handler) http.Handler {
             var user *auth.User
             if db := database.GetDatabase(); db != nil {
                 if au, err := db.GetUser(pid); err == nil && au != nil {
+                    // Check user status
+                    userRole, roleErr := db.GetUserRole(pid)
+                    if roleErr == nil && userRole != nil && userRole.Status != "" {
+                        if userRole.Status == "suspended" {
+                            writeUnauthorizedResponse(w, "ACCOUNT_SUSPENDED")
+                            return
+                        }
+                        if userRole.Status == "pending" {
+                            writeUnauthorizedResponse(w, "ACCOUNT_PENDING_APPROVAL")
+                            return
+                        }
+                    }
+
                     user = &auth.User{Username: au.Username, Role: au.Role, Email: au.Email, TwoFAEnabled: au.TwoFAEnabled}
                     // Enforce must reset password if flagged
                     if au.MustReset {
