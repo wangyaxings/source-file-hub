@@ -1,7 +1,10 @@
 'use client'
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -13,8 +16,10 @@ import { RecycleBin } from "@/components/file/recycle-bin"
 import { Toaster } from "@/components/ui/toaster"
 import { apiClient, type UserInfo } from "@/lib/api"
 import { APIKeyManagement } from "@/components/admin/api-key-management"
+import { useToast } from "@/lib/use-toast"
 import {
   LogOut,
+  Key,
   Upload,
   Files,
   Shield,
@@ -27,6 +32,7 @@ import {
 } from "lucide-react"
 
 export default function HomePage() {
+  const { toast } = useToast()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
@@ -35,6 +41,45 @@ export default function HomePage() {
     online: boolean
     message: string
   } | null>(null)
+
+  // Change password dialog state
+  const [showChangePwd, setShowChangePwd] = useState(false)
+  const [oldPwd, setOldPwd] = useState("")
+  const [newPwd, setNewPwd] = useState("")
+  const [confirmPwd, setConfirmPwd] = useState("")
+  const [isChanging, setIsChanging] = useState(false)
+  const [changeErr, setChangeErr] = useState("")
+  const [showReLoginPrompt, setShowReLoginPrompt] = useState(false)
+  const [showUserMenu, setShowUserMenu] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement | null>(null)
+  const [showProfile, setShowProfile] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
+  const [apiInfo, setApiInfo] = useState<any | null>(null)
+
+  useEffect(() => {
+    if (!showUserMenu) return
+    const onDocClick = (e: MouseEvent) => {
+      if (!userMenuRef.current) return
+      if (!userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [showUserMenu])
+
+  // Load API info when About dialog opens
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const info = await apiClient.getApiInfo()
+        setApiInfo(info)
+      } catch {
+        // ignore errors
+      }
+    }
+    if (showAbout && !apiInfo) load()
+  }, [showAbout])
 
   useEffect(() => {
     // Check if already logged in
@@ -81,13 +126,47 @@ export default function HomePage() {
     }
   }
 
+  const doChangePassword = async () => {
+    setChangeErr("")
+    if (!oldPwd || !newPwd || !confirmPwd) {
+      setChangeErr("Please fill in all fields")
+      return
+    }
+    if (newPwd.length < 8) {
+      setChangeErr("New password must be at least 8 characters")
+      return
+    }
+    if (newPwd !== confirmPwd) {
+      setChangeErr("New passwords do not match")
+      return
+    }
+    try {
+      setIsChanging(true)
+      await apiClient.changePassword(oldPwd, newPwd)
+      toast({ title: "Success", description: "Password changed successfully" })
+      setShowChangePwd(false)
+      setShowReLoginPrompt(true)
+      setOldPwd("")
+      setNewPwd("")
+      setConfirmPwd("")
+    } catch (err) {
+      setChangeErr(err instanceof Error ? err.message : "Change password failed")
+    } finally {
+      setIsChanging(false)
+    }
+  }
+
   const handleUploadComplete = () => {
     // Trigger file list refresh
     setRefreshTrigger(prev => prev + 1)
   }
 
-  const isAdmin = currentUser?.username === 'admin'
-  const tabsColsClass = isAdmin ? 'grid-cols-5' : 'grid-cols-4'
+  const isAdmin = currentUser?.role === 'administrator' || currentUser?.username === 'admin'
+  const enableUpload = isAdmin
+  const enablePackages = isAdmin
+  const baseTabs = 2 // manage + recycle
+  const totalTabs = baseTabs + (enableUpload ? 1 : 0) + (enablePackages ? 1 : 0) + (isAdmin ? 1 : 0)
+  const tabsColsClass = totalTabs === 5 ? 'grid-cols-5' : totalTabs === 4 ? 'grid-cols-4' : totalTabs === 3 ? 'grid-cols-3' : 'grid-cols-2'
 
   if (isLoading) {
     return (
@@ -157,25 +236,55 @@ export default function HomePage() {
 
               {/* 用户信息 */}
               {currentUser && (
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src="" />
-                    <AvatarFallback className="bg-primary text-white text-sm">
-                      {currentUser.username.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="hidden sm:block">
-                    <div className="text-sm font-medium text-gray-900">
-                      {currentUser.username}
+                <div className="relative" ref={userMenuRef}>
+                  <button
+                    onClick={() => setShowUserMenu(v => !v)}
+                    className="flex items-center gap-3 focus:outline-none"
+                  >
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src="" />
+                      <AvatarFallback className="bg-primary text-white text-sm">
+                        {currentUser.username.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="hidden sm:block">
+                      <div className="text-sm font-medium text-gray-900">
+                        {currentUser.username}
+                      </div>
                     </div>
-                  </div>
+                  </button>
+
+                  {showUserMenu && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                        onClick={() => { setShowUserMenu(false); setShowProfile(true) }}
+                      >
+                        <User className="h-4 w-4" /> Profile
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                        onClick={() => { setShowUserMenu(false); setShowAbout(true) }}
+                      >
+                        <Shield className="h-4 w-4" /> About
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                        onClick={() => { setShowUserMenu(false); setShowChangePwd(true) }}
+                      >
+                        <Key className="h-4 w-4" /> Change Password
+                      </button>
+                      <div className="my-1 border-t border-gray-100" />
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                        onClick={() => { setShowUserMenu(false); handleLogout() }}
+                      >
+                        <LogOut className="h-4 w-4" /> Logout
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
-
-              <Button variant="outline" size="sm" onClick={handleLogout}>
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </Button>
             </div>
           </div>
         </div>
@@ -185,10 +294,12 @@ export default function HomePage() {
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Tabs defaultValue="upload" className="space-y-6">
           <TabsList className={`grid w-full ${tabsColsClass} max-w-3xl`}>
-            <TabsTrigger value="upload" className="flex items-center gap-2">
-              <Upload className="h-4 w-4" />
-              Upload
-            </TabsTrigger>
+            {enableUpload && (
+              <TabsTrigger value="upload" className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                Upload
+              </TabsTrigger>
+            )}
             <TabsTrigger value="manage" className="flex items-center gap-2">
               <Files className="h-4 w-4" />
               Files
@@ -197,10 +308,12 @@ export default function HomePage() {
               <Trash2 className="h-4 w-4" />
               Recycle
             </TabsTrigger>
-            <TabsTrigger value="packages" className="flex items-center gap-2">
-              <Files className="h-4 w-4" />
-              Packages
-            </TabsTrigger>
+            {enablePackages && (
+              <TabsTrigger value="packages" className="flex items-center gap-2">
+                <Files className="h-4 w-4" />
+                Packages
+              </TabsTrigger>
+            )}
             {isAdmin && (
               <TabsTrigger value="admin" className="flex items-center gap-2">
                 <Shield className="h-4 w-4" />
@@ -209,9 +322,11 @@ export default function HomePage() {
             )}
           </TabsList>
 
-          <TabsContent value="upload" className="space-y-6">
-            <FileUpload onUploadComplete={handleUploadComplete} />
-          </TabsContent>
+          {enableUpload && (
+            <TabsContent value="upload" className="space-y-6">
+              <FileUpload onUploadComplete={handleUploadComplete} />
+            </TabsContent>
+          )}
 
           <TabsContent value="manage" className="space-y-6">
             <FileList refreshTrigger={refreshTrigger} />
@@ -221,9 +336,11 @@ export default function HomePage() {
             <RecycleBin />
           </TabsContent>
 
-          <TabsContent value="packages" className="space-y-6">
-            <PackagesPanel />
-          </TabsContent>
+          {enablePackages && (
+            <TabsContent value="packages" className="space-y-6">
+              <PackagesPanel />
+            </TabsContent>
+          )}
 
           {isAdmin && (
             <TabsContent value="admin" className="space-y-6">
@@ -244,6 +361,110 @@ export default function HomePage() {
       </footer>
 
       <Toaster />
+
+      {/* Change Password Dialog */}
+      <Dialog open={showChangePwd} onOpenChange={setShowChangePwd}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Password</DialogTitle>
+            <DialogDescription>Update your account password.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="oldPwd">Current Password</Label>
+              <Input id="oldPwd" type="password" value={oldPwd} onChange={(e)=>setOldPwd(e.target.value)} placeholder="Enter current password" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newPwd">New Password</Label>
+              <Input id="newPwd" type="password" value={newPwd} onChange={(e)=>setNewPwd(e.target.value)} placeholder="At least 8 characters" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPwd">Confirm New Password</Label>
+              <Input id="confirmPwd" type="password" value={confirmPwd} onChange={(e)=>setConfirmPwd(e.target.value)} placeholder="Re-enter new password" />
+            </div>
+            {changeErr && (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">{changeErr}</div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={()=> setShowChangePwd(false)} disabled={isChanging}>Cancel</Button>
+            <Button onClick={doChangePassword} disabled={isChanging}>
+              {isChanging ? 'Updating...' : 'Update Password'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Profile Dialog */}
+      <Dialog open={showProfile} onOpenChange={setShowProfile}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Profile</DialogTitle>
+            <DialogDescription>Your account information</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-4">
+            <Avatar className="h-10 w-10">
+              <AvatarImage src="" />
+              <AvatarFallback className="bg-primary text-white text-sm">
+                {currentUser?.username?.charAt(0)?.toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="space-y-1 text-sm">
+              <div><span className="text-gray-500">Username:</span> <span className="font-medium">{currentUser?.username}</span></div>
+              <div><span className="text-gray-500">Role:</span> <span className="font-medium">{currentUser?.role || 'viewer'}</span></div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={()=> setShowProfile(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* About Dialog */}
+      <Dialog open={showAbout} onOpenChange={setShowAbout}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>About</DialogTitle>
+            <DialogDescription>Secure File Management System</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-sm text-gray-700">
+            <div>Version: {apiInfo?.version || 'N/A'}</div>
+            {apiInfo?.build && (
+              <div className="text-xs text-gray-600">
+                Build time: {apiInfo.build.time || 'N/A'} | Commit: {apiInfo.build.commit || 'N/A'}
+              </div>
+            )}
+            <div>Frontend: Next.js</div>
+            <div>Backend: Go + HTTPS</div>
+            {apiInfo?.server_info && (
+              <div className="text-xs text-gray-600">
+                Go: {apiInfo.server_info.golang_version || 'N/A'} | Server time: {apiInfo.server_info.timestamp || 'N/A'}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={()=> setShowAbout(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Re-login Prompt after password change */}
+      <Dialog open={showReLoginPrompt} onOpenChange={setShowReLoginPrompt}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Re-login Recommended</DialogTitle>
+            <DialogDescription>
+              Your password has been updated. For security, please log in again.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={()=> setShowReLoginPrompt(false)}>Later</Button>
+            <Button onClick={handleLogout}>Re-login now</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

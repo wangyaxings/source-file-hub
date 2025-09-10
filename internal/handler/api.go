@@ -545,6 +545,8 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
 		}
 	}
 
+    // No versioning for assets/others uploads
+
 	// Determine client IP
 	clientIP := r.Header.Get("X-Forwarded-For")
 	if clientIP == "" {
@@ -581,6 +583,8 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
 		size = fi.Size()
 	}
 
+    // No checksum/version manifest required for assets/others
+
 	// Insert package record (preserve original filename in remark)
 	db := database.GetDatabase()
 	if db == nil {
@@ -603,6 +607,8 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
 		log.Printf("Failed to insert package record: %v", err)
 	}
 
+    // Skip versioning artifacts for assets/others
+
 	// Success response
 	writeAPIJSONResponse(w, http.StatusCreated, APIResponse{
 		Success: true,
@@ -616,8 +622,9 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
 			"size":          size,
 			"ip":            clientIP,
 			"timestamp":     time.Now().UTC().Format(time.RFC3339),
-		},
-	})
+            // No version_id for assets/others
+        },
+    })
 }
 
 // apiListPackagesHandler lists packages with filters and pagination
@@ -756,6 +763,8 @@ func apiListEndpointsHandler(w http.ResponseWriter, r *http.Request) {
 				"limit":  "Number of items per page",
 			},
 		}
+
+
 	}
 
 	if authCtx.HasPermission("download") {

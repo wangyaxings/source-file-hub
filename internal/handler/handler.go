@@ -90,6 +90,7 @@ func RegisterRoutes(router *mux.Router) {
 	// 认证相关路由（无需认证）
 	webAPI.HandleFunc("/auth/login", loginHandler).Methods("POST")
 	webAPI.HandleFunc("/auth/logout", logoutHandler).Methods("POST")
+	webAPI.HandleFunc("/auth/change-password", changePasswordHandler).Methods("POST")
 	webAPI.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
 
 	// Web API根信息页面（无需认证）
@@ -102,16 +103,16 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
 
 	// 文件管理路由（需要Web认证）
-	webAPI.HandleFunc("/upload", uploadFileHandler).Methods("POST")
+    webAPI.HandleFunc("/upload", requireAdminAuth(uploadFileHandler)).Methods("POST")
 	webAPI.HandleFunc("/files/list", listFilesHandler).Methods("GET")
 	webAPI.HandleFunc("/files/versions/{type}/{filename}", getFileVersionsHandler).Methods("GET")
-	webAPI.HandleFunc("/files/{id}/delete", deleteFileHandler).Methods("DELETE")
-	webAPI.HandleFunc("/files/{id}/restore", restoreFileHandler).Methods("POST")
-	webAPI.HandleFunc("/files/{id}/purge", purgeFileHandler).Methods("DELETE")
+    webAPI.HandleFunc("/files/{id}/delete", requireAdminAuth(deleteFileHandler)).Methods("DELETE")
+    webAPI.HandleFunc("/files/{id}/restore", requireAdminAuth(restoreFileHandler)).Methods("POST")
+    webAPI.HandleFunc("/files/{id}/purge", requireAdminAuth(purgeFileHandler)).Methods("DELETE")
 
 	// 回收站管理
 	webAPI.HandleFunc("/recycle-bin", getRecycleBinHandler).Methods("GET")
-	webAPI.HandleFunc("/recycle-bin/clear", clearRecycleBinHandler).Methods("DELETE")
+    webAPI.HandleFunc("/recycle-bin/clear", requireAdminAuth(clearRecycleBinHandler)).Methods("DELETE")
 
 	// 统一文件下载路由（需要Web认证）
 	webFilesRouter := webAPI.PathPrefix("/files").Subrouter()
@@ -121,12 +122,12 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/logs/access", getAccessLogsHandler).Methods("GET")
 
 	// Packages (assets/others) web endpoints delegating to public handlers
-	webAPI.HandleFunc("/packages/upload/assets-zip", func(w http.ResponseWriter, r *http.Request) {
-		apiUploadAssetsZipHandler(w, r)
-	}).Methods("POST")
-	webAPI.HandleFunc("/packages/upload/others-zip", func(w http.ResponseWriter, r *http.Request) {
-		apiUploadOthersZipHandler(w, r)
-	}).Methods("POST")
+    webAPI.HandleFunc("/packages/upload/assets-zip", requireAdminAuth(func(w http.ResponseWriter, r *http.Request) {
+        apiUploadAssetsZipHandler(w, r)
+    })).Methods("POST")
+    webAPI.HandleFunc("/packages/upload/others-zip", requireAdminAuth(func(w http.ResponseWriter, r *http.Request) {
+        apiUploadOthersZipHandler(w, r)
+    })).Methods("POST")
 	webAPI.HandleFunc("/packages", func(w http.ResponseWriter, r *http.Request) {
 		apiListPackagesHandler(w, r)
 	}).Methods("GET")
@@ -247,20 +248,32 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 // apiInfoHandler API信息页面处理器 - 类似GitHub API根页面
 func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
-	baseURL := "https://localhost:8443/api/v1"
+    baseURL := "https://localhost:8443/api/v1"
+
+    // Dynamic build/version from environment variables
+    appVersion := os.Getenv("APP_VERSION")
+    if appVersion == "" {
+        appVersion = "v1.0.0"
+    }
+    buildTime := os.Getenv("BUILD_TIME")
+    gitCommit := os.Getenv("GIT_COMMIT")
 
 	response := Response{
 		Success: true,
 		Message: "FileServer REST API Information",
-		Data: map[string]interface{}{
-			"name":              "FileServer REST API",
-			"version":           "v1.0.0",
-			"description":       "A secure file server with user authentication and SSL support",
-			"base_url":          baseURL,
-			"documentation_url": baseURL + "/docs",
-			"endpoints": map[string]interface{}{
-				"api_info":     baseURL,
-				"health_check": baseURL + "/health",
+        Data: map[string]interface{}{
+            "name":              "FileServer REST API",
+            "version":           appVersion,
+            "description":       "A secure file server with user authentication and SSL support",
+            "base_url":          baseURL,
+            "documentation_url": baseURL + "/docs",
+            "build": map[string]interface{}{
+                "time":   buildTime,
+                "commit": gitCommit,
+            },
+            "endpoints": map[string]interface{}{
+                "api_info":     baseURL,
+                "health_check": baseURL + "/health",
 				"authentication": map[string]interface{}{
 					"login":         baseURL + "/auth/login",
 					"logout":        baseURL + "/auth/logout",
@@ -304,12 +317,12 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
 				"requests_per_minute": 100,
 				"burst_limit":         10,
 			},
-			"server_info": map[string]interface{}{
-				"timestamp":      time.Now().UTC().Format(time.RFC3339),
-				"uptime":         "runtime dependent",
-				"ssl_enabled":    true,
-				"golang_version": "go1.19+",
-			},
+            "server_info": map[string]interface{}{
+                "timestamp":      time.Now().UTC().Format(time.RFC3339),
+                "uptime":         "runtime dependent",
+                "ssl_enabled":    true,
+                "golang_version": "go1.19+",
+            },
 		},
 	}
 
@@ -424,6 +437,42 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// changePasswordHandler allows the current user to change password
+func changePasswordHandler(w http.ResponseWriter, r *http.Request) {
+    // Must be authenticated
+    userCtx := r.Context().Value("user")
+    if userCtx == nil {
+        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
+        return
+    }
+    user, ok := userCtx.(*auth.User)
+    if !ok {
+        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
+        return
+    }
+
+    var req struct {
+        OldPassword string `json:"old_password"`
+        NewPassword string `json:"new_password"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
+        return
+    }
+    if req.OldPassword == "" || req.NewPassword == "" {
+        writeErrorResponse(w, http.StatusBadRequest, "old_password and new_password are required")
+        return
+    }
+
+    if err := auth.ChangePassword(user.Username, req.OldPassword, req.NewPassword); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, err.Error())
+        return
+    }
+
+    response := Response{ Success: true, Message: "Password changed successfully" }
+    writeJSONResponse(w, http.StatusOK, response)
 }
 
 // getDefaultUsersHandler 获取默认测试用户列表

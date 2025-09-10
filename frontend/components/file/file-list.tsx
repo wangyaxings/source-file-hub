@@ -62,6 +62,9 @@ export function FileList({ refreshTrigger }: FileListProps) {
     versions: []
   })
 
+  const currentUser = apiClient.getCurrentUser()
+  const isAdmin = currentUser?.role === 'administrator' || currentUser?.username === 'admin'
+
   const loadFiles = async () => {
     setIsLoading(true)
     try {
@@ -236,7 +239,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
                     files={typeFiles}
                     onDownload={handleDownload}
                     onViewVersions={handleViewVersions}
-                    onDelete={handleDelete}
+                    onDelete={isAdmin ? handleDelete : undefined}
                     downloadingFile={downloadingFile}
                   />
                 </CardContent>
@@ -252,7 +255,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
               files={filteredFiles.filter(f => f.isLatest)}
               onDownload={handleDownload}
               onViewVersions={handleViewVersions}
-              onDelete={handleDelete}
+              onDelete={isAdmin ? handleDelete : undefined}
               downloadingFile={downloadingFile}
             />
           </CardContent>

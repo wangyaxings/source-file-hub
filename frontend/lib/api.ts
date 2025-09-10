@@ -22,6 +22,7 @@ export interface LoginResponse {
   expiresIn: number
   user: {
     username: string
+    role?: string
   }
 }
 
@@ -151,12 +152,21 @@ class ApiClient {
     if (response.success && response.data) {
       this.setToken(response.data.token)
       this.setUser({
-        username: response.data.user.username
+        username: response.data.user.username,
+        role: response.data.user.role,
       })
       return response.data
     }
 
     throw new Error(response.error || 'Login failed')
+  }
+
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    const resp = await this.request(`/auth/change-password`, {
+      method: 'POST',
+      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
+    })
+    if (!resp.success) throw new Error(resp.error || 'Failed to change password')
   }
 
   async logoutUser(): Promise<void> {
@@ -357,6 +367,11 @@ class ApiClient {
     if (!result.success) {
       throw new Error(result.error || 'Clear recycle bin failed')
     }
+  }
+
+  async getApiInfo(): Promise<any> {
+    const resp = await this.request<any>(``)
+    return resp.data
   }
 
   // Packages API (web wrappers)

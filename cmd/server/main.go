@@ -1,19 +1,20 @@
 package main
 
 import (
-	"context"
-	"log"
-	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+    "context"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
 
-	"secure-file-hub/internal/database"
-	"secure-file-hub/internal/handler"
-	"secure-file-hub/internal/logger"
-	"secure-file-hub/internal/migration"
-	"secure-file-hub/internal/server"
+    "secure-file-hub/internal/auth"
+    "secure-file-hub/internal/database"
+    "secure-file-hub/internal/handler"
+    "secure-file-hub/internal/logger"
+    "secure-file-hub/internal/migration"
+    "secure-file-hub/internal/server"
 )
 
 func main() {
@@ -45,9 +46,24 @@ func main() {
 
 	// 运行数据迁移
 	log.Println("Running data migration...")
-	if err := migration.MigrateFromJSON("downloads/metadata.json"); err != nil {
-		log.Printf("Warning: JSON migration failed: %v", err)
-	}
+    if err := migration.MigrateFromJSON("downloads/metadata.json"); err != nil {
+        log.Printf("Warning: JSON migration failed: %v", err)
+    }
+
+    // Seed initial admin account and DB role
+    adminPassword := os.Getenv("ADMIN_PASSWORD")
+    auth.SeedAdmin(adminPassword)
+    if db := database.GetDatabase(); db != nil {
+        // Ensure admin role exists in DB for consistency
+        _ = db.CreateOrUpdateUserRole(&database.UserRole{
+            UserID:       "admin",
+            Role:         "administrator",
+            Permissions:  []string{"read", "download", "upload", "admin"},
+            QuotaDaily:   -1,
+            QuotaMonthly: -1,
+            Status:       "active",
+        })
+    }
 
 	// 启动自动清理任务
 	go func() {

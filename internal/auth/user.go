@@ -12,8 +12,9 @@ import (
 
 // User represents an application user
 type User struct {
-	Username string `json:"username"`
-	Password string `json:"-"` // do not expose password in JSON
+    Username string `json:"username"`
+    Password string `json:"-"` // do not expose password in JSON
+    Role     string `json:"role"`
 }
 
 // LoginRequest represents a login payload
@@ -31,14 +32,15 @@ type LoginResponse struct {
 
 // UserInfo is user information returned to clients
 type UserInfo struct {
-	Username string `json:"username"`
+    Username string `json:"username"`
+    Role     string `json:"role"`
 }
 
 // In-memory user store (for demo; production should use DB)
 var userStore = map[string]*User{
-	"admin": {Username: "admin", Password: hashPassword("admin123")},
-	"user1": {Username: "user1", Password: hashPassword("password123")},
-	"test":  {Username: "test", Password: hashPassword("test123")},
+    "admin": {Username: "admin", Password: hashPassword("admin123"), Role: "administrator"},
+    "user1": {Username: "user1", Password: hashPassword("password123"), Role: "viewer"},
+    "test":  {Username: "test", Password: hashPassword("test123"), Role: "viewer"},
 }
 
 // Active token store (simple in-memory; consider Redis for production)
@@ -56,7 +58,53 @@ func hashPassword(password string) string {
 }
 
 func checkPassword(hashedPassword, password string) bool {
-	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)) == nil
+    return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)) == nil
+}
+
+// SetPassword sets a user's password without old password verification (admin/seed use)
+func SetPassword(username, newPassword string) error {
+    if username == "" || newPassword == "" {
+        return errors.New("username and new password are required")
+    }
+    key := getUserKey(username)
+    user, ok := userStore[key]
+    if !ok {
+        // create if not exists
+        user = &User{Username: username, Role: "viewer"}
+        userStore[key] = user
+    }
+    user.Password = hashPassword(newPassword)
+    return nil
+}
+
+// ChangePassword changes a user's password after verifying the old password
+func ChangePassword(username, oldPassword, newPassword string) error {
+    if username == "" || oldPassword == "" || newPassword == "" {
+        return errors.New("username, old password and new password are required")
+    }
+    key := getUserKey(username)
+    user, ok := userStore[key]
+    if !ok {
+        return errors.New("user not found")
+    }
+    if !checkPassword(user.Password, oldPassword) {
+        return errors.New("old password is incorrect")
+    }
+    user.Password = hashPassword(newPassword)
+    return nil
+}
+
+// SeedAdmin ensures an administrator account exists with the given password
+func SeedAdmin(password string) {
+    if password == "" {
+        password = "admin123"
+    }
+    key := getUserKey("admin")
+    if _, ok := userStore[key]; !ok {
+        userStore[key] = &User{Username: "admin", Role: "administrator"}
+    }
+    _ = SetPassword("admin", password)
+    userStore[key].Role = "administrator"
 }
 
 // generateToken creates a random token (fallback to timestamp if random fails)
@@ -94,11 +142,11 @@ func Authenticate(req *LoginRequest) (*LoginResponse, error) {
 
 	tokenStore[token] = &TokenInfo{User: user, ExpiresAt: expiresAt}
 
-	return &LoginResponse{
-		Token:     token,
-		ExpiresIn: 24 * 60 * 60,
-		User:      UserInfo{Username: user.Username},
-	}, nil
+    return &LoginResponse{
+        Token:     token,
+        ExpiresIn: 24 * 60 * 60,
+        User:      UserInfo{Username: user.Username, Role: user.Role},
+    }, nil
 }
 
 // ValidateToken validates and returns the associated user
@@ -144,9 +192,9 @@ func AddUser(username, password string) error {
 
 // GetDefaultUsers returns demo users for quick start/testing
 func GetDefaultUsers() []map[string]string {
-	return []map[string]string{
-		{"username": "admin", "password": "admin123", "desc": "Administrator account"},
-		{"username": "user1", "password": "password123", "desc": "Regular user account"},
-		{"username": "test", "password": "test123", "desc": "Test account"},
-	}
+    return []map[string]string{
+        {"username": "admin", "password": "admin123", "role": "administrator", "desc": "Administrator account"},
+        {"username": "user1", "password": "password123", "role": "viewer", "desc": "Viewer account"},
+        {"username": "test", "password": "test123", "role": "viewer", "desc": "Viewer account"},
+    }
 }

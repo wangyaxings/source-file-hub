@@ -1,12 +1,13 @@
 package handler
 
 import (
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"strconv"
-	"sync"
-	"time"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "strings"
+    "strconv"
+    "sync"
+    "time"
 
 	"secure-file-hub/internal/apikey"
 	"secure-file-hub/internal/auth"
@@ -156,11 +157,20 @@ func requireAdminAuth(handler http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Check if user is admin
-		if user.Username != "admin" {
-			writeErrorResponse(w, http.StatusForbidden, "Admin privileges required")
-			return
-		}
+    // Check if user is admin by role (fallback to username == admin)
+    role := strings.ToLower(user.Role)
+    if role == "" {
+        // try database role if available
+        if db := database.GetDatabase(); db != nil {
+            if ur, err := db.GetUserRole(user.Username); err == nil && ur != nil {
+                role = strings.ToLower(ur.Role)
+            }
+        }
+    }
+    if role != "administrator" && user.Username != "admin" {
+        writeErrorResponse(w, http.StatusForbidden, "Admin privileges required")
+        return
+    }
 
 		// User is admin, proceed with the request
 		handler.ServeHTTP(w, r)

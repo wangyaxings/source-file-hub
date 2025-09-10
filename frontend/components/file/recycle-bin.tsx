@@ -43,6 +43,8 @@ interface RecycleBinItem {
 
 export function RecycleBin() {
   const { toast } = useToast()
+  const currentUser = apiClient.getCurrentUser()
+  const isAdmin = currentUser?.role === 'administrator' || currentUser?.username === 'admin'
   const [items, setItems] = useState<RecycleBinItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [restoringFile, setRestoringFile] = useState<string | null>(null)
@@ -164,7 +166,7 @@ export function RecycleBin() {
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
               </Button>
-              {items.length > 0 && (
+              {isAdmin && items.length > 0 && (
                 <Button
                   variant="destructive"
                   size="sm"
@@ -252,19 +254,21 @@ export function RecycleBin() {
                       </td>
                       <td className="py-4">
                         <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleRestore(item)}
-                            disabled={restoringFile === item.id}
-                            title="Restore File"
-                          >
-                            {restoringFile === item.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <RotateCcw className="h-4 w-4" />
-                            )}
-                          </Button>
+                          {isAdmin && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRestore(item)}
+                              disabled={restoringFile === item.id}
+                              title="Restore File"
+                            >
+                              {restoringFile === item.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RotateCcw className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -277,6 +281,7 @@ export function RecycleBin() {
       </Card>
 
       {/* Clear All Confirmation Dialog */}
+      {isAdmin && (
       <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
         <DialogContent>
           <DialogHeader>
@@ -318,8 +323,10 @@ export function RecycleBin() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      )}
 
       {/* Restore Confirmation Dialog */}
+      {isAdmin && (
       <Dialog open={restoreDialog.isOpen} onOpenChange={(open) => setRestoreDialog({ isOpen: open, item: null })}>
         <DialogContent>
           <DialogHeader>
@@ -351,6 +358,7 @@ export function RecycleBin() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      )}
     </div>
   )
 }
