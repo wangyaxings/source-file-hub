@@ -1,17 +1,18 @@
 package auth
 
 import (
-    "crypto/rand"
-    "encoding/hex"
-    "errors"
-    "fmt"
-    "time"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log"
+	"time"
 
-    "secure-file-hub/internal/database"
+	"secure-file-hub/internal/database"
 
-    "github.com/pquerna/otp"
-    "github.com/pquerna/otp/totp"
-    "golang.org/x/crypto/bcrypt"
+	"github.com/pquerna/otp"
+	"github.com/pquerna/otp/totp"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // User represents an application user
@@ -160,6 +161,8 @@ func Authenticate(req *LoginRequest) (*LoginResponse, error) {
     if db == nil {
         return nil, errors.New("database not available")
     }
+
+    // 1. 验证用户凭据
     appUser, err := db.GetUser(req.Username)
     if err != nil {
         return nil, errors.New("user not found")
@@ -168,7 +171,37 @@ func Authenticate(req *LoginRequest) (*LoginResponse, error) {
         return nil, errors.New("invalid password")
     }
 
-    // If 2FA is enabled for this user, require OTP code
+    // 2. 检查用户状态 - 关键修复点
+    userRole, err := db.GetUserRole(appUser.Username)
+    if err != nil {
+        // 如果没有 user_role 记录，为新用户创建默认记录
+        defaultRole := &database.UserRole{
+            UserID:  appUser.Username,
+            Role:    appUser.Role, // 使用 users 表中的角色
+            Status:  "active",     // 默认设为 active，而不是 pending
+        }
+
+        if err := db.CreateOrUpdateUserRole(defaultRole); err != nil {
+            log.Printf("Warning: Failed to create default user role for %s: %v", appUser.Username, err)
+        }
+        userRole = defaultRole
+    }
+
+    // 3. 检查用户状态
+    if userRole.Status == "suspended" {
+        return nil, errors.New("account suspended")
+    }
+
+    // 对于 pending 状态的用户，如果是管理员创建的用户，自动激活
+    if userRole.Status == "pending" {
+        // 自动将管理员创建的用户状态改为 active
+        userRole.Status = "active"
+        if err := db.CreateOrUpdateUserRole(userRole); err != nil {
+            log.Printf("Warning: Failed to activate user %s: %v", appUser.Username, err)
+        }
+    }
+
+    // 4. 处理 2FA 验证
     if appUser.TwoFAEnabled {
         if req.OTP == "" {
             return nil, errors.New("otp code required")
@@ -178,6 +211,10 @@ func Authenticate(req *LoginRequest) (*LoginResponse, error) {
         }
     }
 
+    // 5. 更新最后登录时间
+    _ = db.SetUserLastLogin(appUser.Username, time.Now())
+
+    // 6. 生成token
     token := generateToken()
     expiresAt := time.Now().Add(24 * time.Hour)
 
@@ -190,7 +227,6 @@ func Authenticate(req *LoginRequest) (*LoginResponse, error) {
         TwoFAEnabled: appUser.TwoFAEnabled,
     }
     tokenStore[token] = &TokenInfo{User: runtimeUser, ExpiresAt: expiresAt}
-    _ = db.SetUserLastLogin(appUser.Username, time.Now())
 
     return &LoginResponse{
         Token:     token,

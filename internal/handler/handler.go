@@ -1,4 +1,4 @@
-package handler
+﻿package handler
 
 import (
 	"crypto/sha256"
@@ -23,7 +23,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// Response 通用响应结构
+// Response 閫氱敤鍝嶅簲缁撴瀯
 type Response struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message,omitempty"`
@@ -31,7 +31,7 @@ type Response struct {
 	Error   string      `json:"error,omitempty"`
 }
 
-// FileMetadata 文件元数据结构 (deprecated, use database.FileRecord)
+// FileMetadata 鏂囦欢鍏冩暟鎹粨鏋?(deprecated, use database.FileRecord)
 type FileMetadata struct {
 	ID            string    `json:"id"`
 	OriginalName  string    `json:"originalName"`
@@ -78,34 +78,38 @@ func convertToFileInfo(record database.FileRecord) FileInfo {
 	}
 }
 
-// RegisterRoutes 注册所有路由
+// RegisterRoutes 娉ㄥ唽鎵€鏈夎矾鐢?
 func RegisterRoutes(router *mux.Router) {
-	// 添加全局健康检查路由（不需要认证，便于系统监控）
+	// 娣诲姞鍏ㄥ眬鍋ュ悍妫€鏌ヨ矾鐢憋紙涓嶉渶瑕佽璇侊紝渚夸簬绯荤粺鐩戞帶锛?
 	router.HandleFunc("/api/v1/health", healthCheckHandler).Methods("GET")
 	// Alias for broader compatibility with common probes (e.g., Kubernetes)
 	router.HandleFunc("/api/v1/healthz", healthCheckHandler).Methods("GET")
 
-	// Web API版本前缀 (原有的Web界面API)
+	// Web API鐗堟湰鍓嶇紑 (鍘熸湁鐨刉eb鐣岄潰API)
 	webAPI := router.PathPrefix("/api/v1/web").Subrouter()
 
-	// 认证相关路由（无需认证）
+	// 璁よ瘉鐩稿叧璺敱锛堟棤闇€璁よ瘉锛?
     // Authboss handles /auth/* endpoints (mounted in server). Provide /auth/me for current user info and change-password for forced reset.
     webAPI.HandleFunc("/auth/me", meHandler).Methods("GET")
     webAPI.HandleFunc("/auth/change-password", changePasswordHandler).Methods("POST")
     webAPI.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
 
+    // 2FA endpoints (user self-service)
+    webAPI.HandleFunc("/auth/2fa/totp/start", middleware.RequireAuthorization(startTOTPHandler)).Methods("POST")
+    webAPI.HandleFunc("/auth/2fa/totp/enable", middleware.RequireAuthorization(enableTOTPHandler)).Methods("POST")
+    webAPI.HandleFunc("/auth/2fa/disable", middleware.RequireAuthorization(disableTOTPHandler)).Methods("POST")
     // 2FA handled by Authboss TOTP under /auth/2fa/totp/*
 
-	// Web API根信息页面（无需认证）
+	// Web API鏍逛俊鎭〉闈紙鏃犻渶璁よ瘉锛?
 	webAPI.HandleFunc("", apiInfoHandler).Methods("GET")
 	webAPI.HandleFunc("/", apiInfoHandler).Methods("GET")
 
-	// 健康检查路由（无需认证）
+	// 鍋ュ悍妫€鏌ヨ矾鐢憋紙鏃犻渶璁よ瘉锛?
 	webAPI.HandleFunc("/health", healthCheckHandler).Methods("GET")
 	// Alias for web namespace
 	webAPI.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
 
-	// 文件管理路由（需要Web认证）
+	// 鏂囦欢绠＄悊璺敱锛堥渶瑕乄eb璁よ瘉锛?
     webAPI.HandleFunc("/upload", middleware.RequireAuthorization(uploadFileHandler)).Methods("POST")
 	webAPI.HandleFunc("/files/list", listFilesHandler).Methods("GET")
 	webAPI.HandleFunc("/files/versions/{type}/{filename}", getFileVersionsHandler).Methods("GET")
@@ -113,11 +117,11 @@ func RegisterRoutes(router *mux.Router) {
     webAPI.HandleFunc("/files/{id}/restore", middleware.RequireAuthorization(restoreFileHandler)).Methods("POST")
     webAPI.HandleFunc("/files/{id}/purge", middleware.RequireAuthorization(purgeFileHandler)).Methods("DELETE")
 
-	// 回收站管理
+	// 鍥炴敹绔欑鐞?
 	webAPI.HandleFunc("/recycle-bin", getRecycleBinHandler).Methods("GET")
     webAPI.HandleFunc("/recycle-bin/clear", middleware.RequireAuthorization(clearRecycleBinHandler)).Methods("DELETE")
 
-	// 统一文件下载路由（需要Web认证）
+	// 缁熶竴鏂囦欢涓嬭浇璺敱锛堥渶瑕乄eb璁よ瘉锛?
     webFilesRouter := webAPI.PathPrefix("/files").Subrouter()
     webFilesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
 
@@ -126,7 +130,7 @@ func RegisterRoutes(router *mux.Router) {
     webAPI.HandleFunc("/versions/{type}/{versionId}/manifest", webGetVersionManifestHandler).Methods("GET")
     webAPI.HandleFunc("/versions/{type}/{versionId}/tags", middleware.RequireAuthorization(webUpdateVersionTagsHandler)).Methods("PATCH")
 
-	// 日志查询路由（需要Web认证）
+	// 鏃ュ織鏌ヨ璺敱锛堥渶瑕乄eb璁よ瘉锛?
 	webAPI.HandleFunc("/logs/access", getAccessLogsHandler).Methods("GET")
 
 	// Packages (assets/others) web endpoints delegating to public handlers
@@ -147,7 +151,7 @@ func RegisterRoutes(router *mux.Router) {
 	RegisterWebAdminRoutes(webAPI)
 
 	// =============================================================================
-	// Public API Routes (require API key authentication) - 注册在更具体的路径
+	// Public API Routes (require API key authentication) - 娉ㄥ唽鍦ㄦ洿鍏蜂綋鐨勮矾寰?
 	// =============================================================================
 	RegisterAPIRoutes(router)
 
@@ -160,28 +164,28 @@ func RegisterRoutes(router *mux.Router) {
 	// Static Files
 	// =============================================================================
 
-	// 静态文件服务路由
+	// 闈欐€佹枃浠舵湇鍔¤矾鐢?
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
 }
 
-// downloadFileHandler 统一文件下载处理器
+// downloadFileHandler 缁熶竴鏂囦欢涓嬭浇澶勭悊鍣?
 func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
-	// 从URL路径中提取文件路径
+	// 浠嶶RL璺緞涓彁鍙栨枃浠惰矾寰?
 	filePath := strings.TrimPrefix(r.URL.Path, "/api/v1/web/files/")
 
-	// 验证和清理路径
+	// 楠岃瘉鍜屾竻鐞嗚矾寰?
 	if filePath == "" {
 		writeErrorResponse(w, http.StatusBadRequest, "File path cannot be empty")
 		return
 	}
 
-	// 防止路径遍历攻击
+	// 闃叉璺緞閬嶅巻鏀诲嚮
 	if strings.Contains(filePath, "..") || strings.HasPrefix(filePath, "/") {
 		writeErrorResponse(w, http.StatusBadRequest, "Invalid file path")
 		return
 	}
 
-	// 构建完整的文件路径 - 注意这里不再添加downloads前缀，因为传入的路径已经包含了
+	// 鏋勫缓瀹屾暣鐨勬枃浠惰矾寰?- 娉ㄦ剰杩欓噷涓嶅啀娣诲姞downloads鍓嶇紑锛屽洜涓轰紶鍏ョ殑璺緞宸茬粡鍖呭惈浜?
 	var fullPath string
 	if strings.HasPrefix(filePath, "downloads/") {
 		fullPath = filePath
@@ -189,20 +193,20 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 		fullPath = filepath.Join("downloads", filePath)
 	}
 
-	// 验证文件路径是否在允许的目录内
+	// 楠岃瘉鏂囦欢璺緞鏄惁鍦ㄥ厑璁哥殑鐩綍鍐?
 	if !isAllowedPath(fullPath) {
 		writeErrorResponse(w, http.StatusForbidden, "File path not allowed")
 		return
 	}
 
-	// 检查文件是否存在
+	// 妫€鏌ユ枃浠舵槸鍚﹀瓨鍦?
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 		log.Printf("File not found: %s", fullPath)
 		writeErrorResponse(w, http.StatusNotFound, "File not found")
 		return
 	}
 
-	// 打开文件
+	// 鎵撳紑鏂囦欢
 	file, err := os.Open(fullPath)
 	if err != nil {
 		log.Printf("Error opening file %s: %v", fullPath, err)
@@ -211,7 +215,7 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// 获取文件信息
+	// 鑾峰彇鏂囦欢淇℃伅
 	fileInfo, err := file.Stat()
 	if err != nil {
 		log.Printf("Error getting file info for %s: %v", fullPath, err)
@@ -219,13 +223,13 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取文件名
+	// 鑾峰彇鏂囦欢鍚?
 	fileName := filepath.Base(filePath)
 
-	// 确定内容类型
+	// 纭畾鍐呭绫诲瀷
 	contentType := getContentType(fileName)
 
-	// 设置响应头
+	// 璁剧疆鍝嶅簲澶?
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
@@ -233,7 +237,7 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 
-	// 复制文件内容到响应
+	// 澶嶅埗鏂囦欢鍐呭鍒板搷搴?
 	_, err = io.Copy(w, file)
 	if err != nil {
 		log.Printf("Error writing file to response: %v", err)
@@ -242,7 +246,7 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("File %s downloaded successfully by %s", filePath, r.RemoteAddr)
 
-	// 记录结构化下载日志
+	// 璁板綍缁撴瀯鍖栦笅杞芥棩蹇?
 	if l := logger.GetLogger(); l != nil {
 		var userInfo map[string]interface{}
 		if userCtx := r.Context().Value("user"); userCtx != nil {
@@ -254,7 +258,7 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// apiInfoHandler API信息页面处理器 - 类似GitHub API根页面
+// apiInfoHandler API淇℃伅椤甸潰澶勭悊鍣?- 绫讳技GitHub API鏍归〉闈?
 func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
     baseURL := "https://localhost:8443/api/v1"
 
@@ -338,11 +342,11 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// healthCheckHandler 健康检查处理器
+// healthCheckHandler 鍋ュ悍妫€鏌ュ鐞嗗櫒
 func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	response := Response{
 		Success: true,
-		Message: "服务运行正常",
+		Message: "鏈嶅姟杩愯姝ｅ父",
 		Data: map[string]interface{}{
 			"status":    "healthy",
 			"timestamp": fmt.Sprintf("%d", time.Now().Unix()),
@@ -352,7 +356,7 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// writeJSONResponse 写入JSON响应
+// writeJSONResponse 鍐欏叆JSON鍝嶅簲
 func writeJSONResponse(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -362,7 +366,7 @@ func writeJSONResponse(w http.ResponseWriter, status int, data interface{}) {
 	}
 }
 
-// writeErrorResponse 写入错误响应
+// writeErrorResponse 鍐欏叆閿欒鍝嶅簲
 func writeErrorResponse(w http.ResponseWriter, status int, message string) {
 	response := Response{
 		Success: false,
@@ -372,22 +376,22 @@ func writeErrorResponse(w http.ResponseWriter, status int, message string) {
 	writeJSONResponse(w, status, response)
 }
 
-// loginHandler 用户登录处理器
+// loginHandler 鐢ㄦ埛鐧诲綍澶勭悊鍣?
 func loginHandler(w http.ResponseWriter, r *http.Request) {
 	var loginReq auth.LoginRequest
 
-	// 解析请求体
+	// 瑙ｆ瀽璇锋眰浣?
 	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, "请求格式错误")
+		writeErrorResponse(w, http.StatusBadRequest, "璇锋眰鏍煎紡閿欒")
 		return
 	}
 
-	// 用户认证
+	// 鐢ㄦ埛璁よ瘉
 	loginResp, err := auth.Authenticate(&loginReq)
 	if err != nil {
 		log.Printf("Login failed for user %s: %v", loginReq.Username, err)
 
-		// 记录登录失败日志
+		// 璁板綍鐧诲綍澶辫触鏃ュ織
 		if l := logger.GetLogger(); l != nil {
 			l.LogUserLogin("", loginReq.Username, r.RemoteAddr, false)
 		}
@@ -398,40 +402,40 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("User %s logged in successfully", loginReq.Username)
 
-	// 记录用户登录日志
+	// 璁板綍鐢ㄦ埛鐧诲綍鏃ュ織
 	if l := logger.GetLogger(); l != nil {
 		l.LogUserLogin("", loginReq.Username, r.RemoteAddr, true)
 	}
 
-	// 返回登录成功响应
+	// 杩斿洖鐧诲綍鎴愬姛鍝嶅簲
 	response := Response{
 		Success: true,
-		Message: "登录成功",
+		Message: "鐧诲綍鎴愬姛",
 		Data:    loginResp,
 	}
 
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// logoutHandler 用户登出处理器
+// logoutHandler 鐢ㄦ埛鐧诲嚭澶勭悊鍣?
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
-	// 获取Authorization header
+	// 鑾峰彇Authorization header
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "缺少Authorization header")
+		writeErrorResponse(w, http.StatusBadRequest, "缂哄皯Authorization header")
 		return
 	}
 
-	// 提取token
+	// 鎻愬彇token
 	parts := strings.SplitN(authHeader, " ", 2)
 	if len(parts) != 2 || parts[0] != "Bearer" {
-		writeErrorResponse(w, http.StatusBadRequest, "Authorization header格式错误")
+		writeErrorResponse(w, http.StatusBadRequest, "Authorization header鏍煎紡閿欒")
 		return
 	}
 
 	token := parts[1]
 
-	// 执行登出
+	// 鎵ц鐧诲嚭
 	if err := auth.Logout(token); err != nil {
 		writeErrorResponse(w, http.StatusBadRequest, err.Error())
 		return
@@ -441,7 +445,7 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	response := Response{
 		Success: true,
-		Message: "登出成功",
+		Message: "鐧诲嚭鎴愬姛",
 	}
 
 	writeJSONResponse(w, http.StatusOK, response)
@@ -459,8 +463,19 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
         writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
         return
     }
+    payload := map[string]interface{}{ "username": u.Username, "role": u.Role }
+    if db := database.GetDatabase(); db != nil {
+        if ur, err := db.GetUserRole(u.Username); err == nil && ur != nil {
+            if ur.Status != "" { payload["status"] = ur.Status }
+            payload["permissions"] = ur.Permissions
+            payload["quota_daily"] = ur.QuotaDaily
+            payload["quota_monthly"] = ur.QuotaMonthly
+        }
+    }
+    // Include current 2FA state from context user
+    payload["two_fa"] = u.TwoFAEnabled
     writeJSONResponse(w, http.StatusOK, Response{ Success: true, Data: map[string]interface{}{
-        "user": map[string]interface{}{ "username": u.Username, "role": u.Role },
+        "user": payload,
     }})
 }
 
@@ -530,48 +545,48 @@ func isStrongPassword(p string) bool {
     return classes >= 3
 }
 
-// getDefaultUsersHandler 获取默认测试用户列表
+// getDefaultUsersHandler 鑾峰彇榛樿娴嬭瘯鐢ㄦ埛鍒楄〃
 func getDefaultUsersHandler(w http.ResponseWriter, r *http.Request) {
 	users := auth.GetDefaultUsers()
 
 	response := Response{
 		Success: true,
-		Message: "默认测试用户列表",
+		Message: "榛樿娴嬭瘯鐢ㄦ埛鍒楄〃",
 		Data: map[string]interface{}{
 			"users": users,
-			"note":  "这些是预设的测试用户，您可以使用这些账户进行登录测试",
+			"note":  "杩欎簺鏄璁剧殑娴嬭瘯鐢ㄦ埛锛屾偍鍙互浣跨敤杩欎簺璐︽埛杩涜鐧诲綍娴嬭瘯",
 		},
 	}
 
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// isAllowedPath 验证文件路径是否在允许的目录内
+// isAllowedPath 楠岃瘉鏂囦欢璺緞鏄惁鍦ㄥ厑璁哥殑鐩綍鍐?
 func isAllowedPath(path string) bool {
-	// 获取绝对路径
+	// 鑾峰彇缁濆璺緞
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return false
 	}
 
-	// 获取下载目录的绝对路径
+	// 鑾峰彇涓嬭浇鐩綍鐨勭粷瀵硅矾寰?
 	downloadDir, err := filepath.Abs("downloads")
 	if err != nil {
 		return false
 	}
 
-	// 检查路径是否在downloads目录下
+	// 妫€鏌ヨ矾寰勬槸鍚﹀湪downloads鐩綍涓?
 	return strings.HasPrefix(absPath, downloadDir)
 }
 
-// getAccessLogsHandler 获取访问日志处理器
+// getAccessLogsHandler 鑾峰彇璁块棶鏃ュ織澶勭悊鍣?
 func getAccessLogsHandler(w http.ResponseWriter, r *http.Request) {
-	// 获取查询参数
+	// 鑾峰彇鏌ヨ鍙傛暟
 	limitStr := r.URL.Query().Get("limit")
 	offsetStr := r.URL.Query().Get("offset")
 
-	limit := 50 // 默认限制
-	offset := 0 // 默认偏移
+	limit := 50 // 榛樿闄愬埗
+	offset := 0 // 榛樿鍋忕Щ
 
 	if limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 && parsedLimit <= 1000 {
@@ -585,22 +600,22 @@ func getAccessLogsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 从数据库查询日志
+	// 浠庢暟鎹簱鏌ヨ鏃ュ織
 	l := logger.GetLogger()
 	if l == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "日志系统未初始化")
+		writeErrorResponse(w, http.StatusInternalServerError, "鏃ュ織绯荤粺鏈垵濮嬪寲")
 		return
 	}
 
 	logs, err := l.GetAccessLogs(limit, offset)
 	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "查询日志失败")
+		writeErrorResponse(w, http.StatusInternalServerError, "鏌ヨ鏃ュ織澶辫触")
 		return
 	}
 
 	response := Response{
 		Success: true,
-		Message: "访问日志查询成功",
+		Message: "璁块棶鏃ュ織鏌ヨ鎴愬姛",
 		Data: map[string]interface{}{
 			"logs":   logs,
 			"limit":  limit,
@@ -612,13 +627,13 @@ func getAccessLogsHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// FileUploadRequest 文件上传请求结构
+// FileUploadRequest 鏂囦欢涓婁紶璇锋眰缁撴瀯
 type FileUploadRequest struct {
 	FileType    string `form:"fileType" json:"fileType"`       // config, certificate, docs
-	Description string `form:"description" json:"description"` // 文件描述
+	Description string `form:"description" json:"description"` // 鏂囦欢鎻忚堪
 }
 
-// FileInfo 文件信息结构
+// FileInfo 鏂囦欢淇℃伅缁撴瀯
 type FileInfo struct {
     ID           string    `json:"id"`
     FileName     string    `json:"fileName"`
@@ -634,16 +649,16 @@ type FileInfo struct {
     VersionID    string    `json:"versionId,omitempty"`
 }
 
-// uploadFileHandler 文件上传处理器
+// uploadFileHandler 鏂囦欢涓婁紶澶勭悊鍣?
 func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
-	// 解析multipart form（提高限额）
+	// 瑙ｆ瀽multipart form锛堟彁楂橀檺棰濓級
 	err := r.ParseMultipartForm(128 << 20) // 128MB
 	if err != nil {
 		writeErrorResponse(w, http.StatusBadRequest, "Failed to parse form: "+err.Error())
 		return
 	}
 
-	// 获取文件
+	// 鑾峰彇鏂囦欢
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		writeErrorResponse(w, http.StatusBadRequest, "Failed to get file: "+err.Error())
@@ -651,7 +666,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// 获取上传参数
+	// 鑾峰彇涓婁紶鍙傛暟
     fileType := r.FormValue("fileType")
     description := r.FormValue("description")
     // optional version tags (comma-separated)
@@ -667,7 +682,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-	// 验证文件类型
+	// 楠岃瘉鏂囦欢绫诲瀷
 	allowedTypes := map[string]bool{
 		"roadmap":        true,
 		"recommendation": true,
@@ -677,13 +692,13 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 验证文件扩展名
+	// 楠岃瘉鏂囦欢鎵╁睍鍚?
 	if !isValidFileExtension(header.Filename) {
 		writeErrorResponse(w, http.StatusBadRequest, "Unsupported file format")
 		return
 	}
 
-	// 进一步校验扩展名与类型匹配（roadmap->.tsv，recommendation->.xlsx）并设置固定原始名
+	// 杩涗竴姝ユ牎楠屾墿灞曞悕涓庣被鍨嬪尮閰嶏紙roadmap->.tsv锛宺ecommendation->.xlsx锛夊苟璁剧疆鍥哄畾鍘熷鍚?
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	var fixedOriginalName string
 	switch fileType {
@@ -704,7 +719,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 将上传的原始文件名记录在描述中，便于追溯
+	// 灏嗕笂浼犵殑鍘熷鏂囦欢鍚嶈褰曞湪鎻忚堪涓紝渚夸簬杩芥函
 	if header.Filename != "" {
 		if strings.TrimSpace(description) == "" {
 			description = "Original filename: " + header.Filename
@@ -713,7 +728,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 获取用户信息（从认证中间件设置的上下文中获取）
+	// 鑾峰彇鐢ㄦ埛淇℃伅锛堜粠璁よ瘉涓棿浠惰缃殑涓婁笅鏂囦腑鑾峰彇锛?
 	var uploader string
 	if userCtx := r.Context().Value("user"); userCtx != nil {
 		if user, ok := userCtx.(*auth.User); ok {
@@ -725,7 +740,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		uploader = "unknown"
 	}
 
-	// 创建文件信息
+	// 鍒涘缓鏂囦欢淇℃伅
 	fileInfo := &FileInfo{
 		ID:           generateFileID(),
 		FileName:     header.Filename,
@@ -737,7 +752,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		Uploader:     uploader,
 	}
 
-	// 生成版本化的文件名和路径
+	// 鐢熸垚鐗堟湰鍖栫殑鏂囦欢鍚嶅拰璺緞
 	versionedFileName, version, err := generateVersionedFileName(fileType, fixedOriginalName)
 	if err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to generate filename: "+err.Error())
@@ -752,25 +767,25 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
     ts := time.Now().UTC().Format("20060102150405") + "Z"
     versionID := "v" + ts
 
-	// 创建目标目录 - 直接使用UTC时间格式的文件夹
+	// 鍒涘缓鐩爣鐩綍 - 鐩存帴浣跨敤UTC鏃堕棿鏍煎紡鐨勬枃浠跺す
 	targetDir := filepath.Join("downloads", fileType+"s")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create directory: "+err.Error())
 		return
 	}
 
-	// 生成最终文件名：<type>_<versionID>.<ext>
+	// 鐢熸垚鏈€缁堟枃浠跺悕锛?type>_<versionID>.<ext>
 	ext = strings.ToLower(filepath.Ext(fixedOriginalName))
 	finalFileName := fmt.Sprintf("%s_%s%s", fileType, versionID, ext)
 
-	// 创建版本目录
+	// 鍒涘缓鐗堟湰鐩綍
 	versionDir := filepath.Join(targetDir, versionID)
 	if err := os.MkdirAll(versionDir, 0755); err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create version directory: "+err.Error())
 		return
 	}
 
-	// 保存文件到版本目录
+	// 淇濆瓨鏂囦欢鍒扮増鏈洰褰?
 	targetPath := filepath.Join(versionDir, finalFileName)
 	fileInfo.Path = targetPath
 	fileInfo.FileName = finalFileName
@@ -788,13 +803,13 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 更新最新版本链接
+	// 鏇存柊鏈€鏂扮増鏈摼鎺?
 	latestPath := filepath.Join(targetDir, fixedOriginalName)
-	os.Remove(latestPath) // 删除旧的链接（如果存在）
+	os.Remove(latestPath) // 鍒犻櫎鏃х殑閾炬帴锛堝鏋滃瓨鍦級
 
-	// 创建硬链接指向最新版本
+	// 鍒涘缓纭摼鎺ユ寚鍚戞渶鏂扮増鏈?
 	if err := os.Link(targetPath, latestPath); err != nil {
-		// 如果硬链接失败，复制文件
+		// 濡傛灉纭摼鎺ュけ璐ワ紝澶嶅埗鏂囦欢
 		if copyErr := copyFile(targetPath, latestPath); copyErr != nil {
 			log.Printf("Warning: Failed to create latest version link: %v", copyErr)
 		}
@@ -865,7 +880,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// listFilesHandler 文件列表处理器
+// listFilesHandler 鏂囦欢鍒楄〃澶勭悊鍣?
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 	fileType := r.URL.Query().Get("type")
 	db := database.GetDatabase()
@@ -913,7 +928,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// getFileVersionsHandler 获取文件版本处理器
+// getFileVersionsHandler 鑾峰彇鏂囦欢鐗堟湰澶勭悊鍣?
 func getFileVersionsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	fileType := vars["type"]
@@ -949,12 +964,12 @@ func getFileVersionsHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// deleteFileHandler 删除文件（移动到回收站）
+// deleteFileHandler 鍒犻櫎鏂囦欢锛堢Щ鍔ㄥ埌鍥炴敹绔欙級
 func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	fileID := vars["id"]
 
-	// 获取用户信息
+	// 鑾峰彇鐢ㄦ埛淇℃伅
 	var deletedBy string
 	if userCtx := r.Context().Value("user"); userCtx != nil {
 		if user, ok := userCtx.(*auth.User); ok {
@@ -985,12 +1000,12 @@ func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// restoreFileHandler 从回收站恢复文件
+// restoreFileHandler 浠庡洖鏀剁珯鎭㈠鏂囦欢
 func restoreFileHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	fileID := vars["id"]
 
-	// 获取用户信息
+	// 鑾峰彇鐢ㄦ埛淇℃伅
 	var restoredBy string
 	if userCtx := r.Context().Value("user"); userCtx != nil {
 		if user, ok := userCtx.(*auth.User); ok {
@@ -1021,12 +1036,12 @@ func restoreFileHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// purgeFileHandler 永久删除文件
+// purgeFileHandler 姘镐箙鍒犻櫎鏂囦欢
 func purgeFileHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	fileID := vars["id"]
 
-	// 获取用户信息
+	// 鑾峰彇鐢ㄦ埛淇℃伅
 	var purgedBy string
 	if userCtx := r.Context().Value("user"); userCtx != nil {
 		if user, ok := userCtx.(*auth.User); ok {
@@ -1057,7 +1072,7 @@ func purgeFileHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// getRecycleBinHandler 获取回收站内容
+// getRecycleBinHandler 鑾峰彇鍥炴敹绔欏唴瀹?
 func getRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
 	if db == nil {
@@ -1083,9 +1098,9 @@ func getRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// clearRecycleBinHandler 清空回收站
+// clearRecycleBinHandler 娓呯┖鍥炴敹绔?
 func clearRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
-	// 获取用户信息
+	// 鑾峰彇鐢ㄦ埛淇℃伅
 	var purgedBy string
 	if userCtx := r.Context().Value("user"); userCtx != nil {
 		if user, ok := userCtx.(*auth.User); ok {
@@ -1103,14 +1118,14 @@ func clearRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取回收站中的所有项目
+	// 鑾峰彇鍥炴敹绔欎腑鐨勬墍鏈夐」鐩?
 	items, err := db.GetRecycleBinItems()
 	if err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to get recycle bin items: "+err.Error())
 		return
 	}
 
-	// 永久删除所有项目
+	// 姘镐箙鍒犻櫎鎵€鏈夐」鐩?
 	purgedCount := 0
 	for _, item := range items {
 		if err := db.PermanentlyDeleteFile(item.ID, purgedBy); err != nil {
@@ -1131,22 +1146,22 @@ func clearRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
-// 辅助函数
+// 杈呭姪鍑芥暟
 
-// generateFileID 生成文件ID
+// generateFileID 鐢熸垚鏂囦欢ID
 func generateFileID() string {
 	return fmt.Sprintf("file_%d_%d", time.Now().UnixNano(), os.Getpid())
 }
 
-// generateVersionedFileName 生成版本化的文件名
+// generateVersionedFileName 鐢熸垚鐗堟湰鍖栫殑鏂囦欢鍚?
 func generateVersionedFileName(fileType, originalName string) (string, int, error) {
-	// 从数据库获取现有版本号
+	// 浠庢暟鎹簱鑾峰彇鐜版湁鐗堟湰鍙?
 	db := database.GetDatabase()
 	if db == nil {
 		return "", 0, fmt.Errorf("database not initialized")
 	}
 
-	// 查询数据库中同名文件的最大版本号
+	// 鏌ヨ鏁版嵁搴撲腑鍚屽悕鏂囦欢鐨勬渶澶х増鏈彿
 	query := `
 		SELECT COALESCE(MAX(version), 0) as max_version
 		FROM files
@@ -1159,10 +1174,10 @@ func generateVersionedFileName(fileType, originalName string) (string, int, erro
 		return "", 0, fmt.Errorf("failed to query max version: %v", err)
 	}
 
-	// 新版本号
+	// 鏂扮増鏈彿
 	version := maxVersion + 1
 
-	// 生成版本化文件名
+	// 鐢熸垚鐗堟湰鍖栨枃浠跺悕
 	ext := filepath.Ext(originalName)
 	baseName := strings.TrimSuffix(originalName, ext)
 	versionedName := fmt.Sprintf("%s_v%d%s", baseName, version, ext)
@@ -1170,7 +1185,7 @@ func generateVersionedFileName(fileType, originalName string) (string, int, erro
 	return versionedName, version, nil
 }
 
-// isValidFileExtension 验证文件扩展名
+// isValidFileExtension 楠岃瘉鏂囦欢鎵╁睍鍚?
 func isValidFileExtension(filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
 	validExts := map[string]bool{
@@ -1180,7 +1195,7 @@ func isValidFileExtension(filename string) bool {
 	return validExts[ext]
 }
 
-// copyFile 复制文件
+// copyFile 澶嶅埗鏂囦欢
 func copyFile(src, dst string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
@@ -1198,7 +1213,7 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-// getContentType 根据文件扩展名确定内容类型
+// getContentType 鏍规嵁鏂囦欢鎵╁睍鍚嶇‘瀹氬唴瀹圭被鍨?
 func getContentType(fileName string) string {
 	ext := strings.ToLower(filepath.Ext(fileName))
 	switch ext {
@@ -1386,4 +1401,70 @@ func fileSizeSafe(path string) int64 {
         return fi.Size()
     }
     return 0
+}
+
+// startTOTPHandler starts TOTP setup for current user
+func startTOTPHandler(w http.ResponseWriter, r *http.Request) {
+    userCtx := r.Context().Value("user")
+    if userCtx == nil {
+        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
+        return
+    }
+    u, ok := userCtx.(*auth.User)
+    if !ok {
+        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
+        return
+    }
+    secret, otpauth, err := auth.StartTOTPSetup(u.Username, "Secure File Hub")
+    if err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, err.Error())
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{ Success: true, Data: map[string]interface{}{
+        "secret": secret,
+        "otpauth_url": otpauth,
+    }})
+}
+
+// enableTOTPHandler verifies code and enables 2FA
+func enableTOTPHandler(w http.ResponseWriter, r *http.Request) {
+    userCtx := r.Context().Value("user")
+    if userCtx == nil {
+        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
+        return
+    }
+    u, ok := userCtx.(*auth.User)
+    if !ok {
+        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
+        return
+    }
+    var body struct{ Code string `json:"code"` }
+    if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Code) == "" {
+        writeErrorResponse(w, http.StatusBadRequest, "code required")
+        return
+    }
+    if err := auth.EnableTOTP(u.Username, body.Code); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, err.Error())
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{ Success: true, Message: "2FA enabled" })
+}
+
+// disableTOTPHandler disables 2FA for current user
+func disableTOTPHandler(w http.ResponseWriter, r *http.Request) {
+    userCtx := r.Context().Value("user")
+    if userCtx == nil {
+        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
+        return
+    }
+    u, ok := userCtx.(*auth.User)
+    if !ok {
+        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
+        return
+    }
+    if err := auth.DisableTOTP(u.Username); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, err.Error())
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{ Success: true, Message: "2FA disabled" })
 }

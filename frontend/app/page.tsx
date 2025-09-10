@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
@@ -43,6 +43,7 @@ export default function HomePage() {
     online: boolean
     message: string
   } | null>(null)
+  const [userNotice, setUserNotice] = useState("")
 
   // Change password dialog state
   const [showChangePwd, setShowChangePwd] = useState(false)
@@ -142,6 +143,11 @@ export default function HomePage() {
     setIsAuthenticated(true)
     const user = apiClient.getCurrentUser()
     setCurrentUser(user)
+    if (user && (user as any).status && (user as any).status !== 'active') {
+      setUserNotice('Your account is pending approval. Limited access until an admin activates your account.')
+    } else {
+      setUserNotice("")
+    }
   }
 
   const handleTwoFASetupComplete = () => {
@@ -222,7 +228,7 @@ export default function HomePage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-md space-y-6">
-          {/* 服务器状态 */}
+          {/* 鏈嶅姟鍣ㄧ姸鎬?*/}
           {serverStatus && (
             <Card className={serverStatus.online ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
               <CardContent className="pt-4">
@@ -248,7 +254,7 @@ export default function HomePage() {
 
     return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* 头部导航 */}
+      {/* 澶撮儴瀵艰埅 */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
@@ -263,7 +269,7 @@ export default function HomePage() {
             </div>
 
             <div className="flex items-center gap-4">
-              {/* 服务器状态指示 */}
+              {/* 鏈嶅姟鍣ㄧ姸鎬佹寚绀?*/}
               {serverStatus && (
                 <div className="flex items-center gap-2 text-sm">
                   <Server className="h-4 w-4 text-gray-400" />
@@ -273,7 +279,7 @@ export default function HomePage() {
                 </div>
               )}
 
-              {/* 用户信息 */}
+              {/* 鐢ㄦ埛淇℃伅 */}
               {currentUser && (
                 <div className="relative" ref={userMenuRef}>
                   <button
@@ -331,10 +337,15 @@ export default function HomePage() {
               )}
             </div>
           </div>
+          {userNotice && (
+            <div className="mb-2 rounded-md bg-yellow-50 border border-yellow-200 text-yellow-800 px-3 py-2 text-sm">
+              {userNotice}
+            </div>
+          )}
         </div>
       </header>
 
-      {/* 主要内容 */}
+      {/* 涓昏鍐呭 */}
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Tabs value={mainTab} onValueChange={(v:any)=>setMainTab(v)} className="space-y-6">
           <TabsList className={`grid w-full ${tabsColsClass} max-w-3xl`}>
@@ -405,11 +416,11 @@ export default function HomePage() {
         </Tabs>
       </main>
 
-      {/* 页脚 - 固定在底部 */}
+      {/* 椤佃剼 - 鍥哄畾鍦ㄥ簳閮?*/}
       <footer className="bg-white border-t border-gray-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-sm text-gray-500">
-            <p>© 2024 File Manager. Secure File Management System</p>
+            <p>漏 2024 File Manager. Secure File Management System</p>
             <p className="mt-2">Supports versioned management of configuration files, certificates and documents</p>
           </div>
         </div>

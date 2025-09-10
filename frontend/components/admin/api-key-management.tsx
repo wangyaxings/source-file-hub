@@ -90,6 +90,13 @@ export function APIKeyManagement() {
     expiresAt: ""
   })
 
+  // 调试代码 - 监控状态变化
+  useEffect(() => {
+    console.log('showKeyDialog state changed:', showKeyDialog)
+    console.log('newKey value:', newKey)
+    console.log('selectedKey:', selectedKey)
+  }, [showKeyDialog, newKey, selectedKey])
+
   const permissions = [
     { value: "read", label: "Read Files", description: "View file lists and metadata" },
     { value: "download", label: "Download Files", description: "Download file contents" },
@@ -143,38 +150,20 @@ export function APIKeyManagement() {
   }
 
   const createAPIKey = async () => {
-    if (!createForm.name || !createForm.role || createForm.permissions.length === 0) {
+    if (!createForm.name.trim() || !createForm.role) {
       toast({
         variant: "destructive",
         title: "Validation Error",
-        description: "Please fill in all required fields"
+        description: "Name and role are required"
       })
       return
     }
 
-    // Validate expiration time
-    if (createForm.expiresAt) {
-      const expiryDate = new Date(createForm.expiresAt)
-      if (expiryDate <= new Date()) {
-        toast({
-          variant: "destructive",
-          title: "Invalid Expiration Date",
-          description: "Expiration date must be in the future"
-        })
-        return
-      }
-    }
-
     try {
-      const requestBody = {
-        name: createForm.name,
-        description: createForm.description,
-        role: createForm.role,
-        permissions: createForm.permissions,
-        expires_at: createForm.expiresAt || undefined
+      const formData = {
+        ...createForm,
+        permissions: roleToPermissions(createForm.role) // 根据角色设置权限
       }
-
-      console.log('Creating API key with data:', requestBody) // Debug log
 
       const response = await fetch('/api/v1/web/admin/api-keys', {
         method: 'POST',
@@ -182,49 +171,41 @@ export function APIKeyManagement() {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(formData)
       })
 
-      const result = await response.json()
-
       if (!response.ok) {
-        // Provide more friendly error messages based on specific errors
-        let errorMessage = result.message || 'Failed to create API key'
-
-        if (response.status === 400) {
-          if (errorMessage.includes('expiration date')) {
-            errorMessage = 'Invalid expiration date format. Please select a valid future date.'
-          } else if (errorMessage.includes('permissions')) {
-            errorMessage = 'Invalid permissions selected. Please check your selections.'
-          }
+        let errorMessage = `Failed to create API key (${response.status})`
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorData.message || errorMessage
+        } catch (e) {
+          // If response body is not JSON, use status text
+          errorMessage = response.statusText || errorMessage
         }
-
         throw new Error(errorMessage)
       }
 
-      // Backend returns { data: { api_key: {...}, download_url: "..." } }
+      const result = await response.json()
+      console.log('API Key creation response:', result) // Debug log
+
+      // 检查返回的数据结构
       const createdKey = result?.data?.api_key || result?.data
-      if (!createdKey) {
-        throw new Error('Invalid server response: missing api_key')
+      if (!createdKey || !createdKey.key) {
+        throw new Error('Invalid server response: missing api_key or key value')
       }
 
       console.log('Setting new key:', createdKey.key) // Debug log
       console.log('Setting selected key:', createdKey) // Debug log
 
-      // Update states
-      setNewKey(createdKey.key)
-      setSelectedKey(createdKey)
-
-      // Close create dialog and show key dialog
+      // 立即关闭创建对话框
       setShowCreateDialog(false)
 
-      // Use setTimeout to ensure state updates are processed
-      setTimeout(() => {
-        setShowKeyDialog(true)
-        console.log('Dialog states set - showKeyDialog should be true') // Debug log
-      }, 100)
+      // 设置新的key数据
+      setNewKey(createdKey.key || '')
+      setSelectedKey(createdKey)
 
-      // Reset form
+      // 重置创建表单
       setCreateForm({
         name: "",
         description: "",
@@ -233,12 +214,21 @@ export function APIKeyManagement() {
         expiresAt: ""
       })
 
-      loadAPIKeys()
-
+      // 显示成功消息
       toast({
         title: "Success",
         description: "API key created successfully"
       })
+
+      // 刷新API Key列表
+      await loadAPIKeys()
+
+      // 延迟显示key对话框，确保状态已更新
+      setTimeout(() => {
+        console.log('Opening key display dialog') // Debug log
+        setShowKeyDialog(true)
+      }, 200)
+
     } catch (error) {
       console.error('API key creation error:', error) // Debug log
       toast({

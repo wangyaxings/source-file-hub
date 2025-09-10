@@ -8,12 +8,14 @@ import { AuditLogsPanel } from "@/components/admin/audit-logs-panel"
 import { Shield, KeyRound, Users, ListChecks } from "lucide-react"
 
 export function AdminPanel({ initialTab }: { initialTab?: 'keys'|'users'|'audit' }) {
+  // 修改这一行的 grid 类名
   const tabsClass = useMemo(() => "grid w-full grid-cols-3", [])
   const [subTab, setSubTab] = useState<'keys'|'users'|'audit'>(initialTab || 'keys')
-  // Sync with prop when it changes (e.g., user navigates via link)
+
   useEffect(() => {
     if (initialTab) setSubTab(initialTab)
   }, [initialTab])
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xl font-semibold">
@@ -21,7 +23,8 @@ export function AdminPanel({ initialTab }: { initialTab?: 'keys'|'users'|'audit'
         Admin Panel
       </div>
       <Tabs value={subTab} onValueChange={(v:any)=>setSubTab(v)} className="space-y-4">
-        <TabsList className={tabsClass}>
+        {/* 确保三个tab在同一行显示，样式一致 */}
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="keys" className="flex items-center gap-2">
             <KeyRound className="h-4 w-4" />
             API Keys

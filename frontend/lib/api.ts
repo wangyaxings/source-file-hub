@@ -1,4 +1,4 @@
-export interface FileInfo {
+﻿export interface FileInfo {
   id: string
   fileName: string
   originalName: string
@@ -27,7 +27,14 @@ export interface LoginResponse {
 export interface UserInfo {
   username: string
   role?: string
+  status?: string
+  permissions?: string[]
+  quota_daily?: number
+  quota_monthly?: number
+  two_fa?: boolean
 }
+
+
 
 export interface ApiResponse<T = any> {
   success: boolean
@@ -55,14 +62,14 @@ class ApiClient {
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`
 
-    // 确保headers存在
+    // 纭繚headers瀛樺湪
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       ...((options.headers as Record<string, string>) || {})
     }
 
-    // 添加认证header
+    // 娣诲姞璁よ瘉header
     if (this.token) {
       headers.Authorization = `Bearer ${this.token}`
     }
@@ -76,7 +83,7 @@ class ApiClient {
       console.log(`Making request to: ${url}`)
       const response = await fetch(url, config)
 
-      // 检查响应状态
+      // 妫€鏌ュ搷搴旂姸鎬?
       if (!response.ok) {
         if (response.status === 401) {
           console.log('401 Unauthorized - logging out user')
@@ -84,7 +91,7 @@ class ApiClient {
           throw new Error('Authentication expired, please log in again')
         }
 
-        // 尝试解析错误响应
+        // 灏濊瘯瑙ｆ瀽閿欒鍝嶅簲
         try {
           const errorData = await response.json()
           throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`)
@@ -152,7 +159,7 @@ class ApiClient {
     return !!this.currentUser
   }
 
-  // 认证相关
+  // 璁よ瘉鐩稿叧
   async login(data: LoginRequest): Promise<LoginResponse> {
     // Use manual fetch to handle Authboss JSON redirect under /auth/ab/*
     const headers: Record<string, string> = {
@@ -192,10 +199,10 @@ class ApiClient {
     }
 
     // After Authboss login, session cookie is set; load current user
-    const me = await this.request<{ user: { username: string; role?: string } }>(`/auth/me`)
+    const me = await this.request<{ user: { username: string; role?: string; status?: string; permissions?: string[]; quota_daily?: number; quota_monthly?: number; two_fa?: boolean } }>(`/auth/me`)
     if (me.success && me.data && (me.data as any).user) {
       const u = (me.data as any).user
-      this.setUser({ username: u.username, role: u.role })
+      this.setUser({ username: u.username, role: u.role, status: (u as any).status, permissions: (u as any).permissions, quota_daily: (u as any).quota_daily, quota_monthly: (u as any).quota_monthly, two_fa: (u as any).two_fa })
       return { status: 'success' }
     }
 
@@ -224,7 +231,7 @@ class ApiClient {
     return response.data || []
   }
 
-  // 文件相关
+  // 鏂囦欢鐩稿叧
   async uploadFile(file: File, fileType: string, description: string, versionTags?: string): Promise<FileInfo> {
     const formData = new FormData()
     formData.append('file', file)
@@ -539,10 +546,10 @@ class ApiClient {
     })
   }
 
-  // 健康检查 - 使用正确的端点
+  // 鍋ュ悍妫€鏌?- 浣跨敤姝ｇ‘鐨勭鐐?
   async healthCheck(): Promise<any> {
     try {
-      // 使用后端的健康检查端点
+      // 浣跨敤鍚庣鐨勫仴搴锋鏌ョ鐐?
       const response = await fetch('/api/v1/health')
 
       if (!response.ok) {
@@ -555,6 +562,24 @@ class ApiClient {
       throw new Error('Server connection failed')
     }
   }
+
+  async startTOTP(): Promise<{ secret: string; otpauth_url: string }> {
+    const resp = await this.request<{ secret: string; otpauth_url: string }>('/auth/2fa/totp/start', { method: 'POST' })
+    return resp.data as any
+  }
+
+  async enableTOTP(code: string): Promise<void> {
+    await this.request('/auth/2fa/totp/enable', { method: 'POST', body: JSON.stringify({ code }) })
+    const me = await this.request<{ user: any }>('/auth/me')
+    if (me.success && (me.data as any)?.user) this.setUser(me.data!.user as any)
+  }
+
+  async disableTOTP(): Promise<void> {
+    await this.request('/auth/2fa/disable', { method: 'POST' })
+    const me = await this.request<{ user: any }>('/auth/me')
+    if (me.success && (me.data as any)?.user) this.setUser(me.data!.user as any)
+  }
 }
 
 export const apiClient = new ApiClient()
+

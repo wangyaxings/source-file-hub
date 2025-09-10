@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/lib/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
+import { TwoFASetupDialog } from '@/components/auth/twofa-setup-dialog'
 
 type UserRow = {
   user_id: string
@@ -29,6 +30,10 @@ export default function UserManagement() {
   const [credOpen, setCredOpen] = useState(false)
   const [cred, setCred] = useState<{ username?: string; password?: string } | null>(null)
   const { toast } = useToast()
+
+  // 添加2FA相关状态
+  const [show2FADialog, setShow2FADialog] = useState(false)
+  const [current2FAUser, setCurrent2FAUser] = useState<UserRow | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -78,17 +83,55 @@ export default function UserManagement() {
     }
   }
 
+  // 修复2FA切换逻辑
   const onToggle2FA = async (u: UserRow) => {
     try {
       if (u.two_fa) {
+        // 禁用2FA - 直接调用API
         await apiClient.adminDisable2FA(u.user_id)
+        toast({ title: '2FA disabled', description: `2FA has been disabled for ${u.user_id}` })
+        load() // 重新加载用户列表
       } else {
-        await apiClient.adminUpdateUser(u.user_id, { twofa_enabled: true })
+        // 启用2FA - 显示设置对话框
+        setCurrent2FAUser(u)
+        setShow2FADialog(true)
       }
-      toast({ title: '2FA updated', description: u.user_id })
-      load()
     } catch (err: any) {
-      toast({ title: 'Failed to update 2FA', description: err?.message || String(err), variant: 'destructive' })
+      toast({
+        title: 'Failed to update 2FA',
+        description: err?.message || String(err),
+        variant: 'destructive'
+      })
+    }
+  }
+
+  // 2FA设置完成后的回调
+  const on2FASetupComplete = async () => {
+    if (current2FAUser) {
+      try {
+        // 标记用户2FA已启用
+        await apiClient.adminUpdateUser(current2FAUser.user_id, {
+          twofa_enabled: true
+        })
+
+        toast({
+          title: '2FA enabled',
+          description: `2FA has been enabled for ${current2FAUser.user_id}`
+        })
+
+        // 重新加载用户列表
+        load()
+
+        // 清理状态
+        setCurrent2FAUser(null)
+        setShow2FADialog(false)
+      } catch (err: any) {
+        toast({
+          title: 'Failed to enable 2FA',
+          description: err?.message || String(err),
+          variant: 'destructive'
+        })
+      }
     }
   }
 
@@ -206,6 +249,18 @@ export default function UserManagement() {
           </div>
         </div>
       </div>
+
+      {/* 添加2FA设置对话框 */}
+      <TwoFASetupDialog
+        open={show2FADialog}
+        onOpenChange={(open) => {
+          setShow2FADialog(open)
+          if (!open) {
+            setCurrent2FAUser(null)
+          }
+        }}
+        onSetupComplete={on2FASetupComplete}
+      />
     </div>
   )
 }
