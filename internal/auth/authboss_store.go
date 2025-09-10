@@ -1,13 +1,14 @@
 package auth
 
 import (
-    "context"
-    "errors"
+	"context"
+	"errors"
 
-    ab "github.com/aarondl/authboss/v3"
-    "github.com/aarondl/authboss/v3/otp/twofactor"
-    "github.com/aarondl/authboss/v3/otp/twofactor/totp2fa"
-    "secure-file-hub/internal/database"
+	"secure-file-hub/internal/database"
+
+	ab "github.com/aarondl/authboss/v3"
+	"github.com/aarondl/authboss/v3/otp/twofactor"
+	"github.com/aarondl/authboss/v3/otp/twofactor/totp2fa"
 )
 
 // ABUser is a minimal authboss user adapter backed by AppUser
@@ -79,7 +80,20 @@ func (s UserStorer) Save(ctx context.Context, user ab.User) error {
     // Upsert minimal fields
     current, err := db.GetUser(au.Username)
     if err != nil {
-        return db.CreateUser(&database.AppUser{Username: au.Username, Email: au.Email, PasswordHash: au.Password, Role: "viewer"})
+        // Create user record
+        if createErr := db.CreateUser(&database.AppUser{Username: au.Username, Email: au.Email, PasswordHash: au.Password, Role: "viewer"}); createErr != nil {
+            return createErr
+        }
+        // Create user role record with active status
+        _ = db.CreateOrUpdateUserRole(&database.UserRole{
+            UserID:       au.Username,
+            Role:         "viewer",
+            Permissions:  []string{"read"},
+            QuotaDaily:   -1,
+            QuotaMonthly: -1,
+            Status:       "active",
+        })
+        return nil
     }
     current.Email = au.Email
     if au.Password != "" {
@@ -120,7 +134,9 @@ func (s UserStorer) Create(ctx context.Context, user ab.User) error {
     if _, err := db.GetUser(au.Username); err == nil {
         return ab.ErrUserFound
     }
-    return db.CreateUser(&database.AppUser{
+
+    // Create user record
+    if err := db.CreateUser(&database.AppUser{
         Username:      au.Username,
         Email:         au.Email,
         PasswordHash:  au.Password,
@@ -128,5 +144,19 @@ func (s UserStorer) Create(ctx context.Context, user ab.User) error {
         TOTPSecret:    au.TOTPSecret,
         TOTPLastCode:  au.TOTPLastCode,
         RecoveryCodes: au.RecoveryCodes,
+    }); err != nil {
+        return err
+    }
+
+    // Create user role record with active status
+    _ = db.CreateOrUpdateUserRole(&database.UserRole{
+        UserID:       au.Username,
+        Role:         "viewer",
+        Permissions:  []string{"read"},
+        QuotaDaily:   -1,
+        QuotaMonthly: -1,
+        Status:       "active",
     })
+
+    return nil
 }

@@ -79,6 +79,7 @@ class ApiClient {
       // 检查响应状态
       if (!response.ok) {
         if (response.status === 401) {
+          console.log('401 Unauthorized - logging out user')
           this.logout()
           throw new Error('Authentication expired, please log in again')
         }

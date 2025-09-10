@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -43,15 +44,16 @@ func AuthMiddleware(next http.Handler) http.Handler {
                 if au, err := db.GetUser(pid); err == nil && au != nil {
                     // Check user status
                     userRole, roleErr := db.GetUserRole(pid)
-                    if roleErr == nil && userRole != nil && userRole.Status != "" {
+                    if roleErr != nil {
+                        log.Printf("Warning: Failed to get user role for %s: %v", pid, roleErr)
+                    } else if userRole != nil {
+                        log.Printf("User %s has role status: %s", pid, userRole.Status)
                         if userRole.Status == "suspended" {
                             writeUnauthorizedResponse(w, "ACCOUNT_SUSPENDED")
                             return
                         }
-                        if userRole.Status == "pending" {
-                            writeUnauthorizedResponse(w, "ACCOUNT_PENDING_APPROVAL")
-                            return
-                        }
+                        // Allow pending users to access basic functionality
+                        // They will be restricted by authorization middleware based on their role
                     }
 
                     user = &auth.User{Username: au.Username, Role: au.Role, Email: au.Email, TwoFAEnabled: au.TwoFAEnabled}
@@ -63,9 +65,12 @@ func AuthMiddleware(next http.Handler) http.Handler {
                             return
                         }
                     }
+                } else {
+                    log.Printf("Warning: Failed to get user %s from database: %v", pid, err)
                 }
             }
             if user == nil {
+                log.Printf("Warning: User %s not found in database", pid)
                 writeUnauthorizedResponse(w, "User not found")
                 return
             }
@@ -77,8 +82,6 @@ func AuthMiddleware(next http.Handler) http.Handler {
         }
 
         writeUnauthorizedResponse(w, "Authentication required")
-        return
-
     })
 }
 
