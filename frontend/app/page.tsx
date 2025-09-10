@@ -16,6 +16,7 @@ import { RecycleBin } from "@/components/file/recycle-bin"
 import { Toaster } from "@/components/ui/toaster"
 import { apiClient, type UserInfo } from "@/lib/api"
 import { APIKeyManagement } from "@/components/admin/api-key-management"
+import UserManagement from "@/components/admin/user-management"
 import { useToast } from "@/lib/use-toast"
 import {
   LogOut,
@@ -107,6 +108,19 @@ export default function HomePage() {
     }
 
     checkAuth()
+  }, [])
+
+  // Main tabs state (to allow deep link to Admin sub-tabs)
+  const [mainTab, setMainTab] = useState<'upload'|'manage'|'recycle'|'packages'|'admin'|'admin-users'>('upload')
+
+  useEffect(() => {
+    // Parse deep link query for selecting main tab
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const view = params.get('view')
+      if (view === 'admin') setMainTab('admin')
+      if (view === 'users') setMainTab('admin-users')
+    }
   }, [])
 
   const handleLogin = () => {
@@ -256,6 +270,11 @@ export default function HomePage() {
 
                   {showUserMenu && (
                     <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                      {isAdmin && (
+                        <>
+                          {/* Admin quick links removed by request */}
+                        </>
+                      )}
                       <button
                         className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
                         onClick={() => { setShowUserMenu(false); setShowProfile(true) }}
@@ -292,7 +311,7 @@ export default function HomePage() {
 
       {/* 主要内容 */}
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-        <Tabs defaultValue="upload" className="space-y-6">
+        <Tabs value={mainTab} onValueChange={(v:any)=>setMainTab(v)} className="space-y-6">
           <TabsList className={`grid w-full ${tabsColsClass} max-w-3xl`}>
             {enableUpload && (
               <TabsTrigger value="upload" className="flex items-center gap-2">
@@ -315,10 +334,16 @@ export default function HomePage() {
               </TabsTrigger>
             )}
             {isAdmin && (
-              <TabsTrigger value="admin" className="flex items-center gap-2">
-                <Shield className="h-4 w-4" />
-                API Keys
-              </TabsTrigger>
+              <>
+                <TabsTrigger value="admin" className="flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  API Keys
+                </TabsTrigger>
+                <TabsTrigger value="admin-users" className="flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  Users
+                </TabsTrigger>
+              </>
             )}
           </TabsList>
 
@@ -343,9 +368,14 @@ export default function HomePage() {
           )}
 
           {isAdmin && (
-            <TabsContent value="admin" className="space-y-6">
-              <APIKeyManagement />
-            </TabsContent>
+            <>
+              <TabsContent value="admin" className="space-y-6">
+                <APIKeyManagement />
+              </TabsContent>
+              <TabsContent value="admin-users" className="space-y-6">
+                <UserManagement />
+              </TabsContent>
+            </>
           )}
         </Tabs>
       </main>

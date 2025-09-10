@@ -7,8 +7,12 @@ import (
     "strconv"
     "sync"
     "time"
+    crand "crypto/rand"
+    "math/big"
+    "strings"
 
     "secure-file-hub/internal/apikey"
+    "secure-file-hub/internal/auth"
     "secure-file-hub/internal/database"
     "secure-file-hub/internal/middleware"
 
@@ -115,6 +119,8 @@ func RegisterAdminRoutes(router *mux.Router) {
     admin.HandleFunc("/users/{userId}/role", middleware.RequireAuthorization(updateUserRoleHandler)).Methods("PUT")
     admin.HandleFunc("/users/{userId}/api-keys", middleware.RequireAuthorization(getUserAPIKeysHandler)).Methods("GET")
     admin.HandleFunc("/users/{userId}/usage", middleware.RequireAuthorization(getUserUsageHandler)).Methods("GET")
+    admin.HandleFunc("/users/{userId}", middleware.RequireAuthorization(getUserDetailsHandler)).Methods("GET")
+    admin.HandleFunc("/audit-logs", middleware.RequireAuthorization(getAdminAuditLogsHandler)).Methods("GET")
 }
 
 // RegisterWebAdminRoutes registers admin routes under web API
@@ -151,6 +157,8 @@ func RegisterWebAdminRoutes(router *mux.Router) {
     admin.HandleFunc("/users/{userId}/role", middleware.RequireAuthorization(updateUserRoleHandler)).Methods("PUT")
     admin.HandleFunc("/users/{userId}/api-keys", middleware.RequireAuthorization(getUserAPIKeysHandler)).Methods("GET")
     admin.HandleFunc("/users/{userId}/usage", middleware.RequireAuthorization(getUserUsageHandler)).Methods("GET")
+    admin.HandleFunc("/users/{userId}", middleware.RequireAuthorization(getUserDetailsHandler)).Methods("GET")
+    admin.HandleFunc("/audit-logs", middleware.RequireAuthorization(getAdminAuditLogsHandler)).Methods("GET")
 }
 
 // =============================================================================
@@ -721,6 +729,14 @@ func listUsersHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Query params
+    q := r.URL.Query().Get("q")
+    statusFilter := r.URL.Query().Get("status") // active|suspended|pending
+    page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+    limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+    if page <= 0 { page = 1 }
+    if limit <= 0 || limit > 200 { limit = 20 }
+
     list, err := db.ListUsers()
     if err != nil {
         writeErrorResponse(w, http.StatusInternalServerError, "Failed to list users")
@@ -728,20 +744,23 @@ func listUsersHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Build response combining role status from user_roles
-    users := make([]map[string]interface{}, 0, len(list))
+    rows := make([]map[string]interface{}, 0, len(list))
+    lowerQ := strings.ToLower(strings.TrimSpace(q))
     for _, u := range list {
         status := "active"
         if ur, err := db.GetUserRole(u.Username); err == nil && ur != nil {
-            if ur.Status != "" {
-                status = ur.Status
-            }
-            // Prefer role from users table; but if empty, take from user_roles
-            if u.Role == "" {
-                u.Role = ur.Role
+            if ur.Status != "" { status = ur.Status }
+            if u.Role == "" { u.Role = ur.Role }
+        }
+        // Filter by status
+        if statusFilter != "" && status != statusFilter { continue }
+        // Filter by keyword
+        if lowerQ != "" {
+            if !strings.Contains(strings.ToLower(u.Username), lowerQ) && !strings.Contains(strings.ToLower(u.Email), lowerQ) {
+                continue
             }
         }
-
-        users = append(users, map[string]interface{}{
+        rows = append(rows, map[string]interface{}{
             "user_id":     u.Username,
             "email":       u.Email,
             "role":        u.Role,
@@ -751,12 +770,22 @@ func listUsersHandler(w http.ResponseWriter, r *http.Request) {
         })
     }
 
+    total := len(rows)
+    start := (page-1)*limit
+    if start > total { start = total }
+    end := start + limit
+    if end > total { end = total }
+    paged := rows[start:end]
+
     response := Response{
         Success: true,
         Message: "Users retrieved successfully",
         Data: map[string]interface{}{
-            "users": users,
-            "count": len(users),
+            "users": paged,
+            "count": len(paged),
+            "total": total,
+            "page":  page,
+            "limit": limit,
         },
     }
 
@@ -819,6 +848,11 @@ func approveUserHandler(w http.ResponseWriter, r *http.Request) {
         writeErrorResponse(w, http.StatusInternalServerError, "Failed to approve user")
         return
     }
+    // Audit
+    if db != nil {
+        actor := getActor(r)
+        _ = db.LogAdminAction(actor, userID, "approve_user", nil)
+    }
     writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User approved"})
 }
 
@@ -834,6 +868,10 @@ func suspendUserHandler(w http.ResponseWriter, r *http.Request) {
         writeErrorResponse(w, http.StatusInternalServerError, "Failed to suspend user")
         return
     }
+    if db != nil {
+        actor := getActor(r)
+        _ = db.LogAdminAction(actor, userID, "suspend_user", nil)
+    }
     writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User suspended"})
 }
 
@@ -848,6 +886,10 @@ func disableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
     if err := db.SetUser2FA(userID, false, ""); err != nil {
         writeErrorResponse(w, http.StatusInternalServerError, "Failed to disable 2FA")
         return
+    }
+    if db != nil {
+        actor := getActor(r)
+        _ = db.LogAdminAction(actor, userID, "disable_2fa", nil)
     }
     writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA disabled"})
 }
@@ -885,10 +927,25 @@ func updateUserRoleHandler(w http.ResponseWriter, r *http.Request) {
 		Status:       req.Status,
 	}
 
-	if err := db.CreateOrUpdateUserRole(userRole); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to update user role")
-		return
-	}
+    if err := db.CreateOrUpdateUserRole(userRole); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to update user role")
+        return
+    }
+    // Keep users table role in sync
+    if u, err := db.GetUser(userID); err == nil && u != nil {
+        u.Role = userRole.Role
+        _ = db.UpdateUser(u)
+    }
+    if db != nil {
+        actor := getActor(r)
+        _ = db.LogAdminAction(actor, userID, "update_role", map[string]interface{}{
+            "role": userRole.Role,
+            "permissions": userRole.Permissions,
+            "quota_daily": userRole.QuotaDaily,
+            "quota_monthly": userRole.QuotaMonthly,
+            "status": userRole.Status,
+        })
+    }
 
 	response := Response{
 		Success: true,
@@ -1016,6 +1073,14 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
     }
     // Create/Update user role record as active
     _ = db.CreateOrUpdateUserRole(&database.UserRole{UserID: req.Username, Role: req.Role, Status: "active"})
+    // Audit
+    if db != nil {
+        actor := getActor(r)
+        _ = db.LogAdminAction(actor, req.Username, "create_user", map[string]interface{}{
+            "role": req.Role,
+            "must_reset": mustReset,
+        })
+    }
 
     writeJSONResponse(w, http.StatusOK, Response{
         Success: true,
@@ -1030,11 +1095,82 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 
 func generateRandomPassword(length int) string {
     const letters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*()_+"
+    if length < 12 {
+        length = 12
+    }
     b := make([]byte, length)
-    for i := range b {
-        b[i] = letters[int(time.Now().UnixNano()+int64(i))%len(letters)]
+    max := big.NewInt(int64(len(letters)))
+    for i := 0; i < length; i++ {
+        n, err := crand.Int(crand.Reader, max)
+        if err != nil {
+            // fallback to time-based if crypto fails (rare)
+            b[i] = letters[int(time.Now().UnixNano()+int64(i))%len(letters)]
+            continue
+        }
+        b[i] = letters[n.Int64()]
     }
     return string(b)
+}
+
+// getUserDetailsHandler returns a user's role/permissions/quotas/status for editing
+func getUserDetailsHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    userID := vars["userId"]
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+        return
+    }
+    u, err := db.GetUser(userID)
+    if err != nil || u == nil {
+        writeErrorResponse(w, http.StatusNotFound, "User not found")
+        return
+    }
+    ur, _ := db.GetUserRole(userID)
+    payload := map[string]interface{}{
+        "user_id": u.Username,
+        "email":   u.Email,
+        "role":    u.Role,
+        "two_fa":  u.TwoFAEnabled,
+        "last_login": func() string { if u.LastLoginAt != nil { return u.LastLoginAt.UTC().Format(time.RFC3339) }; return "" }(),
+        "status":  func() string { if ur != nil && ur.Status != "" { return ur.Status }; return "active" }(),
+        "permissions": func() []string { if ur != nil { return ur.Permissions }; return []string{} }(),
+        "quota_daily": func() int64 { if ur != nil { return ur.QuotaDaily }; return -1 }(),
+        "quota_monthly": func() int64 { if ur != nil { return ur.QuotaMonthly }; return -1 }(),
+    }
+    writeJSONResponse(w, http.StatusOK, Response{ Success: true, Data: payload })
+}
+
+// getAdminAuditLogsHandler lists admin audit logs with filters
+func getAdminAuditLogsHandler(w http.ResponseWriter, r *http.Request) {
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+        return
+    }
+    q := r.URL.Query()
+    actor := q.Get("actor")
+    target := q.Get("target")
+    action := q.Get("action")
+    since := q.Get("since")
+    until := q.Get("until")
+    page, _ := strconv.Atoi(q.Get("page"))
+    limit, _ := strconv.Atoi(q.Get("limit"))
+    if page <= 0 { page = 1 }
+    if limit <= 0 || limit > 200 { limit = 20 }
+
+    logs, total, err := db.GetAdminAuditLogs(actor, target, action, since, until, page, limit)
+    if err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to get audit logs")
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{ Success: true, Data: map[string]interface{}{
+        "items": logs,
+        "count": len(logs),
+        "total": total,
+        "page": page,
+        "limit": limit,
+    }})
 }
 
 // resetUserPasswordHandler regenerates a user's password and forces reset on next login
@@ -1069,6 +1205,11 @@ func resetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
     // Force password reset on next login
     _ = db.SetUserMustReset(userID, true)
 
+    if db != nil {
+        actor := getActor(r)
+        _ = db.LogAdminAction(actor, userID, "reset_password", nil)
+    }
+
     writeJSONResponse(w, http.StatusOK, Response{
         Success: true,
         Message: "Password reset. Provide the temporary password to the user.",
@@ -1077,4 +1218,14 @@ func resetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
             "temporary_password": newPassword,
         },
     })
+}
+
+// getActor extracts username from request context
+func getActor(r *http.Request) string {
+    if u := r.Context().Value("user"); u != nil {
+        if au, ok := u.(*auth.User); ok && au != nil {
+            return au.Username
+        }
+    }
+    return "unknown"
 }

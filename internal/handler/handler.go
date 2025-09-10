@@ -491,6 +491,12 @@ func changePasswordHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Basic password strength validation without email delivery recovery
+    if !isStrongPassword(req.NewPassword) {
+        writeErrorResponse(w, http.StatusBadRequest, "Password must be at least 12 characters and include 3 of: uppercase, lowercase, digit, symbol")
+        return
+    }
+
     if err := auth.ChangePassword(user.Username, req.OldPassword, req.NewPassword); err != nil {
         writeErrorResponse(w, http.StatusBadRequest, err.Error())
         return
@@ -501,6 +507,27 @@ func changePasswordHandler(w http.ResponseWriter, r *http.Request) {
 
     response := Response{ Success: true, Message: "Password changed successfully" }
     writeJSONResponse(w, http.StatusOK, response)
+}
+
+// isStrongPassword enforces minimal complexity without external email recovery
+func isStrongPassword(p string) bool {
+    if len(p) < 12 { return false }
+    hasUpper, hasLower, hasDigit, hasSymbol := false, false, false, false
+    for _, r := range p {
+        switch {
+        case r >= 'A' && r <= 'Z': hasUpper = true
+        case r >= 'a' && r <= 'z': hasLower = true
+        case r >= '0' && r <= '9': hasDigit = true
+        default: hasSymbol = true
+        }
+    }
+    // require any 3 of 4 classes
+    classes := 0
+    if hasUpper { classes++ }
+    if hasLower { classes++ }
+    if hasDigit { classes++ }
+    if hasSymbol { classes++ }
+    return classes >= 3
 }
 
 // getDefaultUsersHandler 获取默认测试用户列表

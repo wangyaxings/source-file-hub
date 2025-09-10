@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useMemo, useState } from 'react'
-import apiClient from "@/lib/api"
+import { apiClient } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
@@ -18,9 +18,14 @@ type UserRow = {
 }
 
 export default function UserManagement() {
+  const [mounted, setMounted] = useState(false)
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<UserRow[]>([])
   const [filter, setFilter] = useState('')
+  const [status, setStatus] = useState<string>('all')
+  const [page, setPage] = useState<number>(1)
+  const [limit, setLimit] = useState<number>(20)
+  const [total, setTotal] = useState<number>(0)
   const [credOpen, setCredOpen] = useState(false)
   const [cred, setCred] = useState<{ username?: string; password?: string } | null>(null)
   const { toast } = useToast()
@@ -28,8 +33,9 @@ export default function UserManagement() {
   const load = async () => {
     setLoading(true)
     try {
-      const list = await apiClient.adminListUsers()
-      setUsers(list as UserRow[])
+      const resp = await apiClient.adminListUsers({ q: filter.trim(), status: status === 'all' ? undefined : status, page, limit })
+      setUsers((resp as any).users as UserRow[])
+      setTotal((resp as any).total || (resp as any).count || 0)
     } catch (err: any) {
       toast({ title: 'Failed to load users', description: err?.message || String(err), variant: 'destructive' })
     } finally {
@@ -37,13 +43,10 @@ export default function UserManagement() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { setMounted(true); }, [])
+  useEffect(() => { load() }, [page, limit])
 
-  const filtered = useMemo(() => {
-    const kw = filter.trim().toLowerCase()
-    if (!kw) return users
-    return users.filter(u => u.user_id.toLowerCase().includes(kw) || (u.email || '').toLowerCase().includes(kw))
-  }, [users, filter])
+  const filtered = users // server-side filtered
 
   const onChangeRole = async (u: UserRow, role: string) => {
     try {
@@ -89,11 +92,14 @@ export default function UserManagement() {
     }
   }
 
-  const isAdmin = (() => {
+  const isAdmin = mounted && (() => {
     const cu = apiClient.getCurrentUser()
     return cu?.role === 'administrator' || cu?.username === 'admin'
   })()
 
+  if (!mounted) {
+    return null
+  }
   if (!isAdmin) {
     return <div className="p-6">403 Forbidden: Admins only.</div>
   }
@@ -104,7 +110,16 @@ export default function UserManagement() {
         <h1 className="text-xl font-semibold">User Management</h1>
         <div className="flex gap-2 items-center">
           <Input placeholder="Filter by username/email" value={filter} onChange={(e) => setFilter(e.target.value)} className="w-64" />
-          <Button variant="secondary" onClick={load} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</Button>
+          <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1) }}>
+            <SelectTrigger className="w-[140px]"><SelectValue placeholder="All statuses" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="active">active</SelectItem>
+              <SelectItem value="pending">pending</SelectItem>
+              <SelectItem value="suspended">suspended</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="secondary" onClick={() => { setPage(1); load() }} disabled={loading}>{loading ? 'Loading...' : 'Search'}</Button>
         </div>
       </div>
 
@@ -160,6 +175,7 @@ export default function UserManagement() {
                   {u.status !== 'suspended' && (
                     <Button size="sm" variant="destructive" onClick={() => onSuspend(u)}>Suspend</Button>
                   )}
+                  <EditRoleButton user={u} onSaved={load} />
                   <ResetPasswordButton user={u} onDone={(pwd) => {
                     setCred({ username: u.user_id, password: pwd })
                     setCredOpen(true)
@@ -173,7 +189,129 @@ export default function UserManagement() {
           </tbody>
         </table>
       </div>
+      <div className="flex items-center justify-between py-2">
+        <div className="text-sm text-muted-foreground">Page {page}, total {total}</div>
+        <div className="flex items-center gap-2">
+          <Select value={String(limit)} onValueChange={(v) => { setLimit(parseInt(v || '20', 10)); setPage(1) }}>
+            <SelectTrigger className="w-[100px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10 / page</SelectItem>
+              <SelectItem value="20">20 / page</SelectItem>
+              <SelectItem value="50">50 / page</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="flex gap-2">
+            <Button variant="outline" disabled={page<=1} onClick={() => setPage(p => Math.max(1, p-1))}>Prev</Button>
+            <Button variant="outline" disabled={(page*limit)>=total} onClick={() => setPage(p => p+1)}>Next</Button>
+          </div>
+        </div>
+      </div>
     </div>
+  )
+}
+
+function EditRoleButton({ user, onSaved }: { user: UserRow; onSaved: () => void }) {
+  const { toast } = useToast()
+  const [open, setOpen] = useState(false)
+  const [role, setRole] = useState(user.role)
+  const [perms, setPerms] = useState<string[]>([])
+  const [quotaD, setQuotaD] = useState<string>('')
+  const [quotaM, setQuotaM] = useState<string>('')
+  const [status, setStatus] = useState<string>(user.status)
+  const [busy, setBusy] = useState(false)
+
+  const togglePerm = (p: string) => setPerms(prev => prev.includes(p) ? prev.filter(x => x!==p) : [...prev, p])
+
+  const save = async () => {
+    setBusy(true)
+    try {
+      const payload: any = { role, status }
+      if (perms.length) payload.permissions = perms
+      if (quotaD) payload.quota_daily = parseInt(quotaD, 10)
+      if (quotaM) payload.quota_monthly = parseInt(quotaM, 10)
+      await apiClient.adminSetUserRole(user.user_id, payload)
+      toast({ title: 'Saved', description: `${user.user_id} -> ${role}` })
+      setOpen(false)
+      onSaved()
+    } catch (err: any) {
+      toast({ title: 'Save failed', description: err?.message || String(err), variant: 'destructive' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={async (v) => {
+      setOpen(v)
+      if (v) {
+        try {
+          const details = await apiClient.adminGetUser(user.user_id)
+          setRole(details?.role || user.role)
+          setStatus(details?.status || user.status)
+          setPerms(details?.permissions || [])
+          setQuotaD((details?.quota_daily ?? '') === '' ? '' : String(details?.quota_daily))
+          setQuotaM((details?.quota_monthly ?? '') === '' ? '' : String(details?.quota_monthly))
+        } catch (e:any) {
+          toast({ title: 'Load details failed', description: e?.message || String(e), variant: 'destructive' })
+        }
+      }
+    }}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">Edit</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Role & Permissions</DialogTitle>
+          <DialogDescription>Adjust role, permissions and quotas</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <div className="text-xs mb-1 text-muted-foreground">Role</div>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="viewer">viewer</SelectItem>
+                <SelectItem value="administrator">administrator</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <div className="text-xs mb-1 text-muted-foreground">Status</div>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">active</SelectItem>
+                <SelectItem value="pending">pending</SelectItem>
+                <SelectItem value="suspended">suspended</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="sm:col-span-2">
+            <div className="text-xs mb-1 text-muted-foreground">Permissions</div>
+            <div className="flex flex-wrap gap-3">
+              {['read','download','upload','admin'].map(p => (
+                <label key={p} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={perms.includes(p)} onChange={() => togglePerm(p)} />
+                  {p}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs mb-1 text-muted-foreground">Daily quota (-1 unlimited)</div>
+            <Input type="number" value={quotaD} onChange={e => setQuotaD(e.target.value)} placeholder="-1" />
+          </div>
+          <div>
+            <div className="text-xs mb-1 text-muted-foreground">Monthly quota (-1 unlimited)</div>
+            <Input type="number" value={quotaM} onChange={e => setQuotaM(e.target.value)} placeholder="-1" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
+          <Button onClick={save} disabled={busy}>{busy ? 'Saving...' : 'Save'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

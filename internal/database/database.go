@@ -420,7 +420,24 @@ func (d *Database) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_packages_timestamp ON packages(timestamp);
 	`
 
-    tables := []string{createFilesTable, createLogsTable, createAuditTable, createAPIKeysTable, createAPIUsageTable, createUserRolesTable, createUsersTable, createPackagesTable}
+    // Admin audit table
+    createAdminAuditTable := `
+    CREATE TABLE IF NOT EXISTS admin_audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor TEXT NOT NULL,
+        target_user TEXT,
+        action TEXT NOT NULL,
+        details TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_actor ON admin_audit_logs(actor);
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_target ON admin_audit_logs(target_user);
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_action ON admin_audit_logs(action);
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_logs(created_at);
+    `
+
+    tables := []string{createFilesTable, createLogsTable, createAuditTable, createAPIKeysTable, createAPIUsageTable, createUserRolesTable, createUsersTable, createPackagesTable, createAdminAuditTable}
     for _, table := range tables {
         if _, err := d.db.Exec(table); err != nil {
             return fmt.Errorf("failed to create table: %v", err)
@@ -1560,4 +1577,72 @@ type PackageRecord struct {
 	Remark    string    `json:"remark"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// LogAdminAction appends an admin audit log entry
+func (d *Database) LogAdminAction(actor, targetUser, action string, details map[string]interface{}) error {
+    var detailsJSON []byte
+    var err error
+    if details != nil {
+        detailsJSON, err = json.Marshal(details)
+        if err != nil { detailsJSON = []byte("{}") }
+    } else {
+        detailsJSON = []byte("{}")
+    }
+    _, err = d.db.Exec(`
+        INSERT INTO admin_audit_logs (actor, target_user, action, details, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    `,
+        actor,
+        targetUser,
+        action,
+        string(detailsJSON),
+        time.Now().Format(time.RFC3339),
+    )
+    return err
+}
+
+// AdminAuditLog represents admin operation audit entries
+type AdminAuditLog struct {
+    ID         int64     `json:"id"`
+    Actor      string    `json:"actor"`
+    TargetUser string    `json:"targetUser"`
+    Action     string    `json:"action"`
+    Details    string    `json:"details"`
+    CreatedAt  time.Time `json:"createdAt"`
+}
+
+// GetAdminAuditLogs returns audit logs by filters with pagination and total count
+func (d *Database) GetAdminAuditLogs(actor, target, action, since, until string, page, limit int) ([]AdminAuditLog, int, error) {
+    where := "WHERE 1=1"
+    args := []interface{}{}
+    if actor != "" { where += " AND actor = ?"; args = append(args, actor) }
+    if target != "" { where += " AND target_user = ?"; args = append(args, target) }
+    if action != "" { where += " AND action = ?"; args = append(args, action) }
+    if since != "" { where += " AND created_at >= ?"; args = append(args, since) }
+    if until != "" { where += " AND created_at <= ?"; args = append(args, until) }
+
+    // Total count
+    var total int
+    row := d.db.QueryRow("SELECT COUNT(1) FROM admin_audit_logs "+where, args...)
+    if err := row.Scan(&total); err != nil { return nil, 0, err }
+
+    offset := (page-1) * limit
+    query := "SELECT id, actor, target_user, action, details, created_at FROM admin_audit_logs "+where+" ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    args2 := append([]interface{}{}, args...)
+    args2 = append(args2, limit, offset)
+
+    rows, err := d.db.Query(query, args2...)
+    if err != nil { return nil, 0, err }
+    defer rows.Close()
+
+    var items []AdminAuditLog
+    for rows.Next() {
+        var it AdminAuditLog
+        var createdAtStr string
+        if err := rows.Scan(&it.ID, &it.Actor, &it.TargetUser, &it.Action, &it.Details, &createdAtStr); err != nil { continue }
+        if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil { it.CreatedAt = t }
+        items = append(items, it)
+    }
+    return items, total, nil
 }

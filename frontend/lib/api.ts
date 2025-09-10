@@ -412,9 +412,14 @@ class ApiClient {
   }
 
   // Admin: Users management (web namespace)
-  async adminListUsers(): Promise<any[]> {
-    const resp = await this.request<{ users: any[] }>(`/admin/users`)
-    return (resp.data as any)?.users || []
+  async adminListUsers(params: { q?: string; status?: string; page?: number; limit?: number } = {}): Promise<{ users: any[]; count: number; total?: number; page?: number; limit?: number }> {
+    const qs = new URLSearchParams()
+    if (params.q) qs.set('q', params.q)
+    if (params.status) qs.set('status', params.status)
+    if (params.page) qs.set('page', String(params.page))
+    if (params.limit) qs.set('limit', String(params.limit))
+    const resp = await this.request<{ users: any[]; count: number; total?: number; page?: number; limit?: number }>(`/admin/users${qs.toString() ? `?${qs.toString()}` : ''}`)
+    return (resp.data as any) || { users: [], count: 0 }
   }
 
   async adminCreateUser(payload: { username: string; email?: string; role?: string; must_reset?: boolean }): Promise<any> {
@@ -445,6 +450,17 @@ class ApiClient {
     const resp = await this.request<{ username: string; temporary_password: string }>(`/admin/users/${encodeURIComponent(userId)}/reset-password`, { method: 'POST' })
     if (!resp.success) throw new Error(resp.error || 'Reset password failed')
     return (resp.data || {}) as any
+  }
+
+  async adminSetUserRole(userId: string, payload: { role: string; permissions?: string[]; quota_daily?: number; quota_monthly?: number; status?: string }): Promise<void> {
+    const resp = await this.request(`/admin/users/${encodeURIComponent(userId)}/role`, { method: 'PUT', body: JSON.stringify(payload) })
+    if (!resp.success) throw new Error(resp.error || 'Set role failed')
+  }
+
+  async adminGetUser(userId: string): Promise<any> {
+    const resp = await this.request(`/admin/users/${encodeURIComponent(userId)}`)
+    if (!resp.success) throw new Error(resp.error || 'Get user failed')
+    return resp.data
   }
 
   async adminUpdateUser(userId: string, payload: Partial<{ role: string; twofa_enabled: boolean; reset_2fa: boolean }>): Promise<void> {
