@@ -14,7 +14,7 @@ import (
 
 // Database manager struct
 type Database struct {
-	db *sql.DB
+    db *sql.DB
 }
 
 // FileStatus represents the status of a file
@@ -92,15 +92,28 @@ type APIUsageLog struct {
 
 // UserRole represents user role and permissions
 type UserRole struct {
-	ID           int64     `json:"id"`
-	UserID       string    `json:"userId"`
-	Role         string    `json:"role"` // admin, user, api_user
-	Permissions  []string  `json:"permissions,omitempty"`
-	QuotaDaily   int64     `json:"quotaDaily"`   // -1 for unlimited
-	QuotaMonthly int64     `json:"quotaMonthly"` // -1 for unlimited
-	Status       string    `json:"status"`       // active, suspended, disabled
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+    ID           int64     `json:"id"`
+    UserID       string    `json:"userId"`
+    Role         string    `json:"role"` // admin, user, api_user
+    Permissions  []string  `json:"permissions,omitempty"`
+    QuotaDaily   int64     `json:"quotaDaily"`   // -1 for unlimited
+    QuotaMonthly int64     `json:"quotaMonthly"` // -1 for unlimited
+    Status       string    `json:"status"`       // active, suspended, disabled
+    CreatedAt    time.Time `json:"createdAt"`
+    UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+// AppUser represents an application user record
+type AppUser struct {
+    Username     string    `json:"username"`
+    Email        string    `json:"email,omitempty"`
+    PasswordHash string    `json:"-"`
+    Role         string    `json:"role"` // viewer, administrator
+    TwoFAEnabled bool      `json:"twoFAEnabled"`
+    TOTPSecret   string    `json:"-"`
+    CreatedAt    time.Time `json:"createdAt"`
+    UpdatedAt    time.Time `json:"updatedAt"`
+    LastLoginAt  *time.Time `json:"lastLoginAt,omitempty"`
 }
 
 var defaultDB *Database
@@ -344,25 +357,42 @@ func (d *Database) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_api_usage_file_id ON api_usage_logs(file_id);
 	`
 
-	// User Roles table (enhance user management)
-	createUserRolesTable := `
-	CREATE TABLE IF NOT EXISTS user_roles (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id TEXT NOT NULL,
-		role TEXT NOT NULL DEFAULT 'user', -- admin, user, api_user
-		permissions TEXT, -- JSON array of specific permissions
-		quota_daily INTEGER DEFAULT -1, -- -1 for unlimited
-		quota_monthly INTEGER DEFAULT -1,
-		status TEXT NOT NULL DEFAULT 'active', -- active, suspended, disabled
-		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		UNIQUE(user_id)
-	);
+    // User Roles table (enhance user management)
+    createUserRolesTable := `
+    CREATE TABLE IF NOT EXISTS user_roles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user', -- admin, user, api_user
+        permissions TEXT, -- JSON array of specific permissions
+        quota_daily INTEGER DEFAULT -1, -- -1 for unlimited
+        quota_monthly INTEGER DEFAULT -1,
+        status TEXT NOT NULL DEFAULT 'active', -- active, suspended, disabled
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id)
+    );
 
-	CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
-	CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role);
-	CREATE INDEX IF NOT EXISTS idx_user_roles_status ON user_roles(status);
-	`
+    CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role);
+    CREATE INDEX IF NOT EXISTS idx_user_roles_status ON user_roles(status);
+    `
+
+    // Application Users table
+    createUsersTable := `
+    CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        email TEXT,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'viewer',
+        twofa_enabled BOOLEAN NOT NULL DEFAULT 0,
+        totp_secret TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_login_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+    `
 
 	// Execute all table creation statements
 	createPackagesTable := `
@@ -384,12 +414,12 @@ func (d *Database) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_packages_timestamp ON packages(timestamp);
 	`
 
-	tables := []string{createFilesTable, createLogsTable, createAuditTable, createAPIKeysTable, createAPIUsageTable, createUserRolesTable, createPackagesTable}
-	for _, table := range tables {
-		if _, err := d.db.Exec(table); err != nil {
-			return fmt.Errorf("failed to create table: %v", err)
-		}
-	}
+    tables := []string{createFilesTable, createLogsTable, createAuditTable, createAPIKeysTable, createAPIUsageTable, createUserRolesTable, createUsersTable, createPackagesTable}
+    for _, table := range tables {
+        if _, err := d.db.Exec(table); err != nil {
+            return fmt.Errorf("failed to create table: %v", err)
+        }
+    }
 
 	return nil
 }
@@ -1356,6 +1386,115 @@ func (d *Database) GetUserRole(userID string) (*UserRole, error) {
 	}
 
 	return &userRole, nil
+}
+
+// =============================================================================
+// User Management Functions (users table)
+// =============================================================================
+
+// CreateUser inserts a new application user. Caller must provide a hashed password.
+func (d *Database) CreateUser(u *AppUser) error {
+    if u == nil || u.Username == "" || u.PasswordHash == "" {
+        return fmt.Errorf("invalid user payload")
+    }
+    if u.Role == "" {
+        u.Role = "viewer"
+    }
+    now := time.Now()
+    if u.CreatedAt.IsZero() {
+        u.CreatedAt = now
+    }
+    u.UpdatedAt = now
+
+    _, err := d.db.Exec(`
+        INSERT INTO users (username, email, password_hash, role, twofa_enabled, totp_secret, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+        u.Username,
+        u.Email,
+        u.PasswordHash,
+        u.Role,
+        u.TwoFAEnabled,
+        u.TOTPSecret,
+        u.CreatedAt.Format(time.RFC3339),
+        u.UpdatedAt.Format(time.RFC3339),
+    )
+    return err
+}
+
+// GetUser retrieves a user by username.
+func (d *Database) GetUser(username string) (*AppUser, error) {
+    if username == "" {
+        return nil, fmt.Errorf("username is required")
+    }
+    row := d.db.QueryRow(`
+        SELECT username, email, password_hash, role, twofa_enabled, totp_secret, created_at, updated_at, last_login_at
+        FROM users WHERE username = ?
+    `, username)
+
+    var u AppUser
+    var createdAtStr, updatedAtStr string
+    var lastLogin sql.NullString
+    if err := row.Scan(&u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.TwoFAEnabled, &u.TOTPSecret, &createdAtStr, &updatedAtStr, &lastLogin); err != nil {
+        return nil, err
+    }
+    if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil { u.CreatedAt = t }
+    if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil { u.UpdatedAt = t }
+    if lastLogin.Valid {
+        if t, err := time.Parse(time.RFC3339, lastLogin.String); err == nil {
+            u.LastLoginAt = &t
+        }
+    }
+    return &u, nil
+}
+
+// UpdateUser updates mutable fields for a user (email, role, twofa flags, totp_secret, timestamps)
+func (d *Database) UpdateUser(u *AppUser) error {
+    if u == nil || u.Username == "" {
+        return fmt.Errorf("invalid user payload")
+    }
+    u.UpdatedAt = time.Now()
+    _, err := d.db.Exec(`
+        UPDATE users SET email = ?, role = ?, twofa_enabled = ?, totp_secret = ?, updated_at = ?
+        WHERE username = ?
+    `,
+        u.Email,
+        u.Role,
+        u.TwoFAEnabled,
+        u.TOTPSecret,
+        u.UpdatedAt.Format(time.RFC3339),
+        u.Username,
+    )
+    return err
+}
+
+// UpdateUserPassword updates a user's password hash
+func (d *Database) UpdateUserPassword(username, passwordHash string) error {
+    if username == "" || passwordHash == "" {
+        return fmt.Errorf("username and password hash required")
+    }
+    _, err := d.db.Exec(`UPDATE users SET password_hash = ?, updated_at = ? WHERE username = ?`, passwordHash, time.Now().Format(time.RFC3339), username)
+    return err
+}
+
+// SetUser2FA sets 2FA status and optionally TOTP secret
+func (d *Database) SetUser2FA(username string, enabled bool, secret string) error {
+    if username == "" {
+        return fmt.Errorf("username is required")
+    }
+    _, err := d.db.Exec(`
+        UPDATE users SET twofa_enabled = ?, totp_secret = ?, updated_at = ? WHERE username = ?
+    `, enabled, secret, time.Now().Format(time.RFC3339), username)
+    return err
+}
+
+// SetUserLastLogin updates the last_login_at timestamp
+func (d *Database) SetUserLastLogin(username string, when time.Time) error {
+    if username == "" {
+        return fmt.Errorf("username is required")
+    }
+    _, err := d.db.Exec(`UPDATE users SET last_login_at = ?, updated_at = ? WHERE username = ?`, when.Format(time.RFC3339), time.Now().Format(time.RFC3339), username)
+    return err
 }
 
 // PackageRecord represents an uploaded package (assets/others)

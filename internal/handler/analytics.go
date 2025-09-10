@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"secure-file-hub/internal/database"
+    "secure-file-hub/internal/middleware"
 
 	"github.com/gorilla/mux"
 )
@@ -369,9 +370,9 @@ func getAnalyticsExportHandler(w http.ResponseWriter, r *http.Request) {
 
 // RegisterAnalyticsRoutes registers analytics-specific routes
 func RegisterAnalyticsRoutes(router *mux.Router) {
-	// Enhanced analytics routes
-	router.HandleFunc("/analytics/data", requireAdminAuth(getAnalyticsDataHandler)).Methods("GET")
-	router.HandleFunc("/analytics/summary", requireAdminAuth(getAnalyticsSummaryHandler)).Methods("GET")
-	router.HandleFunc("/analytics/top-keys", requireAdminAuth(getTopAPIKeysHandler)).Methods("GET")
-	router.HandleFunc("/analytics/export", requireAdminAuth(getAnalyticsExportHandler)).Methods("GET")
+    // Enhanced analytics routes
+    router.HandleFunc("/analytics/data", middleware.RequireAuthorization(getAnalyticsDataHandler)).Methods("GET")
+    router.HandleFunc("/analytics/summary", middleware.RequireAuthorization(getAnalyticsSummaryHandler)).Methods("GET")
+    router.HandleFunc("/analytics/top-keys", middleware.RequireAuthorization(getTopAPIKeysHandler)).Methods("GET")
+    router.HandleFunc("/analytics/export", middleware.RequireAuthorization(getAnalyticsExportHandler)).Methods("GET")
 }

@@ -32,6 +32,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileType, setFileType] = useState("")
   const [description, setDescription] = useState("")
+  const [versionTags, setVersionTags] = useState("")
   const [isUploading, setIsUploading] = useState(false)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [uploadResult, setUploadResult] = useState<{
@@ -70,7 +71,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
 
     setIsUploading(true)
     try {
-      const result = await apiClient.uploadFile(selectedFile, fileType, description)
+      const result = await apiClient.uploadFile(selectedFile, fileType, description, versionTags)
       setUploadResult({
         success: true,
         message: "File uploaded successfully!",
@@ -82,6 +83,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
       setSelectedFile(null)
       setFileType("")
       setDescription("")
+      setVersionTags("")
     } catch (error) {
       setUploadResult({
         success: false,
@@ -179,6 +181,17 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Enter file description"
+            />
+          </div>
+
+          {/* Version Tags */}
+          <div className="space-y-2">
+            <Label htmlFor="tags">Version Tags (Optional)</Label>
+            <Input
+              id="tags"
+              value={versionTags}
+              onChange={(e) => setVersionTags(e.target.value)}
+              placeholder="comma separated, e.g. v1.2.3, Q3-Final"
             />
           </div>
 
@@ -286,6 +299,11 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
             {uploadResult.success && uploadResult.file && (
               <div className="mt-3 text-sm text-green-700">
                 File saved as: {uploadResult.file.fileName}
+                {uploadResult.file.versionId && (
+                  <div className="mt-1">
+                    Version ID: <span className="font-mono">{uploadResult.file.versionId}</span>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

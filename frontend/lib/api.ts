@@ -10,6 +10,7 @@ export interface FileInfo {
   isLatest: boolean
   uploader: string
   path: string
+  versionId?: string
 }
 
 export interface LoginRequest {
@@ -183,11 +184,12 @@ class ApiClient {
   }
 
   // 文件相关
-  async uploadFile(file: File, fileType: string, description: string): Promise<FileInfo> {
+  async uploadFile(file: File, fileType: string, description: string, versionTags?: string): Promise<FileInfo> {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('fileType', fileType)
     formData.append('description', description)
+    if (versionTags) formData.append('versionTags', versionTags)
 
     const headers: Record<string, string> = {}
     if (this.token) {
@@ -412,6 +414,28 @@ class ApiClient {
 
   async updatePackageRemark(id: string, remark: string): Promise<void> {
     await this.request(`/packages/${id}/remark`, { method: 'PATCH', body: JSON.stringify({ remark }) })
+  }
+
+  // Web versioning (roadmap/recommendation) no channels
+  async getVersionsListWeb(type: 'roadmap'|'recommendation'): Promise<{ versions: { version_id: string; tags?: string[]; status?: string; date?: string }[] }> {
+    const resp = await this.request(`/versions/${type}/versions.json`)
+    return (resp.data || { versions: [] }) as any
+  }
+
+  async getVersionManifestWeb(type: 'roadmap'|'recommendation', versionId: string): Promise<any> {
+    const url = `${this.baseUrl}/versions/${type}/${encodeURIComponent(versionId)}/manifest`
+    const headers: Record<string, string> = {}
+    if (this.token) headers.Authorization = `Bearer ${this.token}`
+    const response = await fetch(url, { headers })
+    if (!response.ok) throw new Error(`Failed to get manifest: ${response.statusText}`)
+    return await response.json()
+  }
+
+  async updateVersionTagsWeb(type: 'roadmap'|'recommendation', versionId: string, tags: string[]): Promise<void> {
+    await this.request(`/versions/${type}/${encodeURIComponent(versionId)}/tags`, {
+      method: 'PATCH',
+      body: JSON.stringify({ tags })
+    })
   }
 
   // 健康检查 - 使用正确的端点

@@ -21,15 +21,16 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Public endpoints: health, login, default users, public API, and static files
-		if path == "/api/v1/health" || path == "/api/v1/healthz" ||
-			path == "/api/v1/web/health" || path == "/api/v1/web/healthz" ||
-			strings.HasPrefix(path, "/static/") ||
-			strings.Contains(path, "/auth/login") ||
-			strings.Contains(path, "/auth/users") ||
-			strings.Contains(path, "/api/v1/public") {
-			next.ServeHTTP(w, r)
-			return
-		}
+        if path == "/api/v1/health" || path == "/api/v1/healthz" ||
+            path == "/api/v1/web/health" || path == "/api/v1/web/healthz" ||
+            strings.HasPrefix(path, "/static/") ||
+            strings.Contains(path, "/auth/login") ||
+            strings.Contains(path, "/auth/register") ||
+            strings.Contains(path, "/auth/users") ||
+            strings.Contains(path, "/api/v1/public") {
+            next.ServeHTTP(w, r)
+            return
+        }
 
 		// Authorization header
 		authHeader := r.Header.Get("Authorization")

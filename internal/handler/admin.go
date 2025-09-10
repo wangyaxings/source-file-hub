@@ -4,14 +4,13 @@ import (
     "encoding/json"
     "fmt"
     "net/http"
-    "strings"
     "strconv"
     "sync"
     "time"
 
-	"secure-file-hub/internal/apikey"
-	"secure-file-hub/internal/auth"
-	"secure-file-hub/internal/database"
+    "secure-file-hub/internal/apikey"
+    "secure-file-hub/internal/database"
+    "secure-file-hub/internal/middleware"
 
 	"github.com/gorilla/mux"
 )
@@ -90,25 +89,25 @@ func RegisterAdminRoutes(router *mux.Router) {
 	admin := router.PathPrefix("/api/v1/admin").Subrouter()
 
 	// API Key Management
-	admin.HandleFunc("/api-keys", listAPIKeysHandler).Methods("GET")
-	admin.HandleFunc("/api-keys", createAPIKeyHandler).Methods("POST")
-	admin.HandleFunc("/api-keys/{keyId}", getAPIKeyHandler).Methods("GET")
-	admin.HandleFunc("/api-keys/{keyId}", updateAPIKeyHandler).Methods("PUT")
-	admin.HandleFunc("/api-keys/{keyId}", deleteAPIKeyHandler).Methods("DELETE")
-	admin.HandleFunc("/api-keys/{keyId}/status", updateAPIKeyStatusHandler).Methods("PATCH")
-	admin.HandleFunc("/api-keys/{keyId}/regenerate", regenerateAPIKeyHandler).Methods("POST")
-	admin.HandleFunc("/api-keys/{keyId}/download", downloadAPIKeyHandler).Methods("GET")
+    admin.HandleFunc("/api-keys", middleware.RequireAuthorization(listAPIKeysHandler)).Methods("GET")
+    admin.HandleFunc("/api-keys", middleware.RequireAuthorization(createAPIKeyHandler)).Methods("POST")
+    admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(getAPIKeyHandler)).Methods("GET")
+    admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(updateAPIKeyHandler)).Methods("PUT")
+    admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(deleteAPIKeyHandler)).Methods("DELETE")
+    admin.HandleFunc("/api-keys/{keyId}/status", middleware.RequireAuthorization(updateAPIKeyStatusHandler)).Methods("PATCH")
+    admin.HandleFunc("/api-keys/{keyId}/regenerate", middleware.RequireAuthorization(regenerateAPIKeyHandler)).Methods("POST")
+    admin.HandleFunc("/api-keys/{keyId}/download", middleware.RequireAuthorization(downloadAPIKeyHandler)).Methods("GET")
 
 	// Usage Analytics
-	admin.HandleFunc("/usage/logs", getUsageLogsHandler).Methods("GET")
-	admin.HandleFunc("/usage/stats", getUsageStatsHandler).Methods("GET")
-	admin.HandleFunc("/usage/summary", getUsageSummaryHandler).Methods("GET")
+    admin.HandleFunc("/usage/logs", middleware.RequireAuthorization(getUsageLogsHandler)).Methods("GET")
+    admin.HandleFunc("/usage/stats", middleware.RequireAuthorization(getUsageStatsHandler)).Methods("GET")
+    admin.HandleFunc("/usage/summary", middleware.RequireAuthorization(getUsageSummaryHandler)).Methods("GET")
 
 	// User Management
-	admin.HandleFunc("/users", listUsersHandler).Methods("GET")
-	admin.HandleFunc("/users/{userId}/role", updateUserRoleHandler).Methods("PUT")
-	admin.HandleFunc("/users/{userId}/api-keys", getUserAPIKeysHandler).Methods("GET")
-	admin.HandleFunc("/users/{userId}/usage", getUserUsageHandler).Methods("GET")
+    admin.HandleFunc("/users", middleware.RequireAuthorization(listUsersHandler)).Methods("GET")
+    admin.HandleFunc("/users/{userId}/role", middleware.RequireAuthorization(updateUserRoleHandler)).Methods("PUT")
+    admin.HandleFunc("/users/{userId}/api-keys", middleware.RequireAuthorization(getUserAPIKeysHandler)).Methods("GET")
+    admin.HandleFunc("/users/{userId}/usage", middleware.RequireAuthorization(getUserUsageHandler)).Methods("GET")
 }
 
 // RegisterWebAdminRoutes registers admin routes under web API
@@ -117,64 +116,28 @@ func RegisterWebAdminRoutes(router *mux.Router) {
 	admin := router.PathPrefix("/admin").Subrouter()
 
 	// API Key Management
-	admin.HandleFunc("/api-keys", requireAdminAuth(listAPIKeysHandler)).Methods("GET")
-	admin.HandleFunc("/api-keys", requireAdminAuth(createAPIKeyHandler)).Methods("POST")
-	admin.HandleFunc("/api-keys/{keyId}", requireAdminAuth(getAPIKeyHandler)).Methods("GET")
-	admin.HandleFunc("/api-keys/{keyId}", requireAdminAuth(updateAPIKeyHandler)).Methods("PUT")
-	admin.HandleFunc("/api-keys/{keyId}", requireAdminAuth(deleteAPIKeyHandler)).Methods("DELETE")
-	admin.HandleFunc("/api-keys/{keyId}/status", requireAdminAuth(updateAPIKeyStatusHandler)).Methods("PATCH")
-	admin.HandleFunc("/api-keys/{keyId}/regenerate", requireAdminAuth(regenerateAPIKeyHandler)).Methods("POST")
-	admin.HandleFunc("/api-keys/{keyId}/download", requireAdminAuth(downloadAPIKeyHandler)).Methods("GET")
+    admin.HandleFunc("/api-keys", middleware.RequireAuthorization(listAPIKeysHandler)).Methods("GET")
+    admin.HandleFunc("/api-keys", middleware.RequireAuthorization(createAPIKeyHandler)).Methods("POST")
+    admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(getAPIKeyHandler)).Methods("GET")
+    admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(updateAPIKeyHandler)).Methods("PUT")
+    admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(deleteAPIKeyHandler)).Methods("DELETE")
+    admin.HandleFunc("/api-keys/{keyId}/status", middleware.RequireAuthorization(updateAPIKeyStatusHandler)).Methods("PATCH")
+    admin.HandleFunc("/api-keys/{keyId}/regenerate", middleware.RequireAuthorization(regenerateAPIKeyHandler)).Methods("POST")
+    admin.HandleFunc("/api-keys/{keyId}/download", middleware.RequireAuthorization(downloadAPIKeyHandler)).Methods("GET")
 
 	// Usage Analytics
-	admin.HandleFunc("/usage/logs", requireAdminAuth(getUsageLogsHandler)).Methods("GET")
-	admin.HandleFunc("/usage/stats", requireAdminAuth(getUsageStatsHandler)).Methods("GET")
-	admin.HandleFunc("/usage/summary", requireAdminAuth(getUsageSummaryHandler)).Methods("GET")
+    admin.HandleFunc("/usage/logs", middleware.RequireAuthorization(getUsageLogsHandler)).Methods("GET")
+    admin.HandleFunc("/usage/stats", middleware.RequireAuthorization(getUsageStatsHandler)).Methods("GET")
+    admin.HandleFunc("/usage/summary", middleware.RequireAuthorization(getUsageSummaryHandler)).Methods("GET")
 
 	// Enhanced Analytics
 	RegisterAnalyticsRoutes(admin)
 
 	// User Management
-	admin.HandleFunc("/users", requireAdminAuth(listUsersHandler)).Methods("GET")
-	admin.HandleFunc("/users/{userId}/role", requireAdminAuth(updateUserRoleHandler)).Methods("PUT")
-	admin.HandleFunc("/users/{userId}/api-keys", requireAdminAuth(getUserAPIKeysHandler)).Methods("GET")
-	admin.HandleFunc("/users/{userId}/usage", requireAdminAuth(getUserUsageHandler)).Methods("GET")
-}
-
-// requireAdminAuth checks if the user has admin privileges
-func requireAdminAuth(handler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Get user from context (set by AuthMiddleware)
-		userCtx := r.Context().Value("user")
-		if userCtx == nil {
-			writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
-			return
-		}
-
-		user, ok := userCtx.(*auth.User)
-		if !ok {
-			writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
-			return
-		}
-
-    // Check if user is admin by role (fallback to username == admin)
-    role := strings.ToLower(user.Role)
-    if role == "" {
-        // try database role if available
-        if db := database.GetDatabase(); db != nil {
-            if ur, err := db.GetUserRole(user.Username); err == nil && ur != nil {
-                role = strings.ToLower(ur.Role)
-            }
-        }
-    }
-    if role != "administrator" && user.Username != "admin" {
-        writeErrorResponse(w, http.StatusForbidden, "Admin privileges required")
-        return
-    }
-
-		// User is admin, proceed with the request
-		handler.ServeHTTP(w, r)
-	}
+    admin.HandleFunc("/users", middleware.RequireAuthorization(listUsersHandler)).Methods("GET")
+    admin.HandleFunc("/users/{userId}/role", middleware.RequireAuthorization(updateUserRoleHandler)).Methods("PUT")
+    admin.HandleFunc("/users/{userId}/api-keys", middleware.RequireAuthorization(getUserAPIKeysHandler)).Methods("GET")
+    admin.HandleFunc("/users/{userId}/usage", middleware.RequireAuthorization(getUserUsageHandler)).Methods("GET")
 }
 
 // =============================================================================

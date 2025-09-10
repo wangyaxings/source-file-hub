@@ -17,7 +17,8 @@ import (
 
 	"secure-file-hub/internal/auth"
 	"secure-file-hub/internal/database"
-	"secure-file-hub/internal/logger"
+    "secure-file-hub/internal/logger"
+    "secure-file-hub/internal/middleware"
 
 	"github.com/gorilla/mux"
 )
@@ -88,10 +89,16 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI := router.PathPrefix("/api/v1/web").Subrouter()
 
 	// 认证相关路由（无需认证）
-	webAPI.HandleFunc("/auth/login", loginHandler).Methods("POST")
-	webAPI.HandleFunc("/auth/logout", logoutHandler).Methods("POST")
-	webAPI.HandleFunc("/auth/change-password", changePasswordHandler).Methods("POST")
-	webAPI.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
+    webAPI.HandleFunc("/auth/login", loginHandler).Methods("POST")
+    webAPI.HandleFunc("/auth/register", registerHandler).Methods("POST")
+    webAPI.HandleFunc("/auth/logout", logoutHandler).Methods("POST")
+    webAPI.HandleFunc("/auth/change-password", changePasswordHandler).Methods("POST")
+    webAPI.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
+
+    // 2FA related (must be authenticated except setup info can be fetched after login)
+    webAPI.HandleFunc("/auth/2fa/setup", twoFASetupHandler).Methods("POST")
+    webAPI.HandleFunc("/auth/2fa/enable", twoFAEnableHandler).Methods("POST")
+    webAPI.HandleFunc("/auth/2fa/disable", twoFADisableHandler).Methods("POST")
 
 	// Web API根信息页面（无需认证）
 	webAPI.HandleFunc("", apiInfoHandler).Methods("GET")
@@ -103,29 +110,34 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
 
 	// 文件管理路由（需要Web认证）
-    webAPI.HandleFunc("/upload", requireAdminAuth(uploadFileHandler)).Methods("POST")
+    webAPI.HandleFunc("/upload", middleware.RequireAuthorization(uploadFileHandler)).Methods("POST")
 	webAPI.HandleFunc("/files/list", listFilesHandler).Methods("GET")
 	webAPI.HandleFunc("/files/versions/{type}/{filename}", getFileVersionsHandler).Methods("GET")
-    webAPI.HandleFunc("/files/{id}/delete", requireAdminAuth(deleteFileHandler)).Methods("DELETE")
-    webAPI.HandleFunc("/files/{id}/restore", requireAdminAuth(restoreFileHandler)).Methods("POST")
-    webAPI.HandleFunc("/files/{id}/purge", requireAdminAuth(purgeFileHandler)).Methods("DELETE")
+    webAPI.HandleFunc("/files/{id}/delete", middleware.RequireAuthorization(deleteFileHandler)).Methods("DELETE")
+    webAPI.HandleFunc("/files/{id}/restore", middleware.RequireAuthorization(restoreFileHandler)).Methods("POST")
+    webAPI.HandleFunc("/files/{id}/purge", middleware.RequireAuthorization(purgeFileHandler)).Methods("DELETE")
 
 	// 回收站管理
 	webAPI.HandleFunc("/recycle-bin", getRecycleBinHandler).Methods("GET")
-    webAPI.HandleFunc("/recycle-bin/clear", requireAdminAuth(clearRecycleBinHandler)).Methods("DELETE")
+    webAPI.HandleFunc("/recycle-bin/clear", middleware.RequireAuthorization(clearRecycleBinHandler)).Methods("DELETE")
 
 	// 统一文件下载路由（需要Web认证）
-	webFilesRouter := webAPI.PathPrefix("/files").Subrouter()
-	webFilesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
+    webFilesRouter := webAPI.PathPrefix("/files").Subrouter()
+    webFilesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
+
+    // Version artifacts read endpoints (no channels)
+    webAPI.HandleFunc("/versions/{type}/versions.json", webGetVersionsListHandler).Methods("GET")
+    webAPI.HandleFunc("/versions/{type}/{versionId}/manifest", webGetVersionManifestHandler).Methods("GET")
+    webAPI.HandleFunc("/versions/{type}/{versionId}/tags", middleware.RequireAuthorization(webUpdateVersionTagsHandler)).Methods("PATCH")
 
 	// 日志查询路由（需要Web认证）
 	webAPI.HandleFunc("/logs/access", getAccessLogsHandler).Methods("GET")
 
 	// Packages (assets/others) web endpoints delegating to public handlers
-    webAPI.HandleFunc("/packages/upload/assets-zip", requireAdminAuth(func(w http.ResponseWriter, r *http.Request) {
+    webAPI.HandleFunc("/packages/upload/assets-zip", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
         apiUploadAssetsZipHandler(w, r)
     })).Methods("POST")
-    webAPI.HandleFunc("/packages/upload/others-zip", requireAdminAuth(func(w http.ResponseWriter, r *http.Request) {
+    webAPI.HandleFunc("/packages/upload/others-zip", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
         apiUploadOthersZipHandler(w, r)
     })).Methods("POST")
 	webAPI.HandleFunc("/packages", func(w http.ResponseWriter, r *http.Request) {
@@ -439,6 +451,97 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
+// registerHandler 用户注册处理器
+func registerHandler(w http.ResponseWriter, r *http.Request) {
+    var req struct{
+        Username string `json:"username"`
+        Password string `json:"password"`
+        Email    string `json:"email,omitempty"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
+        return
+    }
+    if req.Username == "" || req.Password == "" {
+        writeErrorResponse(w, http.StatusBadRequest, "username and password are required")
+        return
+    }
+    if err := auth.Register(req.Username, req.Password, req.Email); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, err.Error())
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Registration successful"})
+}
+
+// twoFASetupHandler begins TOTP setup for current user
+func twoFASetupHandler(w http.ResponseWriter, r *http.Request) {
+    userCtx := r.Context().Value("user")
+    if userCtx == nil {
+        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
+        return
+    }
+    u, ok := userCtx.(*auth.User)
+    if !ok {
+        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
+        return
+    }
+    secret, url, err := auth.StartTOTPSetup(u.Username, "Secure File Hub")
+    if err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, err.Error())
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{
+        Success: true,
+        Data: map[string]interface{}{
+            "secret": secret,
+            "otpauth_url": url,
+        },
+    })
+}
+
+// twoFAEnableHandler verifies user-provided TOTP code and enables 2FA
+func twoFAEnableHandler(w http.ResponseWriter, r *http.Request) {
+    userCtx := r.Context().Value("user")
+    if userCtx == nil {
+        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
+        return
+    }
+    u, ok := userCtx.(*auth.User)
+    if !ok {
+        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
+        return
+    }
+    var req struct{ Code string `json:"code"` }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Code == "" {
+        writeErrorResponse(w, http.StatusBadRequest, "code is required")
+        return
+    }
+    if err := auth.EnableTOTP(u.Username, req.Code); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, err.Error())
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA enabled"})
+}
+
+// twoFADisableHandler disables 2FA for current user
+func twoFADisableHandler(w http.ResponseWriter, r *http.Request) {
+    userCtx := r.Context().Value("user")
+    if userCtx == nil {
+        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
+        return
+    }
+    u, ok := userCtx.(*auth.User)
+    if !ok {
+        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
+        return
+    }
+    if err := auth.DisableTOTP(u.Username); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, err.Error())
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA disabled"})
+}
+
 // changePasswordHandler allows the current user to change password
 func changePasswordHandler(w http.ResponseWriter, r *http.Request) {
     // Must be authenticated
@@ -565,17 +668,18 @@ type FileUploadRequest struct {
 
 // FileInfo 文件信息结构
 type FileInfo struct {
-	ID           string    `json:"id"`
-	FileName     string    `json:"fileName"`
-	OriginalName string    `json:"originalName"`
-	FileType     string    `json:"fileType"`
-	Size         int64     `json:"size"`
-	Description  string    `json:"description"`
-	UploadTime   time.Time `json:"uploadTime"`
-	Version      int       `json:"version"`
-	IsLatest     bool      `json:"isLatest"`
-	Uploader     string    `json:"uploader"`
-	Path         string    `json:"path"`
+    ID           string    `json:"id"`
+    FileName     string    `json:"fileName"`
+    OriginalName string    `json:"originalName"`
+    FileType     string    `json:"fileType"`
+    Size         int64     `json:"size"`
+    Description  string    `json:"description"`
+    UploadTime   time.Time `json:"uploadTime"`
+    Version      int       `json:"version"`
+    IsLatest     bool      `json:"isLatest"`
+    Uploader     string    `json:"uploader"`
+    Path         string    `json:"path"`
+    VersionID    string    `json:"versionId,omitempty"`
 }
 
 // uploadFileHandler 文件上传处理器
@@ -596,8 +700,20 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	// 获取上传参数
-	fileType := r.FormValue("fileType")
-	description := r.FormValue("description")
+    fileType := r.FormValue("fileType")
+    description := r.FormValue("description")
+    // optional version tags (comma-separated)
+    rawTags := r.FormValue("versionTags")
+    var versionTags []string
+    if strings.TrimSpace(rawTags) != "" {
+        parts := strings.Split(rawTags, ",")
+        for _, p := range parts {
+            t := strings.TrimSpace(p)
+            if t != "" {
+                versionTags = append(versionTags, t)
+            }
+        }
+    }
 
 	// 验证文件类型
 	allowedTypes := map[string]bool{
@@ -716,14 +832,18 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Calculate SHA256 checksum
-	checksum, err := calculateFileChecksum(targetPath)
-	if err != nil {
-		log.Printf("Warning: Failed to calculate SHA256 checksum: %v", err)
-	}
+    // Calculate SHA256 checksum
+    checksum, err := calculateFileChecksum(targetPath)
+    if err != nil {
+        log.Printf("Warning: Failed to calculate SHA256 checksum: %v", err)
+    }
 
-	// Create database record
-	db := database.GetDatabase()
+    // Build machine version_id (UTC, vYYYYMMDDHHMMSSZ) and timestamp suffix
+    ts := time.Now().UTC().Format("20060102150405") + "Z"
+    versionID := "v" + ts
+
+    // Create database record
+    db := database.GetDatabase()
 	if db == nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Database not initialized")
 		return
@@ -744,8 +864,8 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		Checksum:      checksum,
 	}
 
-	// Save to database
-	if err := db.InsertFileRecord(record); err != nil {
+    // Save to database
+    if err := db.InsertFileRecord(record); err != nil {
 		// If database save fails, try to clean up the file
 		os.Remove(targetPath)
 		os.Remove(latestPath)
@@ -753,8 +873,28 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Record upload log
-	if l := logger.GetLogger(); l != nil {
+    // For roadmap/recommendation, rename saved file to include timestamp suffix
+    if fileType == "roadmap" || fileType == "recommendation" {
+        ext2 := strings.ToLower(filepath.Ext(fixedOriginalName))
+        base2 := strings.TrimSuffix(fixedOriginalName, ext2)
+        stampedName := fmt.Sprintf("%s_%s%s", base2, ts, ext2)
+        stampedPath := filepath.Join(targetDir, stampedName)
+        // move/rename to stamped path
+        if err := os.Rename(targetPath, stampedPath); err == nil {
+            targetPath = stampedPath
+            fileInfo.FileName = stampedName
+            record.VersionedName = stampedName
+            record.FilePath = stampedPath
+        }
+    }
+
+    // Write versioning artifacts for roadmap/recommendation (manifest next to file, no versions folder)
+    if err := writeWebVersionArtifacts(fileType, versionID, fileInfo.FileName, targetPath, checksum, versionTags); err != nil {
+        log.Printf("Warning: failed to write version artifacts: %v", err)
+    }
+
+    // Record upload log
+    if l := logger.GetLogger(); l != nil {
 		l.LogFileUpload(fileInfo.Path, uploader, fileInfo.Size, map[string]interface{}{
 			"fileType":    fileType,
 			"version":     version,
@@ -762,11 +902,15 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	response := Response{
-		Success: true,
-		Message: "File uploaded successfully",
-		Data:    fileInfo,
-	}
+    // enrich response with versionId header + field
+    w.Header().Set("X-Version-ID", versionID)
+    fileInfo.VersionID = versionID
+
+    response := Response{
+        Success: true,
+        Message: "File uploaded successfully",
+        Data:    fileInfo,
+    }
 
 	writeJSONResponse(w, http.StatusOK, response)
 }
@@ -1117,4 +1261,197 @@ func getContentType(fileName string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+// =========================
+// Versioning (web) helpers and endpoints (no channels)
+// =========================
+
+// writeWebVersionArtifacts writes manifest.json and updates versions.json for roadmap/recommendation
+func writeWebVersionArtifacts(fileType, versionID, storedName, targetPath, checksum string, tags []string) error {
+    if fileType != "roadmap" && fileType != "recommendation" {
+        return nil
+    }
+    baseDir := filepath.Join("downloads", fileType+"s")
+    if err := os.MkdirAll(baseDir, 0755); err != nil {
+        return err
+    }
+    stem := strings.TrimSuffix(storedName, filepath.Ext(storedName))
+    manifestPath := filepath.Join(baseDir, stem+".manifest.json")
+
+    manifest := map[string]interface{}{
+        "version_id":   versionID,
+        "version_tags": tags,
+        "build": map[string]interface{}{
+            "time":   time.Now().UTC().Format(time.RFC3339),
+            "commit": "",
+        },
+        "artifact": map[string]interface{}{
+            "file_name": storedName,
+            "path":      targetPath,
+            "sha256":    checksum,
+            "size":      fileSizeSafe(targetPath),
+        },
+        "schema_version":   "1.0",
+        "breaking_changes": []string{},
+    }
+    if err := writeJSONFileGeneric(manifestPath, manifest); err != nil {
+        return err
+    }
+    return nil
+}
+
+func writeJSONFileGeneric(path string, v interface{}) error {
+    b, err := json.MarshalIndent(v, "", "  ")
+    if err != nil {
+        return err
+    }
+    if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+        return err
+    }
+    tmp := path + ".tmp"
+    if err := os.WriteFile(tmp, b, 0644); err != nil {
+        return err
+    }
+    return os.Rename(tmp, path)
+}
+
+func readJSONFileGeneric(path string) (map[string]interface{}, error) {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil, err
+    }
+    var m map[string]interface{}
+    if err := json.Unmarshal(data, &m); err != nil {
+        return nil, err
+    }
+    return m, nil
+}
+
+// webGetVersionManifestHandler returns manifest.json for given versionId
+func webGetVersionManifestHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    ft := strings.ToLower(vars["type"])
+    vid := vars["versionId"]
+    if ft != "roadmap" && ft != "recommendation" {
+        writeErrorResponse(w, http.StatusBadRequest, "Invalid type")
+        return
+    }
+    if vid == "" {
+        writeErrorResponse(w, http.StatusBadRequest, "versionId required")
+        return
+    }
+    baseDir := filepath.Join("downloads", ft+"s")
+    entries, err := os.ReadDir(baseDir)
+    if err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to read directory")
+        return
+    }
+    for _, e := range entries {
+        if e.IsDir() {
+            continue
+        }
+        name := e.Name()
+        if strings.HasSuffix(strings.ToLower(name), ".manifest.json") {
+            p := filepath.Join(baseDir, name)
+            m, err := readJSONFileGeneric(p)
+            if err == nil && m["version_id"] == vid {
+                b, _ := os.ReadFile(p)
+                w.Header().Set("Content-Type", "application/json")
+                w.WriteHeader(http.StatusOK)
+                _, _ = w.Write(b)
+                return
+            }
+        }
+    }
+    writeErrorResponse(w, http.StatusNotFound, "Manifest not found")
+}
+
+// webGetVersionsListHandler returns versions.json
+func webGetVersionsListHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    ft := strings.ToLower(vars["type"])
+    if ft != "roadmap" && ft != "recommendation" {
+        writeErrorResponse(w, http.StatusBadRequest, "Invalid type")
+        return
+    }
+    baseDir := filepath.Join("downloads", ft+"s")
+    entries, err := os.ReadDir(baseDir)
+    if err != nil {
+        writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"versions": []interface{}{}}})
+        return
+    }
+    list := []interface{}{}
+    for _, e := range entries {
+        if e.IsDir() {
+            continue
+        }
+        name := e.Name()
+        if strings.HasSuffix(strings.ToLower(name), ".manifest.json") {
+            p := filepath.Join(baseDir, name)
+            if m, err := readJSONFileGeneric(p); err == nil {
+                list = append(list, map[string]interface{}{
+                    "version_id": m["version_id"],
+                    "tags":       m["version_tags"],
+                    "status":     "active",
+                    "date":       m["build"].(map[string]interface{})["time"],
+                })
+            }
+        }
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"versions": list}})
+}
+
+// webUpdateVersionTagsHandler updates tags for a specific version (admin only)
+func webUpdateVersionTagsHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    ft := strings.ToLower(vars["type"]) // roadmap or recommendation
+    vid := vars["versionId"]
+    if ft != "roadmap" && ft != "recommendation" {
+        writeErrorResponse(w, http.StatusBadRequest, "Invalid type")
+        return
+    }
+    if vid == "" {
+        writeErrorResponse(w, http.StatusBadRequest, "versionId required")
+        return
+    }
+
+    var body struct {
+        Tags []string `json:"tags"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+        writeErrorResponse(w, http.StatusBadRequest, "Invalid request body")
+        return
+    }
+
+    // Normalize tags
+    tags := make([]string, 0, len(body.Tags))
+    for _, t := range body.Tags {
+        t = strings.TrimSpace(t)
+        if t != "" {
+            tags = append(tags, t)
+        }
+    }
+
+    // Update manifest
+    manifestPath := filepath.Join("downloads", ft+"s", "versions", vid, "manifest.json")
+    m, err := readJSONFileGeneric(manifestPath)
+    if err != nil {
+        writeErrorResponse(w, http.StatusNotFound, "Manifest not found")
+        return
+    }
+    m["version_tags"] = tags
+    if err := writeJSONFileGeneric(manifestPath, m); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to update manifest")
+        return
+    }
+
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Tags updated"})
+}
+
+func fileSizeSafe(path string) int64 {
+    if fi, err := os.Stat(path); err == nil {
+        return fi.Size()
+    }
+    return 0
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -52,15 +52,15 @@ export function FileList({ refreshTrigger }: FileListProps) {
     isOpen: false,
     file: null
   })
+  type VersionRow = { versionId: string; tags: string[]; date?: string; sha256?: string; size?: number; fileName?: string; path?: string }
   const [versionsDialog, setVersionsDialog] = useState<{
     isOpen: boolean
     file: FileInfo | null
-    versions: FileInfo[]
-  }>({
-    isOpen: false,
-    file: null,
-    versions: []
-  })
+    fileType: 'roadmap'|'recommendation'|null
+    versions: VersionRow[]
+    loading: boolean
+  }>({ isOpen: false, file: null, fileType: null, versions: [], loading: false })
+  const [editTags, setEditTags] = useState<{ open: boolean; fileType: 'roadmap'|'recommendation'|null; versionId: string; text: string }>({ open: false, fileType: null, versionId: '', text: '' })
 
   const currentUser = apiClient.getCurrentUser()
   const isAdmin = currentUser?.role === 'administrator' || currentUser?.username === 'admin'
@@ -83,6 +83,41 @@ export function FileList({ refreshTrigger }: FileListProps) {
       setFilteredFiles(fileList)
     } else {
       setFilteredFiles(fileList.filter(file => file.fileType === type))
+    }
+  }
+
+  const handleViewVersions = async (file: FileInfo) => {
+    const type = (file.fileType === 'roadmap' || file.fileType === 'recommendation') ? file.fileType : null
+    if (!type) {
+      toast({ variant: 'destructive', title: 'Unsupported', description: 'Version history is only for roadmap/recommendation' })
+      return
+    }
+    setVersionsDialog(prev => ({ ...prev, isOpen: true, file, fileType: type, versions: [], loading: true }))
+    try {
+      const list = await apiClient.getVersionsListWeb(type)
+      const items = Array.isArray((list as any).versions) ? (list as any).versions : []
+      // sort desc by date
+      items.sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''))
+      // fetch manifests for sha256/path/size/file_name
+      const rows: VersionRow[] = await Promise.all(items.map(async (it: any) => {
+        let sha256: string | undefined
+        let size: number | undefined
+        let fileName: string | undefined
+        let path: string | undefined
+        try {
+          const mf = await apiClient.getVersionManifestWeb(type, it.version_id)
+          sha256 = mf?.artifact?.sha256
+          size = mf?.artifact?.size
+          fileName = mf?.artifact?.file_name
+          path = mf?.artifact?.path
+        } catch {}
+        return { versionId: it.version_id, tags: it.tags || [], date: it.date, sha256, size, fileName, path }
+      }))
+      setVersionsDialog(prev => ({ ...prev, versions: rows, loading: false }))
+    } catch (e) {
+      console.error('Load versions failed', e)
+      toast({ variant: 'destructive', title: 'Failed to load versions', description: e instanceof Error ? e.message : 'Failed' })
+      setVersionsDialog(prev => ({ ...prev, loading: false }))
     }
   }
 
@@ -133,24 +168,6 @@ export function FileList({ refreshTrigger }: FileListProps) {
       })
     } finally {
       setDeleteDialog({ isOpen: false, file: null })
-    }
-  }
-
-  const handleViewVersions = async (file: FileInfo) => {
-    try {
-      const versions = await apiClient.getFileVersions(file.fileType, file.originalName || file.fileName)
-      setVersionsDialog({
-        isOpen: true,
-        file,
-        versions
-      })
-    } catch (error) {
-      console.error('Failed to load versions:', error)
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to load file versions'
-      })
     }
   }
 
@@ -279,13 +296,86 @@ export function FileList({ refreshTrigger }: FileListProps) {
           </DialogHeader>
 
           <div className="max-h-[60vh] overflow-y-auto">
-            <FileTable
-              files={versionsDialog.versions}
-              onDownload={handleDownload}
-              downloadingFile={downloadingFile}
-              showVersions={true}
-            />
+            {versionsDialog.loading ? (
+              <div className="p-6 text-sm text-gray-500 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin"/> Loading versions...</div>
+            ) : (versionsDialog.versions.length === 0 ? (
+              <div className="p-6 text-sm text-gray-500">No versions</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b">
+                    <th className="py-2 w-64">Version ID</th>
+                    <th className="py-2">Tags</th>
+                    <th className="py-2 w-40">Date</th>
+                    <th className="py-2 w-40">SHA256</th>
+                    <th className="py-2 w-24">Size</th>
+                    <th className="py-2 w-40">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {versionsDialog.versions.map(v => (
+                    <tr key={v.versionId} className="border-b last:border-0">
+                      <td className="py-2 font-mono">{v.versionId}</td>
+                      <td className="py-2">
+                        {(v.tags || []).length === 0 ? (
+                          <span className="text-gray-400">—</span>
+                        ) : (
+                          <span>{v.tags.join(', ')}</span>
+                        )}
+                      </td>
+                      <td className="py-2 text-gray-600">{v.date ? formatDate(v.date) : ''}</td>
+                      <td className="py-2 font-mono">{v.sha256 ? v.sha256.slice(0, 12) : ''}</td>
+                      <td className="py-2">{typeof v.size === 'number' ? formatFileSize(v.size) : ''}</td>
+                      <td className="py-2">
+                        <div className="flex items-center gap-2">
+                          {v.path && (
+                            <Button variant="outline" size="sm" onClick={() => apiClient.downloadFile(v.path!)}>
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {isAdmin && (
+                            <Button variant="ghost" size="sm" onClick={() => setEditTags({ open: true, fileType: versionsDialog.fileType, versionId: v.versionId, text: (v.tags||[]).join(', ') })}>
+                              <Settings className="h-4 w-4" /> Edit Tags
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ))}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Tags Dialog */}
+      <Dialog open={editTags.open} onOpenChange={(open)=> setEditTags(prev => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Version Tags</DialogTitle>
+            <DialogDescription>Comma-separated tags for {editTags.versionId}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <input className="w-full border rounded px-3 py-2 text-sm" value={editTags.text} onChange={(e)=> setEditTags(prev => ({ ...prev, text: e.target.value }))} placeholder="v1.2.3, Q3-Final" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={()=> setEditTags(prev => ({ ...prev, open: false }))}>Cancel</Button>
+            <Button onClick={async ()=>{
+              if (!editTags.fileType) return
+              const tags = editTags.text.split(',').map(t=>t.trim()).filter(Boolean)
+              try{
+                await apiClient.updateVersionTagsWeb(editTags.fileType, editTags.versionId, tags)
+                // refresh current list
+                if (versionsDialog.file) {
+                  await handleViewVersions(versionsDialog.file)
+                }
+                setEditTags(prev => ({ ...prev, open: false }))
+              }catch(e){
+                toast({ variant:'destructive', title:'Update failed', description: e instanceof Error ? e.message : 'Failed' })
+              }
+            }}>Save</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -438,3 +528,4 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
     </div>
   )
 }
+

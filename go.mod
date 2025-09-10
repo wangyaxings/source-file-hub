@@ -5,12 +5,16 @@ go 1.23.0
 toolchain go1.24.1
 
 require (
+	github.com/casbin/casbin/v2 v2.88.0
 	github.com/gorilla/mux v1.8.0
+	github.com/pquerna/otp v1.4.0
 	golang.org/x/crypto v0.40.0
 	modernc.org/sqlite v1.38.2
 )
 
 require (
+	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
+	github.com/casbin/govaluate v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
