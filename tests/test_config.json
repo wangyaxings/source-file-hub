@@ -1,0 +1,184 @@
+{
+  "test": {
+    "database": {
+      "path": "data/test.db",
+      "driver": "sqlite3"
+    },
+    "server": {
+      "port": 8443,
+      "host": "localhost",
+      "cert_file": "certs/test_server.crt",
+      "key_file": "certs/test_server.key"
+    },
+    "upload": {
+      "max_file_size": 10485760,
+      "allowed_types": [".txt", ".pdf", ".doc", ".docx", ".xlsx", ".tsv", ".zip"],
+      "upload_dir": "downloads/test"
+    },
+    "auth": {
+      "jwt_secret": "test_jwt_secret_key_for_testing_only",
+      "token_expiry": 3600,
+      "twofa_enabled": true,
+      "password_min_length": 8,
+      "password_require_uppercase": true,
+      "password_require_lowercase": true,
+      "password_require_numbers": true,
+      "password_require_special": true
+    },
+    "logging": {
+      "level": "debug",
+      "format": "json",
+      "output": "test.log"
+    },
+    "api": {
+      "rate_limit": {
+        "enabled": true,
+        "requests_per_minute": 100
+      },
+      "cors": {
+        "enabled": true,
+        "allowed_origins": ["*"],
+        "allowed_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allowed_headers": ["*"]
+      }
+    },
+    "security": {
+      "https_redirect": true,
+      "security_headers": true,
+      "request_timeout": 30,
+      "max_request_size": 10485760
+    }
+  },
+  "test_users": [
+    {
+      "username": "testadmin",
+      "password": "TestAdmin123!",
+      "email": "testadmin@example.com",
+      "role": "admin",
+      "twofa_enabled": false
+    },
+    {
+      "username": "testviewer",
+      "password": "TestViewer123!",
+      "email": "testviewer@example.com",
+      "role": "viewer",
+      "twofa_enabled": false
+    },
+    {
+      "username": "testuser",
+      "password": "TestUser123!",
+      "email": "testuser@example.com",
+      "role": "viewer",
+      "twofa_enabled": true
+    }
+  ],
+  "test_files": [
+    {
+      "name": "test_document.txt",
+      "content": "This is a test document for testing purposes.",
+      "type": ".txt",
+      "size": 50
+    },
+    {
+      "name": "test_data.json",
+      "content": "{\"test\": true, \"data\": \"sample\"}",
+      "type": ".json",
+      "size": 30
+    },
+    {
+      "name": "test_image.jpg",
+      "content": "fake_image_data_for_testing",
+      "type": ".jpg",
+      "size": 100
+    }
+  ],
+  "test_api_keys": [
+    {
+      "name": "Test Read Key",
+      "permissions": ["read"],
+      "expires_in_hours": 24
+    },
+    {
+      "name": "Test Write Key",
+      "permissions": ["read", "write"],
+      "expires_in_hours": 12
+    },
+    {
+      "name": "Test Admin Key",
+      "permissions": ["read", "write", "delete", "admin"],
+      "expires_in_hours": 1
+    }
+  ],
+  "test_scenarios": {
+    "user_registration": {
+      "valid_cases": [
+        {
+          "username": "newuser1",
+          "email": "newuser1@example.com",
+          "password": "NewUser123!"
+        }
+      ],
+      "invalid_cases": [
+        {
+          "username": "",
+          "email": "invalid-email",
+          "password": "weak",
+          "expected_error": "validation_failed"
+        }
+      ]
+    },
+    "file_upload": {
+      "valid_cases": [
+        {
+          "filename": "test.txt",
+          "content": "Test file content",
+          "description": "Test file"
+        }
+      ],
+      "invalid_cases": [
+        {
+          "filename": "test.exe",
+          "content": "Executable content",
+          "expected_error": "invalid_file_type"
+        }
+      ]
+    },
+    "api_authentication": {
+      "valid_cases": [
+        {
+          "api_key": "valid_api_key",
+          "endpoint": "/api/v1/public/files",
+          "method": "GET"
+        }
+      ],
+      "invalid_cases": [
+        {
+          "api_key": "invalid_api_key",
+          "endpoint": "/api/v1/public/files",
+          "method": "GET",
+          "expected_error": "unauthorized"
+        }
+      ]
+    }
+  },
+  "performance": {
+    "concurrent_users": 100,
+    "requests_per_user": 10,
+    "timeout_seconds": 30,
+    "memory_limit_mb": 512
+  },
+  "coverage": {
+    "target_percentage": 80,
+    "exclude_patterns": [
+      "**/test_*.go",
+      "**/*_test.go",
+      "**/mocks/*.go"
+    ],
+    "critical_modules": [
+      "auth",
+      "database",
+      "handler",
+      "middleware"
+    ]
+  }
+}

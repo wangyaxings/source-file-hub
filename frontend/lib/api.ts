@@ -76,7 +76,9 @@ class ApiClient {
 
     const config: RequestInit = {
       ...options,
-      headers
+      headers,
+      // Ensure session cookies are sent on same-origin requests
+      credentials: 'same-origin',
     }
 
     try {
@@ -86,9 +88,16 @@ class ApiClient {
       // 妫€鏌ュ搷搴旂姸鎬?
       if (!response.ok) {
         if (response.status === 401) {
-          console.log('401 Unauthorized - logging out user')
-          this.logout()
-          throw new Error('Authentication expired, please log in again')
+          const wasAuthenticated = this.isAuthenticated()
+          // Only force logout + show "expired" if we previously had a session
+          if (wasAuthenticated) {
+            console.log('401 Unauthorized - logging out user')
+            this.logout()
+            throw new Error('Authentication expired, please log in again')
+          }
+          // If not authenticated yet (e.g., checking /auth/me prior to login),
+          // surface a neutral error without implying session expiry.
+          throw new Error('Unauthorized')
         }
 
         // 灏濊瘯瑙ｆ瀽閿欒鍝嶅簲
@@ -220,7 +229,7 @@ class ApiClient {
   async logoutUser(): Promise<void> {
     try {
       // Authboss logout under /auth/ab/logout
-      await fetch(`${this.baseUrl}/auth/ab/logout`, { method: 'POST', headers: { 'Accept': 'application/json' } })
+      await fetch(`${this.baseUrl}/auth/ab/logout`, { method: 'POST', headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
     } finally {
       this.logout()
     }

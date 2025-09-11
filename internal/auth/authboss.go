@@ -20,7 +20,8 @@ func InitAuthboss() (*ab.Authboss, error) {
         return AB, nil
     }
     a := ab.New()
-    a.Config.Paths.Mount = "/api/v1/web/auth"
+    // Mount Authboss under /api/v1/web/auth/ab to avoid route collisions
+    a.Config.Paths.Mount = "/api/v1/web/auth/ab"
     a.Config.Paths.AuthLoginOK = "/api/v1/web/auth/me"
     a.Config.Storage.Server = UserStorer{}
 
@@ -34,10 +35,6 @@ func InitAuthboss() (*ab.Authboss, error) {
     a.Config.Core.ViewRenderer = renderer
     a.Config.Core.Responder = defaults.NewResponder(renderer)
     a.Config.Core.Redirector = defaults.NewRedirector(renderer, ab.FormValueRedirect)
-    // For API clients, respond 200 with JSON on redirects
-    if dr, ok := a.Config.Core.Redirector.(*defaults.Redirector); ok && dr != nil {
-        dr.CorceRedirectTo200 = true
-    }
     a.Config.Core.ErrorHandler = defaults.NewErrorHandler(defaults.NewLogger(os.Stdout))
     a.Config.Core.BodyReader = defaults.NewHTTPBodyReader(true, true) // username, JSON
     a.Config.Core.Logger = defaults.NewLogger(os.Stdout)
