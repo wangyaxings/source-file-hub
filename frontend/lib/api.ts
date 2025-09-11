@@ -170,6 +170,21 @@ class ApiClient {
       credentials: 'include',
     })
 
+    // Handle Authboss redirect response (status 307)
+    if (response.status === 307) {
+      const result = await response.json()
+
+      // Authboss成功响应处理
+      if (result.status === 'success') {
+        // 获取用户信息
+        const meResponse = await this.request<{ user: UserInfo }>('/auth/me')
+        if (meResponse.success && meResponse.data) {
+          this.setUser((meResponse.data as any).user)
+        }
+        return { status: 'success', location: result.location }
+      }
+    }
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       const errorMessage = errorData.error || errorData.message || 'Login failed'

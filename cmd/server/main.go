@@ -1,20 +1,20 @@
 package main
 
 import (
-    "context"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-    "secure-file-hub/internal/auth"
-    "secure-file-hub/internal/database"
-    "secure-file-hub/internal/handler"
-    "secure-file-hub/internal/logger"
-    "secure-file-hub/internal/migration"
-    "secure-file-hub/internal/server"
+	"secure-file-hub/internal/auth"
+	"secure-file-hub/internal/database"
+	"secure-file-hub/internal/handler"
+	"secure-file-hub/internal/logger"
+	"secure-file-hub/internal/migration"
+	"secure-file-hub/internal/server"
 )
 
 func main() {
@@ -46,24 +46,36 @@ func main() {
 
 	// 运行数据迁移
 	log.Println("Running data migration...")
-    if err := migration.MigrateFromJSON("downloads/metadata.json"); err != nil {
-        log.Printf("Warning: JSON migration failed: %v", err)
-    }
+	if err := migration.MigrateFromJSON("downloads/metadata.json"); err != nil {
+		log.Printf("Warning: JSON migration failed: %v", err)
+	}
 
-    // Seed initial admin account and DB role
-    adminPassword := os.Getenv("ADMIN_PASSWORD")
-    auth.SeedAdmin(adminPassword)
-    if db := database.GetDatabase(); db != nil {
-        // Ensure admin role exists in DB for consistency
-        _ = db.CreateOrUpdateUserRole(&database.UserRole{
-            UserID:       "admin",
-            Role:         "administrator",
-            Permissions:  []string{"read", "download", "upload", "admin"},
-            QuotaDaily:   -1,
-            QuotaMonthly: -1,
-            Status:       "active",
-        })
-    }
+	// Seed initial admin account and DB role
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+	if adminPassword == "" {
+		adminPassword = "admin123" // Default password for development
+		log.Printf("Using default admin password: admin123")
+	}
+	auth.SeedAdmin(adminPassword)
+	if db := database.GetDatabase(); db != nil {
+		// Ensure admin role exists in DB for consistency
+		_ = db.CreateOrUpdateUserRole(&database.UserRole{
+			UserID:       "admin",
+			Role:         "administrator",
+			Permissions:  []string{"read", "download", "upload", "admin"},
+			QuotaDaily:   -1,
+			QuotaMonthly: -1,
+			Status:       "active",
+		})
+
+		// Debug: Check if admin user exists
+		if user, err := db.GetUser("admin"); err == nil {
+			log.Printf("Admin user exists: username=%s, role=%s, email=%s", user.Username, user.Role, user.Email)
+			log.Printf("Admin password hash exists: %t", user.PasswordHash != "")
+		} else {
+			log.Printf("Admin user not found: %v", err)
+		}
+	}
 
 	// 启动自动清理任务
 	go func() {
@@ -105,24 +117,24 @@ func main() {
 	// 注册路由
 	handler.RegisterRoutes(srv.Router)
 
-    // HTTPS-only unified mode
-    certFile := "certs/server.crt"
-    keyFile := "certs/server.key"
+	// HTTPS-only unified mode
+	certFile := "certs/server.crt"
+	keyFile := "certs/server.key"
 
-    httpsServer := &http.Server{
-        Addr:         ":8443",
-        Handler:      srv.Router,
-        ReadTimeout:  120 * time.Second,
-        WriteTimeout: 120 * time.Second,
-        IdleTimeout:  180 * time.Second,
-    }
+	httpsServer := &http.Server{
+		Addr:         ":8443",
+		Handler:      srv.Router,
+		ReadTimeout:  120 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  180 * time.Second,
+	}
 
-    go func() {
-        log.Printf("HTTPS Server starting on port 8443 (Unified HTTPS Mode)...")
-        if err := httpsServer.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("HTTPS Server failed to start: %v", err)
-        }
-    }()
+	go func() {
+		log.Printf("HTTPS Server starting on port 8443 (Unified HTTPS Mode)...")
+		if err := httpsServer.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTPS Server failed to start: %v", err)
+		}
+	}()
 
 	// 等待中断信号以优雅关闭服务器
 	quit := make(chan os.Signal, 1)
@@ -135,10 +147,10 @@ func main() {
 	defer cancel()
 
 	// 优雅关闭服务器
-    log.Println("Shutting down HTTPS server...")
-    if err := httpsServer.Shutdown(ctx); err != nil {
-        log.Printf("HTTPS Server forced to shutdown: %v", err)
-    }
+	log.Println("Shutting down HTTPS server...")
+	if err := httpsServer.Shutdown(ctx); err != nil {
+		log.Printf("HTTPS Server forced to shutdown: %v", err)
+	}
 
 	log.Println("Server exited")
 }

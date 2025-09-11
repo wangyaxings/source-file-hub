@@ -121,6 +121,14 @@ func RegisterRoutes(router *mux.Router) {
 	webFilesRouter := webAPI.PathPrefix("/files").Subrouter()
 	webFilesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
 
+	// Packages web endpoints (delegate to API handlers)
+	webAPI.HandleFunc("/packages", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
+		apiListPackagesHandler(w, r)
+	})).Methods("GET")
+	webAPI.HandleFunc("/packages/{id}/remark", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
+		apiUpdatePackageRemarkHandler(w, r)
+	})).Methods("PATCH")
+
 	// 其他业务路由...
 	RegisterWebAdminRoutes(webAPI)
 	RegisterAPIRoutes(router)
