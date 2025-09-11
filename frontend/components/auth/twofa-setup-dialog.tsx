@@ -42,14 +42,10 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete }: TwoFAS
   const startSetup = async () => {
     setIsLoading(true)
     try {
-      const response = await apiClient.request('/auth/2fa/setup', { method: 'POST' })
-      if (response.success && response.data) {
-        setSecret(response.data.secret || '')
-        setQrCodeUrl(response.data.otpauth_url || '')
-        setStep('verify')
-      } else {
-        throw new Error(response.error || 'Failed to start 2FA setup')
-      }
+      const response = await apiClient.startTOTP()
+      setSecret(response.secret || '')
+      setQrCodeUrl(response.otpauth_url || '')
+      setStep('verify')
     } catch (error) {
       toast({
         variant: "destructive",
@@ -74,26 +70,18 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete }: TwoFAS
 
     setIsVerifying(true)
     try {
-      const response = await apiClient.request('/auth/2fa/enable', {
-        method: 'POST',
-        body: JSON.stringify({ code: verificationCode })
+      await apiClient.enableTOTP(verificationCode)
+      toast({
+        title: "2FA Enabled",
+        description: "Two-factor authentication has been successfully enabled for your account"
       })
-
-      if (response.success) {
-        toast({
-          title: "2FA Enabled",
-          description: "Two-factor authentication has been successfully enabled for your account"
-        })
-        onSetupComplete()
-        onOpenChange(false)
-        // Reset state
-        setStep('setup')
-        setSecret('')
-        setQrCodeUrl('')
-        setVerificationCode('')
-      } else {
-        throw new Error(response.error || 'Failed to enable 2FA')
-      }
+      onSetupComplete()
+      onOpenChange(false)
+      // Reset state
+      setStep('setup')
+      setSecret('')
+      setQrCodeUrl('')
+      setVerificationCode('')
     } catch (error) {
       toast({
         variant: "destructive",

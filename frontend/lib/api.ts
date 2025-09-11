@@ -427,6 +427,11 @@ class ApiClient {
     if (!resp.success) throw new Error(resp.error || 'Disable 2FA failed')
   }
 
+  async adminEnable2FA(userId: string): Promise<void> {
+    const resp = await this.request(`/admin/users/${encodeURIComponent(userId)}/2fa/enable`, { method: 'POST' })
+    if (!resp.success) throw new Error(resp.error || 'Enable 2FA failed')
+  }
+
   async adminResetPassword(userId: string): Promise<{ username: string; temporary_password: string }> {
     const resp = await this.request<{ username: string; temporary_password: string }>(`/admin/users/${encodeURIComponent(userId)}/reset-password`, { method: 'POST' })
     if (!resp.success) throw new Error(resp.error || 'Reset password failed')

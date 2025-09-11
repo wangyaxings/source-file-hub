@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { apiClient, type LoginRequest } from "@/lib/api"
 import { LogIn, Loader2 } from "lucide-react"
+import { TwoFASetupDialog } from "@/components/auth/twofa-setup-dialog"
 
 interface LoginFormProps {
   onLogin: () => void
@@ -21,6 +22,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [showOtpInfo, setShowOtpInfo] = useState(true)
   const [error, setError] = useState("")
+  const [show2FASetup, setShow2FASetup] = useState(false)
+  const [pendingUsername, setPendingUsername] = useState("")
 
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -32,9 +35,30 @@ export function LoginForm({ onLogin }: LoginFormProps) {
       await apiClient.login(formData)
       onLogin()
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Login failed")
+      const errorMessage = error instanceof Error ? error.message : "Login failed"
+      
+      // 检查是否是2FA设置需要的错误
+      if (errorMessage === "2fa setup required") {
+        setPendingUsername(formData.username)
+        setShow2FASetup(true)
+        setError("Your account has 2FA enabled. Please complete the setup below.")
+      } else {
+        setError(errorMessage)
+      }
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handle2FASetupComplete = async () => {
+    setShow2FASetup(false)
+    setError("")
+    // 2FA设置完成后，尝试重新登录
+    try {
+      await apiClient.login(formData)
+      onLogin()
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Login failed after 2FA setup")
     }
   }
 
@@ -104,6 +128,15 @@ export function LoginForm({ onLogin }: LoginFormProps) {
           </Button>
         </CardFooter>
       </form>
+      
+      {/* 2FA设置对话框 */}
+      {show2FASetup && (
+        <TwoFASetupDialog
+          open={show2FASetup}
+          onOpenChange={setShow2FASetup}
+          onSetupComplete={handle2FASetupComplete}
+        />
+      )}
     </Card>
   )
 }
