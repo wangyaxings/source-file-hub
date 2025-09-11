@@ -45,12 +45,11 @@ export interface ApiResponse<T = any> {
 
 class ApiClient {
   private baseUrl = '/api/v1/web'
-  private token: string | null = null
   private currentUser: UserInfo | null = null
 
   constructor() {
     // Check if we're running in the browser (client-side)
-    this.token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    // Note: No longer using localStorage for token - authboss handles session via cookies
     this.currentUser = typeof window !== 'undefined'
       ? JSON.parse(localStorage.getItem('currentUser') || 'null')
       : null
@@ -62,23 +61,20 @@ class ApiClient {
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`
 
-    // 纭繚headers瀛樺湪
+    // 确保headers存在
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       ...((options.headers as Record<string, string>) || {})
     }
 
-    // 娣诲姞璁よ瘉header
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`
-    }
+    // Note: No longer using Authorization header - authboss handles authentication via session cookies
 
     const config: RequestInit = {
       ...options,
       headers,
-      // Ensure session cookies are sent on same-origin requests
-      credentials: 'same-origin',
+      // Important: Include credentials for session cookie authentication
+      credentials: 'include',
     }
 
     try {
@@ -135,13 +131,7 @@ class ApiClient {
     }
   }
 
-  setToken(token: string) {
-    // Deprecated: switching to cookie-based session via Authboss
-    this.token = token
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('token', token)
-    }
-  }
+  // Note: setToken method removed - authboss handles authentication via session cookies
 
   setUser(user: UserInfo) {
     this.currentUser = user
@@ -155,11 +145,11 @@ class ApiClient {
   }
 
   logout() {
-    this.token = null
+    // Clear local user state - session cookie will be cleared by authboss
     this.currentUser = null
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('token')
       localStorage.removeItem('currentUser')
+      // Note: No longer managing token in localStorage
     }
   }
 
@@ -168,20 +158,19 @@ class ApiClient {
     return !!this.currentUser
   }
 
-  // 璁よ瘉鐩稿叧
+  // 认证相关
   async login(data: LoginRequest): Promise<LoginResponse> {
-    // Use manual fetch to handle Authboss JSON redirect under /auth/ab/*
+    // Use authboss login endpoint
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     }
-    if (this.token) headers.Authorization = `Bearer ${this.token}`
 
     const res = await fetch(`${this.baseUrl}/auth/ab/login`, {
       method: 'POST',
       headers,
       body: JSON.stringify(data),
-      credentials: 'same-origin',
+      credentials: 'include', // Important: Include credentials for session cookies
     })
 
     if (res.status >= 300 && res.status < 400) {
@@ -218,18 +207,17 @@ class ApiClient {
     throw new Error('Login failed')
   }
 
-  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
-    const resp = await this.request(`/auth/change-password`, {
-      method: 'POST',
-      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
-    })
-    if (!resp.success) throw new Error(resp.error || 'Failed to change password')
-  }
+  // Note: changePassword method removed - password changes are now handled by authboss
+  // Use authboss password change endpoints instead
 
   async logoutUser(): Promise<void> {
     try {
       // Authboss logout under /auth/ab/logout
-      await fetch(`${this.baseUrl}/auth/ab/logout`, { method: 'POST', headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+      await fetch(`${this.baseUrl}/auth/ab/logout`, { 
+        method: 'POST', 
+        headers: { 'Accept': 'application/json' }, 
+        credentials: 'include' // Important: Include credentials for session cookies
+      })
     } finally {
       this.logout()
     }
@@ -240,7 +228,7 @@ class ApiClient {
     return response.data || []
   }
 
-  // 鏂囦欢鐩稿叧
+  // 文件相关
   async uploadFile(file: File, fileType: string, description: string, versionTags?: string): Promise<FileInfo> {
     const formData = new FormData()
     formData.append('file', file)
@@ -248,15 +236,10 @@ class ApiClient {
     formData.append('description', description)
     if (versionTags) formData.append('versionTags', versionTags)
 
-    const headers: Record<string, string> = {}
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`
-    }
-
     const response = await fetch(`${this.baseUrl}/upload`, {
       method: 'POST',
-      headers,
-      body: formData
+      body: formData,
+      credentials: 'include' // Important: Include credentials for session cookies
     })
 
     if (!response.ok) {
@@ -291,12 +274,10 @@ class ApiClient {
     // Remove downloads/ prefix if present since the API expects the path relative to downloads
     const cleanPath = path.startsWith('downloads/') ? path.substring('downloads/'.length) : path
     const url = `${this.baseUrl}/files/${cleanPath}`
-    const headers: Record<string, string> = {}
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`
-    }
 
-    const response = await fetch(url, { headers })
+    const response = await fetch(url, { 
+      credentials: 'include' // Important: Include credentials for session cookies
+    })
 
     if (!response.ok) {
       if (response.status === 401) {
@@ -318,16 +299,12 @@ class ApiClient {
   }
 
   async deleteFile(fileId: string): Promise<void> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    }
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`
-    }
-
     const response = await fetch(`${this.baseUrl}/files/${fileId}/delete`, {
       method: 'DELETE',
-      headers
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include' // Important: Include credentials for session cookies
     })
 
     if (!response.ok) {
@@ -346,16 +323,12 @@ class ApiClient {
   }
 
   async restoreFile(fileId: string): Promise<void> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    }
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`
-    }
-
     const response = await fetch(`${this.baseUrl}/files/${fileId}/restore`, {
       method: 'POST',
-      headers
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include' // Important: Include credentials for session cookies
     })
 
     if (!response.ok) {
@@ -374,14 +347,9 @@ class ApiClient {
   }
 
   async getRecycleBin(): Promise<any[]> {
-    const headers: Record<string, string> = {}
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`
-    }
-
     const response = await fetch(`${this.baseUrl}/recycle-bin`, {
       method: 'GET',
-      headers
+      credentials: 'include' // Important: Include credentials for session cookies
     })
 
     if (!response.ok) {
@@ -401,16 +369,12 @@ class ApiClient {
   }
 
   async clearRecycleBin(): Promise<void> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    }
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`
-    }
-
     const response = await fetch(`${this.baseUrl}/recycle-bin/clear`, {
       method: 'DELETE',
-      headers
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include' // Important: Include credentials for session cookies
     })
 
     if (!response.ok) {
@@ -495,11 +459,13 @@ class ApiClient {
 
   // Packages API (web wrappers)
   async uploadAssetsZip(file: File): Promise<any> {
-    const headers: Record<string, string> = {}
-    if (this.token) headers.Authorization = `Bearer ${this.token}`
     const formData = new FormData()
     formData.append('file', file)
-    const response = await fetch(`${this.baseUrl}/packages/upload/assets-zip`, { method: 'POST', headers, body: formData })
+    const response = await fetch(`${this.baseUrl}/packages/upload/assets-zip`, { 
+      method: 'POST', 
+      body: formData,
+      credentials: 'include' // Important: Include credentials for session cookies
+    })
     if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`)
     const result = await response.json()
     if (!result.success) throw new Error(result.error || 'Upload failed')
@@ -507,11 +473,13 @@ class ApiClient {
   }
 
   async uploadOthersZip(file: File): Promise<any> {
-    const headers: Record<string, string> = {}
-    if (this.token) headers.Authorization = `Bearer ${this.token}`
     const formData = new FormData()
     formData.append('file', file)
-    const response = await fetch(`${this.baseUrl}/packages/upload/others-zip`, { method: 'POST', headers, body: formData })
+    const response = await fetch(`${this.baseUrl}/packages/upload/others-zip`, { 
+      method: 'POST', 
+      body: formData,
+      credentials: 'include' // Important: Include credentials for session cookies
+    })
     if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`)
     const result = await response.json()
     if (!result.success) throw new Error(result.error || 'Upload failed')
@@ -541,9 +509,9 @@ class ApiClient {
 
   async getVersionManifestWeb(type: 'roadmap'|'recommendation', versionId: string): Promise<any> {
     const url = `${this.baseUrl}/versions/${type}/${encodeURIComponent(versionId)}/manifest`
-    const headers: Record<string, string> = {}
-    if (this.token) headers.Authorization = `Bearer ${this.token}`
-    const response = await fetch(url, { headers })
+    const response = await fetch(url, { 
+      credentials: 'include' // Important: Include credentials for session cookies
+    })
     if (!response.ok) throw new Error(`Failed to get manifest: ${response.statusText}`)
     return await response.json()
   }
