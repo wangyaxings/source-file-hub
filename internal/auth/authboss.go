@@ -21,7 +21,9 @@ func InitAuthboss() (*ab.Authboss, error) {
     }
     a := ab.New()
     // Mount Authboss under /api/v1/web/auth/ab to avoid route collisions
-    a.Config.Paths.Mount = "/api/v1/web/auth/ab"
+    // Note: Mount should be empty when using StripPrefix in server.go
+    a.Config.Paths.Mount = ""
+    a.Config.Paths.RootURL = "https://127.0.0.1:30000"
     a.Config.Paths.AuthLoginOK = "/api/v1/web/auth/me"
     a.Config.Storage.Server = UserStorer{}
 

@@ -1024,7 +1024,7 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
         Username   string  `json:"username"`
         Email      string  `json:"email,omitempty"`
         Role       string  `json:"role,omitempty"`
-        MustReset  *bool   `json:"must_reset,omitempty"`
+        // Note: MustReset removed - authboss handles password reset flow
     }
     if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
         writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
@@ -1037,10 +1037,7 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
     if req.Role == "" {
         req.Role = "viewer"
     }
-    mustReset := true
-    if req.MustReset != nil {
-        mustReset = *req.MustReset
-    }
+    // Note: MustReset logic removed - authboss handles password reset flow
 
     // Generate initial password
     initialPassword := generateRandomPassword(16)
@@ -1065,7 +1062,7 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
         PasswordHash: string(hashed),
         Role:         req.Role,
         TwoFAEnabled: false,
-        MustReset:    mustReset,
+        // Note: MustReset removed - authboss handles password reset flow
     }
     if err := db.CreateUser(user); err != nil {
         writeErrorResponse(w, http.StatusInternalServerError, "Failed to create user")
@@ -1078,7 +1075,7 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
         actor := getActor(r)
         _ = db.LogAdminAction(actor, req.Username, "create_user", map[string]interface{}{
             "role": req.Role,
-            "must_reset": mustReset,
+            // Note: must_reset removed - authboss handles password reset flow
         })
     }
 
@@ -1088,7 +1085,6 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
         Data: map[string]interface{}{
             "username": req.Username,
             "initial_password": initialPassword,
-            "must_reset": mustReset,
         },
     })
 }
@@ -1202,8 +1198,8 @@ func resetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Force password reset on next login
-    _ = db.SetUserMustReset(userID, true)
+    // Note: Password reset flow is now handled by authboss
+    // No need to force password reset flag
 
     if db != nil {
         actor := getActor(r)

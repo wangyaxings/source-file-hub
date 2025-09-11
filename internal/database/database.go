@@ -103,7 +103,7 @@ type UserRole struct {
     UpdatedAt    time.Time `json:"updatedAt"`
 }
 
-// AppUser represents an application user record
+// AppUser represents an application user record (simplified for authboss)
 type AppUser struct {
     Username     string    `json:"username"`
     Email        string    `json:"email,omitempty"`
@@ -113,10 +113,10 @@ type AppUser struct {
     TOTPSecret   string    `json:"-"`
     TOTPLastCode string    `json:"-"`
     RecoveryCodes string   `json:"-"`
-    MustReset    bool      `json:"mustReset"`
     CreatedAt    time.Time `json:"createdAt"`
     UpdatedAt    time.Time `json:"updatedAt"`
     LastLoginAt  *time.Time `json:"lastLoginAt,omitempty"`
+    // Note: MustReset removed - authboss handles password reset flow
 }
 
 var defaultDB *Database
@@ -380,7 +380,7 @@ func (d *Database) createTables() error {
     CREATE INDEX IF NOT EXISTS idx_user_roles_status ON user_roles(status);
     `
 
-    // Application Users table
+    // Application Users table (simplified for authboss)
     createUsersTable := `
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
@@ -391,7 +391,6 @@ func (d *Database) createTables() error {
         totp_secret TEXT,
         totp_last_code TEXT,
         recovery_codes TEXT,
-        must_reset BOOLEAN NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_login_at TEXT
@@ -1430,8 +1429,8 @@ func (d *Database) CreateUser(u *AppUser) error {
     u.UpdatedAt = now
 
     _, err := d.db.Exec(`
-        INSERT INTO users (username, email, password_hash, role, twofa_enabled, totp_secret, totp_last_code, recovery_codes, must_reset, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (username, email, password_hash, role, twofa_enabled, totp_secret, totp_last_code, recovery_codes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
         u.Username,
         u.Email,
@@ -1441,7 +1440,6 @@ func (d *Database) CreateUser(u *AppUser) error {
         u.TOTPSecret,
         u.TOTPLastCode,
         u.RecoveryCodes,
-        u.MustReset,
         u.CreatedAt.Format(time.RFC3339),
         u.UpdatedAt.Format(time.RFC3339),
     )
@@ -1454,14 +1452,14 @@ func (d *Database) GetUser(username string) (*AppUser, error) {
         return nil, fmt.Errorf("username is required")
     }
     row := d.db.QueryRow(`
-        SELECT username, email, password_hash, role, twofa_enabled, totp_secret, totp_last_code, recovery_codes, must_reset, created_at, updated_at, last_login_at
+        SELECT username, email, password_hash, role, twofa_enabled, totp_secret, totp_last_code, recovery_codes, created_at, updated_at, last_login_at
         FROM users WHERE username = ?
     `, username)
 
     var u AppUser
     var createdAtStr, updatedAtStr string
     var lastLogin sql.NullString
-    if err := row.Scan(&u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.TwoFAEnabled, &u.TOTPSecret, &u.TOTPLastCode, &u.RecoveryCodes, &u.MustReset, &createdAtStr, &updatedAtStr, &lastLogin); err != nil {
+    if err := row.Scan(&u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.TwoFAEnabled, &u.TOTPSecret, &u.TOTPLastCode, &u.RecoveryCodes, &createdAtStr, &updatedAtStr, &lastLogin); err != nil {
         return nil, err
     }
     if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil { u.CreatedAt = t }
@@ -1481,7 +1479,7 @@ func (d *Database) UpdateUser(u *AppUser) error {
     }
     u.UpdatedAt = time.Now()
     _, err := d.db.Exec(`
-        UPDATE users SET email = ?, role = ?, twofa_enabled = ?, totp_secret = ?, totp_last_code = ?, recovery_codes = ?, must_reset = ?, updated_at = ?
+        UPDATE users SET email = ?, role = ?, twofa_enabled = ?, totp_secret = ?, totp_last_code = ?, recovery_codes = ?, updated_at = ?
         WHERE username = ?
     `,
         u.Email,
@@ -1490,7 +1488,6 @@ func (d *Database) UpdateUser(u *AppUser) error {
         u.TOTPSecret,
         u.TOTPLastCode,
         u.RecoveryCodes,
-        u.MustReset,
         u.UpdatedAt.Format(time.RFC3339),
         u.Username,
     )
@@ -1526,14 +1523,7 @@ func (d *Database) SetUserLastLogin(username string, when time.Time) error {
     return err
 }
 
-// SetUserMustReset sets the must_reset flag for a user
-func (d *Database) SetUserMustReset(username string, mustReset bool) error {
-    if username == "" {
-        return fmt.Errorf("username is required")
-    }
-    _, err := d.db.Exec(`UPDATE users SET must_reset = ?, updated_at = ? WHERE username = ?`, mustReset, time.Now().Format(time.RFC3339), username)
-    return err
-}
+// Note: SetUserMustReset function removed - authboss handles password reset flow
 
 // ListUsers returns all users from users table
 func (d *Database) ListUsers() ([]AppUser, error) {

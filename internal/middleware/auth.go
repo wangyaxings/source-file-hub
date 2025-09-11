@@ -24,65 +24,60 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Public endpoints: health, login, default users, public API, and static files
-        if path == "/api/v1/health" || path == "/api/v1/healthz" ||
-            path == "/api/v1/web/health" || path == "/api/v1/web/healthz" ||
-            strings.HasPrefix(path, "/static/") ||
-            // Allow Authboss endpoints under /auth/ab/* without session
-            strings.HasPrefix(path, "/api/v1/web/auth/ab/") ||
-            strings.Contains(path, "/auth/users") ||
-            strings.Contains(path, "/api/v1/public") {
-            next.ServeHTTP(w, r)
-            return
-        }
+		// Public endpoints: health, default users, public API, static files, and authboss endpoints
+		if path == "/api/v1/health" || path == "/api/v1/healthz" ||
+			path == "/api/v1/web/health" || path == "/api/v1/web/healthz" ||
+			strings.HasPrefix(path, "/static/") ||
+			// Allow Authboss endpoints under /auth/ab/* without session
+			strings.HasPrefix(path, "/api/v1/web/auth/ab/") ||
+			// Allow default users endpoint (for frontend login page)
+			strings.Contains(path, "/auth/users") ||
+			strings.Contains(path, "/api/v1/public") {
+			next.ServeHTTP(w, r)
+			return
+		}
 
-        // Use Authboss session instead of Authorization header
-        if pid, ok := ab.GetSession(r, ab.SessionKey); ok && pid != "" {
-            // Load user from DB
-            var user *auth.User
-            if db := database.GetDatabase(); db != nil {
-                if au, err := db.GetUser(pid); err == nil && au != nil {
-                    // Check user status
-                    userRole, roleErr := db.GetUserRole(pid)
-                    if roleErr != nil {
-                        log.Printf("Warning: Failed to get user role for %s: %v", pid, roleErr)
-                    } else if userRole != nil {
-                        log.Printf("User %s has role status: %s", pid, userRole.Status)
-                        if userRole.Status == "suspended" {
-                            writeUnauthorizedResponse(w, "ACCOUNT_SUSPENDED")
-                            return
-                        }
-                        // Allow pending users to access basic functionality
-                        // They will be restricted by authorization middleware based on their role
-                    }
+		// Use Authboss session instead of Authorization header
+		if pid, ok := ab.GetSession(r, ab.SessionKey); ok && pid != "" {
+			// Load user from DB
+			var user *auth.User
+			if db := database.GetDatabase(); db != nil {
+				if au, err := db.GetUser(pid); err == nil && au != nil {
+					// Check user status
+					userRole, roleErr := db.GetUserRole(pid)
+					if roleErr != nil {
+						log.Printf("Warning: Failed to get user role for %s: %v", pid, roleErr)
+					} else if userRole != nil {
+						log.Printf("User %s has role status: %s", pid, userRole.Status)
+						if userRole.Status == "suspended" {
+							writeUnauthorizedResponse(w, "ACCOUNT_SUSPENDED")
+							return
+						}
+						// Allow pending users to access basic functionality
+						// They will be restricted by authorization middleware based on their role
+					}
 
-                    user = &auth.User{Username: au.Username, Role: au.Role, Email: au.Email, TwoFAEnabled: au.TwoFAEnabled}
-                    // Enforce must reset password if flagged
-                    if au.MustReset {
-                        // Allow change-password and auth endpoints
-                        if !(strings.HasPrefix(path, "/api/v1/web/auth/change-password") || strings.HasPrefix(path, "/api/v1/web/auth")) {
-                            writeUnauthorizedResponse(w, "PASSWORD_RESET_REQUIRED")
-                            return
-                        }
-                    }
-                } else {
-                    log.Printf("Warning: Failed to get user %s from database: %v", pid, err)
-                }
-            }
-            if user == nil {
-                log.Printf("Warning: User %s not found in database", pid)
-                writeUnauthorizedResponse(w, "User not found")
-                return
-            }
-            ctx := context.WithValue(r.Context(), "user", user)
-            r = r.WithContext(ctx)
-            w.Header().Set("X-User-Username", user.Username)
-            next.ServeHTTP(w, r)
-            return
-        }
+					user = &auth.User{Username: au.Username, Role: au.Role, Email: au.Email, TwoFAEnabled: au.TwoFAEnabled}
+					// Note: Password reset is now handled by authboss
+					// No need to check MustReset flag here
+				} else {
+					log.Printf("Warning: Failed to get user %s from database: %v", pid, err)
+				}
+			}
+			if user == nil {
+				log.Printf("Warning: User %s not found in database", pid)
+				writeUnauthorizedResponse(w, "User not found")
+				return
+			}
+			ctx := context.WithValue(r.Context(), "user", user)
+			r = r.WithContext(ctx)
+			w.Header().Set("X-User-Username", user.Username)
+			next.ServeHTTP(w, r)
+			return
+		}
 
-        writeUnauthorizedResponse(w, "Authentication required")
-    })
+		writeUnauthorizedResponse(w, "Authentication required")
+	})
 }
 
 // writeUnauthorizedResponse writes an unauthorized response payload
