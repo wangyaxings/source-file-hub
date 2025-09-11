@@ -24,24 +24,30 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   const [error, setError] = useState("")
   const [show2FASetup, setShow2FASetup] = useState(false)
   const [pendingUsername, setPendingUsername] = useState("")
+  const [loginStep, setLoginStep] = useState<'login' | '2fa'>('login')
 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
     setIsLoading(true)
+    setError("")
 
     try {
-      await apiClient.login(formData)
-      onLogin()
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Login failed"
-      
-      // 检查是否是2FA设置需要的错误
-      if (errorMessage === "2fa setup required") {
-        setPendingUsername(formData.username)
+      const result = await apiClient.login(formData)
+
+      if (result.status === 'success') {
+        onLogin()
+      }
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Login failed'
+
+      // 处理2FA相关错误
+      if (errorMessage.includes('2FA_REQUIRED')) {
+        setLoginStep('2fa')
+        setError("Please enter your 2FA verification code")
+      } else if (errorMessage.includes('2fa setup required')) {
         setShow2FASetup(true)
-        setError("Your account has 2FA enabled. Please complete the setup below.")
+        setError("Please complete 2FA setup")
       } else {
         setError(errorMessage)
       }
@@ -100,9 +106,11 @@ export function LoginForm({ onLogin }: LoginFormProps) {
 
           {showOtpInfo && (
             <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded">
-              If your account has 2FA enabled, you may be prompted to verify with a one-time code. After login, visit
-              <code className="px-1">/api/v1/web/auth/2fa/totp/validate</code> to enter your 2FA code or
-              set up via <code className="px-1">/api/v1/web/auth/2fa/totp/setup</code>.
+              If your account has 2FA enabled, you will be prompted for verification code.
+              <br />
+              <small>
+                After login, you can manage 2FA settings in your profile.
+              </small>
             </div>
           )}
 

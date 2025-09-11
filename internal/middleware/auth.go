@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -13,83 +14,158 @@ import (
 	ab "github.com/aarondl/authboss/v3"
 )
 
-// AuthMiddleware handles authentication and exposes public routes
+// AuthMiddleware 统一使用Authboss session认证
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// Always allow CORS preflight
+		// CORS预检请求直接放行
 		if r.Method == http.MethodOptions {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Public endpoints: health, default users, public API, static files, and authboss endpoints
-		if path == "/api/v1/health" || path == "/api/v1/healthz" ||
-			path == "/api/v1/web/health" || path == "/api/v1/web/healthz" ||
-			strings.HasPrefix(path, "/static/") ||
-			// Allow Authboss endpoints under /auth/ab/* without session
-			strings.HasPrefix(path, "/api/v1/web/auth/ab/") ||
-			// Allow default users endpoint (for frontend login page)
-			strings.Contains(path, "/auth/users") ||
-			strings.Contains(path, "/api/v1/public") {
+		// 公开端点：无需认证
+		if isPublicEndpoint(path) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Use Authboss session instead of Authorization header
-		if pid, ok := ab.GetSession(r, ab.SessionKey); ok && pid != "" {
-			// Load user from DB
-			var user *auth.User
-			if db := database.GetDatabase(); db != nil {
-				if au, err := db.GetUser(pid); err == nil && au != nil {
-					// Check user status
-					userRole, roleErr := db.GetUserRole(pid)
-					if roleErr != nil {
-						log.Printf("Warning: Failed to get user role for %s: %v", pid, roleErr)
-					} else if userRole != nil {
-						log.Printf("User %s has role status: %s", pid, userRole.Status)
-						if userRole.Status == "suspended" {
-							writeUnauthorizedResponse(w, "ACCOUNT_SUSPENDED")
-							return
-						}
-						// Allow pending users to access basic functionality
-						// They will be restricted by authorization middleware based on their role
-					}
-
-					user = &auth.User{Username: au.Username, Role: au.Role, Email: au.Email, TwoFAEnabled: au.TwoFAEnabled}
-					// Note: Password reset is now handled by authboss
-					// No need to check MustReset flag here
-				} else {
-					log.Printf("Warning: Failed to get user %s from database: %v", pid, err)
-				}
-			}
-			if user == nil {
-				log.Printf("Warning: User %s not found in database", pid)
-				writeUnauthorizedResponse(w, "User not found")
+		// 使用Authboss session验证
+		if username, ok := ab.GetSession(r, ab.SessionKey); ok && username != "" {
+			user, err := loadUserFromDatabase(username)
+			if err != nil {
+				log.Printf("Failed to load user %s: %v", username, err)
+				writeUnauthorizedResponse(w, "USER_NOT_FOUND")
 				return
 			}
+
+			// 检查用户状态
+			if err := checkUserStatus(user.Username); err != nil {
+				writeUnauthorizedResponse(w, err.Error())
+				return
+			}
+
+			// 将用户信息添加到请求上下文
 			ctx := context.WithValue(r.Context(), "user", user)
 			r = r.WithContext(ctx)
-			w.Header().Set("X-User-Username", user.Username)
+
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		writeUnauthorizedResponse(w, "Authentication required")
+		// 未认证请求
+		writeUnauthorizedResponse(w, "AUTHENTICATION_REQUIRED")
 	})
 }
 
-// writeUnauthorizedResponse writes an unauthorized response payload
-func writeUnauthorizedResponse(w http.ResponseWriter, message string) {
+// 检查是否为公开端点
+func isPublicEndpoint(path string) bool {
+	publicPaths := []string{
+		"/api/v1/health", "/api/v1/healthz",
+		"/api/v1/web/health", "/api/v1/web/healthz",
+		"/api/v1/web/auth/users", // 默认用户列表
+	}
+
+	for _, publicPath := range publicPaths {
+		if path == publicPath {
+			return true
+		}
+	}
+
+	// Authboss认证相关路径
+	if strings.HasPrefix(path, "/api/v1/web/auth/ab/") {
+		return true
+	}
+
+	// 静态文件
+	if strings.HasPrefix(path, "/static/") {
+		return true
+	}
+
+	return false
+}
+
+// 从数据库加载用户
+func loadUserFromDatabase(username string) (*auth.User, error) {
+	db := database.GetDatabase()
+	if db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
+
+	appUser, err := db.GetUser(username)
+	if err != nil {
+		return nil, err
+	}
+
+	return &auth.User{
+		Username:     appUser.Username,
+		Role:         appUser.Role,
+		Email:        appUser.Email,
+		TwoFAEnabled: appUser.TwoFAEnabled,
+	}, nil
+}
+
+// 检查用户状态
+func checkUserStatus(username string) error {
+	db := database.GetDatabase()
+	if db == nil {
+		return fmt.Errorf("database not available")
+	}
+
+	userRole, err := db.GetUserRole(username)
+	if err != nil {
+		// 为没有角色记录的用户创建默认记录
+		defaultRole := &database.UserRole{
+			UserID: username,
+			Role:   "viewer",
+			Status: "active",
+		}
+		if err := db.CreateOrUpdateUserRole(defaultRole); err != nil {
+			log.Printf("Warning: Failed to create default role for %s: %v", username, err)
+		}
+		return nil
+	}
+
+	if userRole.Status == "suspended" {
+		return fmt.Errorf("ACCOUNT_SUSPENDED")
+	}
+
+	// 自动激活pending状态的用户
+	if userRole.Status == "pending" {
+		userRole.Status = "active"
+		if err := db.CreateOrUpdateUserRole(userRole); err != nil {
+			log.Printf("Warning: Failed to activate user %s: %v", username, err)
+		}
+	}
+
+	return nil
+}
+
+// 写入未授权响应
+func writeUnauthorizedResponse(w http.ResponseWriter, errorType string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+
+	response := map[string]interface{}{
 		"success": false,
-		"error":   message,
-		"code":    "UNAUTHORIZED",
-	})
+		"error":   errorType,
+		"message": getErrorMessage(errorType),
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
-// writeHealthResponse responds with a structured health payload suitable for Operation Center
-// Note: health response is produced by handler; middleware only bypasses auth.
+// 获取错误信息
+func getErrorMessage(errorType string) string {
+	messages := map[string]string{
+		"AUTHENTICATION_REQUIRED": "Authentication required",
+		"USER_NOT_FOUND":          "User not found",
+		"ACCOUNT_SUSPENDED":       "Account suspended",
+	}
+
+	if msg, exists := messages[errorType]; exists {
+		return msg
+	}
+	return "Authentication failed"
+}

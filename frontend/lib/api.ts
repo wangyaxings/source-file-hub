@@ -158,50 +158,40 @@ class ApiClient {
     return !!this.currentUser
   }
 
-  // 认证相关
+  // 统一使用Authboss登录
   async login(data: LoginRequest): Promise<LoginResponse> {
-    // Use authboss login endpoint
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    }
-
-    const res = await fetch(`${this.baseUrl}/auth/ab/login`, {
+    const response = await fetch(`${this.baseUrl}/auth/ab/login`, {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
       body: JSON.stringify(data),
-      credentials: 'include', // Important: Include credentials for session cookies
+      credentials: 'include',
     })
 
-    if (res.status >= 300 && res.status < 400) {
-      // Authboss JSON redirect payload
-      const redir = await res.json().catch(() => ({} as any))
-      const loc: string | undefined = (redir as any)?.location
-      if (loc) {
-        // Follow redirect by calling target endpoint
-        let followEp = loc
-        if (followEp.startsWith(this.baseUrl)) followEp = followEp.substring(this.baseUrl.length)
-        else if (followEp.startsWith('/api/v1/web')) followEp = followEp.substring('/api/v1/web'.length)
-        await this.request(followEp, { method: 'GET' })
-      } else {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      const errorMessage = errorData.error || errorData.message || 'Login failed'
+
+      // 处理2FA相关错误
+      if (errorMessage.includes('otp') || errorMessage.includes('2fa')) {
+        throw new Error(`2FA_REQUIRED: ${errorMessage}`)
       }
-    } else if (!res.ok) {
-      // Try to surface JSON error
-      try {
-        const j = await res.json()
-        throw new Error(j.error || j.message || `HTTP ${res.status}: ${res.statusText}`)
-      } catch {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`)
-      }
+
+      throw new Error(errorMessage)
     }
 
-    // After Authboss login, session cookie is set; load current user
-    const me = await this.request<{ user: { username: string; role?: string; status?: string; permissions?: string[]; quota_daily?: number; quota_monthly?: number; two_fa?: boolean } }>(`/auth/me`)
-    if (me.success && me.data && (me.data as any).user) {
-      const u = (me.data as any).user
-      this.setUser({ username: u.username, role: u.role, status: (u as any).status, permissions: (u as any).permissions, quota_daily: (u as any).quota_daily, quota_monthly: (u as any).quota_monthly, two_fa: (u as any).two_fa })
-      return { status: 'success' }
+    const result = await response.json()
+
+    // Authboss成功响应处理
+    if (result.status === 'success') {
+      // 获取用户信息
+      const meResponse = await this.request<{ user: UserInfo }>('/auth/me')
+      if (meResponse.success && meResponse.data) {
+        this.setUser((meResponse.data as any).user)
+      }
+      return { status: 'success', location: result.location }
     }
 
     throw new Error('Login failed')
@@ -545,21 +535,33 @@ class ApiClient {
     }
   }
 
+  // 使用Authboss TOTP API
   async startTOTP(): Promise<{ secret: string; otpauth_url: string }> {
-    const resp = await this.request<{ secret: string; otpauth_url: string }>('/auth/2fa/totp/start', { method: 'POST' })
+    const resp = await this.request('/auth/ab/2fa/totp/setup', { method: 'POST' })
     return resp.data as any
   }
 
   async enableTOTP(code: string): Promise<void> {
-    await this.request('/auth/2fa/totp/enable', { method: 'POST', body: JSON.stringify({ code }) })
-    const me = await this.request<{ user: any }>('/auth/me')
-    if (me.success && (me.data as any)?.user) this.setUser(me.data!.user as any)
+    await this.request('/auth/ab/2fa/totp/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ code })
+    })
+
+    // 重新获取用户信息以更新2FA状态
+    const me = await this.request<{ user: UserInfo }>('/auth/me')
+    if (me.success && me.data) {
+      this.setUser((me.data as any).user)
+    }
   }
 
   async disableTOTP(): Promise<void> {
-    await this.request('/auth/2fa/disable', { method: 'POST' })
-    const me = await this.request<{ user: any }>('/auth/me')
-    if (me.success && (me.data as any)?.user) this.setUser(me.data!.user as any)
+    await this.request('/auth/ab/2fa/totp/remove', { method: 'POST' })
+
+    // 重新获取用户信息以更新2FA状态
+    const me = await this.request<{ user: UserInfo }>('/auth/me')
+    if (me.success && me.data) {
+      this.setUser((me.data as any).user)
+    }
   }
 }
 

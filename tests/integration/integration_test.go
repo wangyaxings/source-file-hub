@@ -3,91 +3,29 @@ package integration
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
 	"secure-file-hub/internal/auth"
+	"secure-file-hub/internal/handler"
 	"secure-file-hub/internal/server"
 	"secure-file-hub/tests/helpers"
 )
 
-// TestIntegration_UserRegistrationAndLogin tests complete user registration and login flow
-func TestIntegration_UserRegistrationAndLogin(t *testing.T) {
-	config := helpers.SetupTestEnvironment(t)
-	_ = config
-
-	// Create server
-	srv := server.New()
-	if srv == nil {
-		t.Fatal("Failed to create server")
-	}
-
-	// Test user registration
-	registrationData := map[string]string{
-		"username": "integrationuser",
-		"email":    "integration@example.com",
-		"password": "IntegrationPassword123!",
-	}
-
-	req := helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/register", registrationData, nil)
-	rr := httptest.NewRecorder()
-
-	srv.Router.ServeHTTP(rr, req)
-
-	// Verify registration response
-	response := helpers.AssertSuccessResponse(t, rr, http.StatusCreated)
-
-	if response["data"] == nil {
-		t.Error("Expected user data in registration response")
-	}
-
-	// Test user login
-	loginData := map[string]string{
-		"username": "integrationuser",
-		"password": "IntegrationPassword123!",
-	}
-
-	req = helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/login", loginData, nil)
-	rr = httptest.NewRecorder()
-
-	srv.Router.ServeHTTP(rr, req)
-
-	// Verify login response
-	response = helpers.AssertSuccessResponse(t, rr, http.StatusOK)
-
-	if response["data"] == nil {
-		t.Error("Expected login data in response")
-	}
-
-	// Extract token from response
-	loginDataMap, ok := response["data"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected login data to be a map")
-	}
-
-	token, ok := loginDataMap["token"].(string)
-	if !ok || token == "" {
-		t.Error("Expected token in login response")
-	}
-
-	// Test authenticated request
-	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/auth/me", nil, map[string]string{
-		"Authorization": "Bearer " + token,
+// setupTestServer creates a test server with proper configuration
+func setupTestServer(t *testing.T) *server.Server {
+	// Disable HTTPS redirect for tests
+	oldHTTPSRedirect := os.Getenv("DISABLE_HTTPS_REDIRECT")
+	os.Setenv("DISABLE_HTTPS_REDIRECT", "true")
+	t.Cleanup(func() {
+		if oldHTTPSRedirect == "" {
+			os.Unsetenv("DISABLE_HTTPS_REDIRECT")
+		} else {
+			os.Setenv("DISABLE_HTTPS_REDIRECT", oldHTTPSRedirect)
+		}
 	})
-	rr = httptest.NewRecorder()
 
-	srv.Router.ServeHTTP(rr, req)
-
-	// Verify authenticated response
-	response = helpers.AssertSuccessResponse(t, rr, http.StatusOK)
-
-	if response["data"] == nil {
-		t.Error("Expected user data in authenticated response")
-	}
-}
-
-// TestIntegration_FileUploadAndDownload tests complete file upload and download flow
-func TestIntegration_FileUploadAndDownload(t *testing.T) {
 	helpers.SetupTestEnvironment(t)
 
 	// Create server
@@ -95,6 +33,77 @@ func TestIntegration_FileUploadAndDownload(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+
+	// Register routes
+	handler.RegisterRoutes(srv.Router)
+
+	return srv
+}
+
+func TestIntegration_UserRegistrationAndLogin(t *testing.T) {
+	srv := setupTestServer(t)
+
+	// 创建测试用户
+	user := helpers.CreateTestUser(t, "testuser", "TestPassword123!", "viewer")
+
+	// 使用Authboss登录API
+	loginData := map[string]string{
+		"username": user.Username,
+		"password": "TestPassword123!",
+	}
+
+	req := helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/ab/login", loginData, nil)
+	rr := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rr, req)
+
+	// 调试信息
+	t.Logf("Response status: %d", rr.Code)
+	t.Logf("Response body: %s", rr.Body.String())
+	t.Logf("Response headers: %+v", rr.Header())
+
+	// 检查所有cookies
+	cookies := rr.Result().Cookies()
+	t.Logf("Cookies received: %d", len(cookies))
+	for i, cookie := range cookies {
+		t.Logf("Cookie %d: Name=%s, Value=%s", i, cookie.Name, cookie.Value)
+	}
+
+	// Authboss登录可能返回重定向或JSON响应
+	var sessionCookie *http.Cookie
+	// 检查session cookie是否设置（无论响应状态如何）
+	for _, cookie := range cookies {
+		if cookie.Name == "ab_session" {
+			sessionCookie = cookie
+			break
+		}
+	}
+
+	if sessionCookie == nil {
+		t.Error("Expected session cookie to be set")
+		return
+	}
+
+	t.Logf("Session cookie found: %s", sessionCookie.Value)
+
+	// 测试认证后的请求 - 直接使用session验证
+	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/auth/me", nil, nil)
+	req.AddCookie(sessionCookie)
+
+	rr = httptest.NewRecorder()
+	srv.Router.ServeHTTP(rr, req)
+
+	// 检查响应
+	t.Logf("Auth check response status: %d", rr.Code)
+	t.Logf("Auth check response body: %s", rr.Body.String())
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status 200 for authenticated request, got %d", rr.Code)
+	}
+}
+
+// TestIntegration_FileUploadAndDownload tests complete file upload and download flow
+func TestIntegration_FileUploadAndDownload(t *testing.T) {
+	srv := setupTestServer(t)
 
 	// Create test user
 	user := helpers.CreateTestUser(t, "fileuser", "password123", "admin")
@@ -152,14 +161,7 @@ func TestIntegration_FileUploadAndDownload(t *testing.T) {
 
 // TestIntegration_APIKeyManagement tests complete API key management flow
 func TestIntegration_APIKeyManagement(t *testing.T) {
-	config := helpers.SetupTestEnvironment(t)
-	_ = config
-
-	// Create server
-	srv := server.New()
-	if srv == nil {
-		t.Fatal("Failed to create server")
-	}
+	srv := setupTestServer(t)
 
 	// Create test user
 	user := helpers.CreateTestUser(t, "apikeyuser", "password123", "admin")
@@ -231,14 +233,7 @@ func TestIntegration_APIKeyManagement(t *testing.T) {
 
 // TestIntegration_UserManagement tests complete user management flow
 func TestIntegration_UserManagement(t *testing.T) {
-	config := helpers.SetupTestEnvironment(t)
-	_ = config
-
-	// Create server
-	srv := server.New()
-	if srv == nil {
-		t.Fatal("Failed to create server")
-	}
+	srv := setupTestServer(t)
 
 	// Create admin user
 	adminUser := helpers.CreateTestUser(t, "adminuser", "password123", "admin")
@@ -300,13 +295,7 @@ func TestIntegration_UserManagement(t *testing.T) {
 
 // TestIntegration_FileManagement tests complete file management flow
 func TestIntegration_FileManagement(t *testing.T) {
-	helpers.SetupTestEnvironment(t)
-
-	// Create server
-	srv := server.New()
-	if srv == nil {
-		t.Fatal("Failed to create server")
-	}
+	srv := setupTestServer(t)
 
 	// Create test user
 	user := helpers.CreateTestUser(t, "filemanager", "password123", "admin")
@@ -388,109 +377,61 @@ func TestIntegration_FileManagement(t *testing.T) {
 
 // TestIntegration_AuthenticationFlow tests complete authentication flow
 func TestIntegration_AuthenticationFlow(t *testing.T) {
-	config := helpers.SetupTestEnvironment(t)
-	_ = config
+	srv := setupTestServer(t)
 
-	// Create server
-	srv := server.New()
-	if srv == nil {
-		t.Fatal("Failed to create server")
-	}
+	// Create test user for this test
+	user := helpers.CreateTestUser(t, "authflowuser", "TestPassword123!", "viewer")
 
-	// Test user registration
-	registrationData := map[string]string{
-		"username": "authuser",
-		"email":    "auth@example.com",
-		"password": "AuthPassword123!",
-	}
-
-	req := helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/register", registrationData, nil)
-	rr := httptest.NewRecorder()
-
-	srv.Router.ServeHTTP(rr, req)
-
-	// Verify registration response
-	response := helpers.AssertSuccessResponse(t, rr, http.StatusCreated)
-
-	if response["data"] == nil {
-		t.Error("Expected user data in registration response")
-	}
-
-	// Test user login
+	// Test user login with Authboss
 	loginData := map[string]string{
-		"username": "authuser",
-		"password": "AuthPassword123!",
+		"username": user.Username,
+		"password": "TestPassword123!",
 	}
 
-	req = helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/login", loginData, nil)
-	rr = httptest.NewRecorder()
-
+	req := helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/ab/login", loginData, nil)
+	rr := httptest.NewRecorder()
 	srv.Router.ServeHTTP(rr, req)
 
 	// Verify login response
-	response = helpers.AssertSuccessResponse(t, rr, http.StatusOK)
-
-	if response["data"] == nil {
-		t.Error("Expected login data in response")
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rr.Code)
 	}
 
-	// Extract token from response
-	loginDataMap, ok := response["data"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected login data to be a map")
+	// Extract session cookie
+	cookies := rr.Result().Cookies()
+	var sessionCookie *http.Cookie
+	for _, cookie := range cookies {
+		if cookie.Name == "ab_session" {
+			sessionCookie = cookie
+			break
+		}
 	}
 
-	token, ok := loginDataMap["token"].(string)
-	if !ok || token == "" {
-		t.Error("Expected token in login response")
+	if sessionCookie == nil {
+		t.Error("Expected session cookie to be set")
+		return
 	}
 
-	// Test password change
-	changePasswordData := map[string]string{
-		"old_password": "AuthPassword123!",
-		"new_password": "NewAuthPassword123!",
-	}
-
-	req = helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/change-password", changePasswordData, map[string]string{
-		"Authorization": "Bearer " + token,
-	})
+	// Test authenticated request
+	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/auth/me", nil, nil)
+	req.AddCookie(sessionCookie)
 	rr = httptest.NewRecorder()
-
 	srv.Router.ServeHTTP(rr, req)
 
-	// Verify password change response
-	response = helpers.AssertSuccessResponse(t, rr, http.StatusOK)
+	helpers.AssertSuccessResponse(t, rr, http.StatusOK)
 
-	if response["data"] == nil {
-		t.Error("Expected password change data in response")
-	}
-
-	// Test logout
-	req = helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/logout", nil, map[string]string{
-		"Authorization": "Bearer " + token,
-	})
+	// Test logout with Authboss
+	req = helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/ab/logout", nil, nil)
+	req.AddCookie(sessionCookie)
 	rr = httptest.NewRecorder()
-
 	srv.Router.ServeHTTP(rr, req)
 
-	// Verify logout response
-	response = helpers.AssertSuccessResponse(t, rr, http.StatusOK)
-
-	if response["data"] == nil {
-		t.Error("Expected logout data in response")
-	}
+	helpers.AssertSuccessResponse(t, rr, http.StatusOK)
 }
 
 // TestIntegration_ErrorHandling tests error handling across the system
 func TestIntegration_ErrorHandling(t *testing.T) {
-	config := helpers.SetupTestEnvironment(t)
-	_ = config
-
-	// Create server
-	srv := server.New()
-	if srv == nil {
-		t.Fatal("Failed to create server")
-	}
+	srv := setupTestServer(t)
 
 	// Test invalid registration
 	invalidRegistrationData := map[string]string{
@@ -549,14 +490,7 @@ func TestIntegration_ErrorHandling(t *testing.T) {
 
 // TestIntegration_Performance tests system performance under load
 func TestIntegration_Performance(t *testing.T) {
-	config := helpers.SetupTestEnvironment(t)
-	_ = config
-
-	// Create server
-	srv := server.New()
-	if srv == nil {
-		t.Fatal("Failed to create server")
-	}
+	srv := setupTestServer(t)
 
 	// Test concurrent requests
 	concurrency := 50
@@ -604,14 +538,7 @@ func TestIntegration_Performance(t *testing.T) {
 
 // TestIntegration_DataConsistency tests data consistency across operations
 func TestIntegration_DataConsistency(t *testing.T) {
-	config := helpers.SetupTestEnvironment(t)
-	_ = config
-
-	// Create server
-	srv := server.New()
-	if srv == nil {
-		t.Fatal("Failed to create server")
-	}
+	srv := setupTestServer(t)
 
 	// Create test user
 	user := helpers.CreateTestUser(t, "consistencyuser", "password123", "admin")

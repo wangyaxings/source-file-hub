@@ -96,12 +96,27 @@ export default function HomePage() {
         setCurrentUser(user)
 
         // Check if user needs to set up 2FA
-        if (user && user.twoFAEnabled === false) {
-          // Check if user has a TOTP secret but hasn't enabled 2FA yet
+        if (user) {
           try {
-            const userDetails = await apiClient.request('/auth/me', { method: 'GET' })
-            if (userDetails.success && userDetails.data && userDetails.data.totpSecret && !userDetails.data.twoFAEnabled) {
-              setShowTwoFASetup(true)
+            // Use fetch directly to avoid private method access
+            const userDetails = await fetch('/api/v1/web/auth/me', {
+              method: 'GET',
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+            })
+
+            if (userDetails.ok) {
+              const data = await userDetails.json()
+              if (data.success && data.data && data.data.user) {
+                const userInfo = data.data.user
+                // Check if user has 2FA enabled but no TOTP secret (needs setup)
+                if (userInfo.two_fa_enabled && !userInfo.totp_secret) {
+                  setShowTwoFASetup(true)
+                }
+              }
             }
           } catch (error) {
             // Ignore errors when checking 2FA status
@@ -187,7 +202,24 @@ export default function HomePage() {
     }
     try {
       setIsChanging(true)
-      await apiClient.changePassword(oldPwd, newPwd)
+      // Use Authboss password change API
+      const response = await fetch('/api/v1/web/auth/ab/password', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          current_password: oldPwd,
+          new_password: newPwd,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || errorData.message || 'Password change failed')
+      }
       toast({ title: "Success", description: "Password changed successfully" })
       setShowChangePwd(false)
       setShowReLoginPrompt(true)

@@ -1,12 +1,7 @@
 package auth
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
-	"fmt"
-	"log"
-	"time"
 
 	"secure-file-hub/internal/database"
 
@@ -31,12 +26,7 @@ type LoginRequest struct {
 	OTP      string `json:"otp,omitempty"`
 }
 
-// LoginResponse represents a login response
-type LoginResponse struct {
-	Token     string   `json:"token"`
-	ExpiresIn int64    `json:"expires_in"` // seconds
-	User      UserInfo `json:"user"`
-}
+// LoginResponse removed - login now handled by Authboss
 
 // UserInfo is user information returned to clients
 type UserInfo struct {
@@ -48,14 +38,7 @@ type UserInfo struct {
 // Deprecated in-memory store retained for fallback during transition
 var userStore = map[string]*User{}
 
-// Active token store (simple in-memory; consider Redis for production)
-var tokenStore = map[string]*TokenInfo{}
-
-// TokenInfo represents token metadata
-type TokenInfo struct {
-	User      *User     `json:"user"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
+// TokenInfo and tokenStore removed - authentication now handled by Authboss
 
 func hashPassword(password string) string {
 	bytes, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -137,136 +120,16 @@ func SeedAdmin(password string) {
 	}
 }
 
-// generateToken creates a random token (fallback to timestamp if random fails)
-func generateToken() string {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		return fmt.Sprintf("fallback_%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(bytes)
-}
+// generateToken removed - authentication now handled by Authboss
 
 // getUserKey computes the key for the in-memory store
 func getUserKey(username string) string {
 	return username
 }
 
-// Authenticate validates credentials and returns a token
-func Authenticate(req *LoginRequest) (*LoginResponse, error) {
-	if req.Username == "" || req.Password == "" {
-		return nil, errors.New("username and password are required")
-	}
+// Authenticate removed - authentication now handled by Authboss
 
-	db := database.GetDatabase()
-	if db == nil {
-		return nil, errors.New("database not available")
-	}
-
-	// 1. 验证用户凭据
-	appUser, err := db.GetUser(req.Username)
-	if err != nil {
-		return nil, errors.New("user not found")
-	}
-	if !checkPassword(appUser.PasswordHash, req.Password) {
-		return nil, errors.New("invalid password")
-	}
-
-	// 2. 检查用户状态 - 关键修复点
-	userRole, err := db.GetUserRole(appUser.Username)
-	if err != nil {
-		// 如果没有 user_role 记录，为新用户创建默认记录
-		defaultRole := &database.UserRole{
-			UserID: appUser.Username,
-			Role:   appUser.Role, // 使用 users 表中的角色
-			Status: "active",     // 默认设为 active，而不是 pending
-		}
-
-		if err := db.CreateOrUpdateUserRole(defaultRole); err != nil {
-			log.Printf("Warning: Failed to create default user role for %s: %v", appUser.Username, err)
-		}
-		userRole = defaultRole
-	}
-
-	// 3. 检查用户状态
-	if userRole.Status == "suspended" {
-		return nil, errors.New("account suspended")
-	}
-
-	// 对于 pending 状态的用户，如果是管理员创建的用户，自动激活
-	if userRole.Status == "pending" {
-		// 自动将管理员创建的用户状态改为 active
-		userRole.Status = "active"
-		if err := db.CreateOrUpdateUserRole(userRole); err != nil {
-			log.Printf("Warning: Failed to activate user %s: %v", appUser.Username, err)
-		}
-	}
-
-	// 4. 处理 2FA 验证
-	if appUser.TwoFAEnabled {
-		// 如果2FA已启用但没有设置secret，用户需要完成设置
-		if appUser.TOTPSecret == "" {
-			return nil, errors.New("2fa setup required")
-		}
-
-		if req.OTP == "" {
-			return nil, errors.New("otp code required")
-		}
-		if ok := totp.Validate(req.OTP, appUser.TOTPSecret); !ok {
-			return nil, errors.New("invalid otp code")
-		}
-	}
-
-	// 5. 更新最后登录时间
-	_ = db.SetUserLastLogin(appUser.Username, time.Now())
-
-	// 6. 生成token
-	token := generateToken()
-	expiresAt := time.Now().Add(24 * time.Hour)
-
-	// Build runtime user for context
-	runtimeUser := &User{
-		Username:     appUser.Username,
-		Password:     appUser.PasswordHash,
-		Role:         appUser.Role,
-		Email:        appUser.Email,
-		TwoFAEnabled: appUser.TwoFAEnabled,
-	}
-	tokenStore[token] = &TokenInfo{User: runtimeUser, ExpiresAt: expiresAt}
-
-	return &LoginResponse{
-		Token:     token,
-		ExpiresIn: 24 * 60 * 60,
-		User:      UserInfo{Username: appUser.Username, Role: appUser.Role},
-	}, nil
-}
-
-// ValidateToken validates and returns the associated user
-func ValidateToken(token string) (*User, error) {
-	if token == "" {
-		return nil, errors.New("token is required")
-	}
-
-	tokenInfo, exists := tokenStore[token]
-	if !exists {
-		return nil, errors.New("invalid token")
-	}
-
-	if time.Now().After(tokenInfo.ExpiresAt) {
-		delete(tokenStore, token)
-		return nil, errors.New("token expired")
-	}
-
-	return tokenInfo.User, nil
-}
-
-// Logout deletes a token from the store
-func Logout(token string) error {
-	if token == "" {
-		return errors.New("token is required")
-	}
-	delete(tokenStore, token)
-	return nil
-}
+// ValidateToken and Logout removed - authentication now handled by Authboss
 
 // AddUser adds a new user (admin functionality)
 func AddUser(username, password string) error {

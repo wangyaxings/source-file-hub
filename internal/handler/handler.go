@@ -78,38 +78,34 @@ func convertToFileInfo(record database.FileRecord) FileInfo {
 	}
 }
 
-// RegisterRoutes 娉ㄥ唽鎵€鏈夎矾鐢?
 func RegisterRoutes(router *mux.Router) {
-	// 娣诲姞鍏ㄥ眬鍋ュ悍妫€鏌ヨ矾鐢憋紙涓嶉渶瑕佽璇侊紝渚夸簬绯荤粺鐩戞帶锛?
+	// 全局健康检查
 	router.HandleFunc("/api/v1/health", healthCheckHandler).Methods("GET")
-	// Alias for broader compatibility with common probes (e.g., Kubernetes)
 	router.HandleFunc("/api/v1/healthz", healthCheckHandler).Methods("GET")
 
-	// Web API鐗堟湰鍓嶇紑 (鍘熸湁鐨刉eb鐣岄潰API)
+	// Web API前缀
 	webAPI := router.PathPrefix("/api/v1/web").Subrouter()
 
-	// 认证相关路由（无需认证）
-	// Authboss handles /auth/* endpoints (mounted in server under /api/v1/web/auth/ab)
-	// Only provide additional endpoints for user info and default users
+	// ========= 认证相关路由 =========
+
+	// 基础认证信息（无需认证）
 	webAPI.HandleFunc("/auth/me", meHandler).Methods("GET")
 	webAPI.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
 
-	// 2FA endpoints (user self-service)
-	webAPI.HandleFunc("/auth/2fa/totp/start", middleware.RequireAuthorization(startTOTPHandler)).Methods("POST")
-	webAPI.HandleFunc("/auth/2fa/totp/enable", middleware.RequireAuthorization(enableTOTPHandler)).Methods("POST")
-	webAPI.HandleFunc("/auth/2fa/disable", middleware.RequireAuthorization(disableTOTPHandler)).Methods("POST")
-	// 2FA handled by Authboss TOTP under /auth/2fa/totp/*
+	// 自定义2FA endpoints（暂时保留，需要认证）
+	// 注意：这些将在第二阶段迁移到Authboss
+	// TODO: 实现这些2FA处理器函数
+	// webAPI.HandleFunc("/auth/2fa/totp/start", middleware.RequireAuthorization(startTOTPHandler)).Methods("POST")
+	// webAPI.HandleFunc("/auth/2fa/totp/enable", middleware.RequireAuthorization(enableTOTPHandler)).Methods("POST")
+	// webAPI.HandleFunc("/auth/2fa/disable", middleware.RequireAuthorization(disableTOTPHandler)).Methods("POST")
 
-	// Web API鏍逛俊鎭〉闈紙鏃犻渶璁よ瘉锛?
+	// ========= API信息和健康检查 =========
 	webAPI.HandleFunc("", apiInfoHandler).Methods("GET")
 	webAPI.HandleFunc("/", apiInfoHandler).Methods("GET")
-
-	// 鍋ュ悍妫€鏌ヨ矾鐢憋紙鏃犻渶璁よ瘉锛?
 	webAPI.HandleFunc("/health", healthCheckHandler).Methods("GET")
-	// Alias for web namespace
 	webAPI.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
 
-	// 鏂囦欢绠＄悊璺敱锛堥渶瑕乄eb璁よ瘉锛?
+	// ========= 文件管理路由 =========
 	webAPI.HandleFunc("/upload", middleware.RequireAuthorization(uploadFileHandler)).Methods("POST")
 	webAPI.HandleFunc("/files/list", listFilesHandler).Methods("GET")
 	webAPI.HandleFunc("/files/versions/{type}/{filename}", getFileVersionsHandler).Methods("GET")
@@ -117,54 +113,20 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/files/{id}/restore", middleware.RequireAuthorization(restoreFileHandler)).Methods("POST")
 	webAPI.HandleFunc("/files/{id}/purge", middleware.RequireAuthorization(purgeFileHandler)).Methods("DELETE")
 
-	// 鍥炴敹绔欑鐞?
+	// 回收站管理
 	webAPI.HandleFunc("/recycle-bin", getRecycleBinHandler).Methods("GET")
 	webAPI.HandleFunc("/recycle-bin/clear", middleware.RequireAuthorization(clearRecycleBinHandler)).Methods("DELETE")
 
-	// 缁熶竴鏂囦欢涓嬭浇璺敱锛堥渶瑕乄eb璁よ瘉锛?
+	// 统一文件下载
 	webFilesRouter := webAPI.PathPrefix("/files").Subrouter()
 	webFilesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
 
-	// Version artifacts read endpoints (no channels)
-	webAPI.HandleFunc("/versions/{type}/versions.json", webGetVersionsListHandler).Methods("GET")
-	webAPI.HandleFunc("/versions/{type}/{versionId}/manifest", webGetVersionManifestHandler).Methods("GET")
-	webAPI.HandleFunc("/versions/{type}/{versionId}/tags", middleware.RequireAuthorization(webUpdateVersionTagsHandler)).Methods("PATCH")
-
-	// 鏃ュ織鏌ヨ璺敱锛堥渶瑕乄eb璁よ瘉锛?
-	webAPI.HandleFunc("/logs/access", getAccessLogsHandler).Methods("GET")
-
-	// Packages (assets/others) web endpoints delegating to public handlers
-	webAPI.HandleFunc("/packages/upload/assets-zip", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
-		apiUploadAssetsZipHandler(w, r)
-	})).Methods("POST")
-	webAPI.HandleFunc("/packages/upload/others-zip", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
-		apiUploadOthersZipHandler(w, r)
-	})).Methods("POST")
-	webAPI.HandleFunc("/packages", func(w http.ResponseWriter, r *http.Request) {
-		apiListPackagesHandler(w, r)
-	}).Methods("GET")
-	webAPI.HandleFunc("/packages/{id}/remark", func(w http.ResponseWriter, r *http.Request) {
-		apiUpdatePackageRemarkHandler(w, r)
-	}).Methods("PATCH")
-
-	// Admin web routes (for frontend admin panel)
+	// 其他业务路由...
 	RegisterWebAdminRoutes(webAPI)
-
-	// =============================================================================
-	// Public API Routes (require API key authentication) - 娉ㄥ唽鍦ㄦ洿鍏蜂綋鐨勮矾寰?
-	// =============================================================================
 	RegisterAPIRoutes(router)
-
-	// =============================================================================
-	// Admin API Routes (require admin authentication)
-	// =============================================================================
 	RegisterAdminRoutes(router)
 
-	// =============================================================================
-	// Static Files
-	// =============================================================================
-
-	// 闈欐€佹枃浠舵湇鍔¤矾鐢?
+	// 静态文件
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
 }
 
@@ -401,9 +363,18 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 			payload["quota_daily"] = ur.QuotaDaily
 			payload["quota_monthly"] = ur.QuotaMonthly
 		}
+
+		// Get detailed user info including TOTP secret status
+		if appUser, err := db.GetUser(u.Username); err == nil {
+			payload["two_fa"] = appUser.TwoFAEnabled
+			payload["totp_secret"] = appUser.TOTPSecret != ""
+			payload["two_fa_enabled"] = appUser.TwoFAEnabled
+		}
 	}
-	// Include current 2FA state from context user
-	payload["two_fa"] = u.TwoFAEnabled
+	// Include current 2FA state from context user as fallback
+	if payload["two_fa"] == nil {
+		payload["two_fa"] = u.TwoFAEnabled
+	}
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
 		"user": payload,
 	}})
@@ -1276,70 +1247,5 @@ func fileSizeSafe(path string) int64 {
 	return 0
 }
 
-// startTOTPHandler starts TOTP setup for current user
-func startTOTPHandler(w http.ResponseWriter, r *http.Request) {
-	userCtx := r.Context().Value("user")
-	if userCtx == nil {
-		writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
-		return
-	}
-	u, ok := userCtx.(*auth.User)
-	if !ok {
-		writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
-		return
-	}
-	secret, otpauth, err := auth.StartTOTPSetup(u.Username, "Secure File Hub")
-	if err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
-		"secret":      secret,
-		"otpauth_url": otpauth,
-	}})
-}
-
-// enableTOTPHandler verifies code and enables 2FA
-func enableTOTPHandler(w http.ResponseWriter, r *http.Request) {
-	userCtx := r.Context().Value("user")
-	if userCtx == nil {
-		writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
-		return
-	}
-	u, ok := userCtx.(*auth.User)
-	if !ok {
-		writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
-		return
-	}
-	var body struct {
-		Code string `json:"code"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Code) == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "code required")
-		return
-	}
-	if err := auth.EnableTOTP(u.Username, body.Code); err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA enabled"})
-}
-
-// disableTOTPHandler disables 2FA for current user
-func disableTOTPHandler(w http.ResponseWriter, r *http.Request) {
-	userCtx := r.Context().Value("user")
-	if userCtx == nil {
-		writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
-		return
-	}
-	u, ok := userCtx.(*auth.User)
-	if !ok {
-		writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
-		return
-	}
-	if err := auth.DisableTOTP(u.Username); err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA disabled"})
-}
+// Custom 2FA handlers removed - now using Authboss TOTP module exclusively
+// This simplifies the architecture by having a single source of truth for 2FA functionality
