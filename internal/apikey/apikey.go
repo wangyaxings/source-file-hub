@@ -101,6 +101,11 @@ func ValidatePermissions(permissions []string) bool {
 		"admin":    true,
 	}
 
+	// Empty permissions are valid (no permissions granted)
+	if len(permissions) == 0 {
+		return true
+	}
+
 	for _, perm := range permissions {
 		if !validPermissions[perm] {
 			return false
@@ -119,4 +124,27 @@ func HasPermission(permissions []string, required string) bool {
 		}
 	}
 	return false
+}
+
+// GetValidPermissions returns the list of valid permissions
+func GetValidPermissions() []string {
+	return []string{"read", "download", "upload", "delete", "admin"}
+}
+
+// GenerateRandomBytes generates random bytes of specified length
+func GenerateRandomBytes(length int) ([]byte, error) {
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return nil, fmt.Errorf("failed to generate random bytes: %v", err)
+	}
+	return bytes, nil
+}
+
+// GenerateRandomString generates a random hex string of specified length
+func GenerateRandomString(length int) (string, error) {
+	bytes, err := GenerateRandomBytes(length / 2)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
 }
