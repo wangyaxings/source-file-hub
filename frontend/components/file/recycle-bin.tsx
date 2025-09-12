@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { apiClient } from "@/lib/api"
 import { formatFileSize, formatDate } from "@/lib/utils"
 import { useToast } from "@/lib/use-toast"
+import { usePermissions } from "@/lib/permissions"
 import {
   Trash2,
   RefreshCw,
@@ -44,7 +45,8 @@ interface RecycleBinItem {
 export function RecycleBin() {
   const { toast } = useToast()
   const currentUser = apiClient.getCurrentUser()
-  const isAdmin = currentUser?.role === 'administrator' || currentUser?.username === 'admin'
+  // 使用权限系统替代硬编码的角色检查
+  const { permissions } = usePermissions()
   const [items, setItems] = useState<RecycleBinItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [restoringFile, setRestoringFile] = useState<string | null>(null)
@@ -166,7 +168,7 @@ export function RecycleBin() {
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
               </Button>
-              {isAdmin && items.length > 0 && (
+              {permissions?.canAccessRecycle && items.length > 0 && (
                 <Button
                   variant="destructive"
                   size="sm"
@@ -254,7 +256,7 @@ export function RecycleBin() {
                       </td>
                       <td className="py-4">
                         <div className="flex items-center gap-2">
-                          {isAdmin && (
+                          {permissions?.canAccessRecycle && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -281,7 +283,7 @@ export function RecycleBin() {
       </Card>
 
       {/* Clear All Confirmation Dialog */}
-      {isAdmin && (
+      {permissions?.canAccessRecycle && (
       <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
         <DialogContent>
           <DialogHeader>
@@ -326,7 +328,7 @@ export function RecycleBin() {
       )}
 
       {/* Restore Confirmation Dialog */}
-      {isAdmin && (
+      {permissions?.canAccessRecycle && (
       <Dialog open={restoreDialog.isOpen} onOpenChange={(open) => setRestoreDialog({ isOpen: open, item: null })}>
         <DialogContent>
           <DialogHeader>

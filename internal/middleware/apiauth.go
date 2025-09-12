@@ -9,20 +9,21 @@ import (
 	"time"
 
 	"secure-file-hub/internal/apikey"
+	"secure-file-hub/internal/authz"
 	"secure-file-hub/internal/database"
 )
 
 // APIAuthContext key for storing API authentication info in request context
 type APIAuthContext struct {
-    APIKey     *database.APIKey
-    Role       string
-    KeyID      string
-    HasPermission func(permission string) bool
+	APIKey        *database.APIKey
+	Role          string
+	KeyID         string
+	HasPermission func(permission string) bool
 }
 
 const APIAuthContextKey = "api_auth"
 
-// APIKeyAuthMiddleware validates API key authentication
+// APIKeyAuthMiddleware validates API key authentication using Casbin
 func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract API key from Authorization header
@@ -78,11 +79,24 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-        // Create permission checker function
-        hasPermission := func(permission string) bool {
-            // Check API key permissions only (role-derived)
-            return apikey.HasPermission(apiKeyRecord.Permissions, permission)
-        }
+		// Use Casbin to check permission for this specific request
+		allowed, err := authz.CheckAPIKeyPermission(apiKeyRecord.ID, r.URL.Path, r.Method)
+		if err != nil {
+			log.Printf("Warning: Casbin permission check failed: %v", err)
+			writeAPIErrorResponse(w, http.StatusInternalServerError, "PERMISSION_CHECK_ERROR", "Permission check failed")
+			return
+		}
+
+		if !allowed {
+			writeAPIErrorResponse(w, http.StatusForbidden, "INSUFFICIENT_PERMISSIONS", "API key does not have permission for this operation")
+			return
+		}
+
+		// Create permission checker function (for backward compatibility)
+		hasPermission := func(permission string) bool {
+			// For backward compatibility, still check the old permission system
+			return apikey.HasPermission(apiKeyRecord.Permissions, permission)
+		}
 
 		// Update API key usage (async)
 		go func() {
@@ -92,12 +106,12 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 		}()
 
 		// Create auth context
-        authContext := &APIAuthContext{
-            APIKey:        apiKeyRecord,
-            Role:          apiKeyRecord.Role,
-            KeyID:         apiKeyRecord.ID,
-            HasPermission: hasPermission,
-        }
+		authContext := &APIAuthContext{
+			APIKey:        apiKeyRecord,
+			Role:          apiKeyRecord.Role,
+			KeyID:         apiKeyRecord.ID,
+			HasPermission: hasPermission,
+		}
 
 		// Add auth context to request
 		ctx := context.WithValue(r.Context(), APIAuthContextKey, authContext)
@@ -108,26 +122,11 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// RequirePermission middleware that requires specific permission
+// RequirePermission middleware is now deprecated - permissions are checked directly in APIKeyAuthMiddleware using Casbin
+// This function is kept for backward compatibility but does nothing
 func RequirePermission(permission string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get auth context
-			authCtx := GetAPIAuthContext(r)
-			if authCtx == nil {
-				writeAPIErrorResponse(w, http.StatusUnauthorized, "AUTH_REQUIRED", "Authentication required")
-				return
-			}
-
-			// Check permission
-			if !authCtx.HasPermission(permission) {
-				writeAPIErrorResponse(w, http.StatusForbidden, "INSUFFICIENT_PERMISSIONS",
-					"Insufficient permissions for this operation")
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
+		return next // Direct pass-through since permissions are now checked in APIKeyAuthMiddleware
 	}
 }
 
@@ -150,7 +149,7 @@ func APILoggingMiddleware(next http.Handler) http.Handler {
 		recorder := &ResponseRecorder{
 			ResponseWriter: w,
 			StatusCode:     http.StatusOK,
-			Size:          0,
+			Size:           0,
 		}
 
 		// Process request
@@ -162,11 +161,11 @@ func APILoggingMiddleware(next http.Handler) http.Handler {
 			if authCtx != nil {
 				db := database.GetDatabase()
 				if db != nil {
-                    logEntry := &database.APIUsageLog{
-                        APIKeyID:       authCtx.KeyID,
-                        UserID:         authCtx.Role,
-                        Endpoint:       r.URL.Path,
-                        Method:         r.Method,
+					logEntry := &database.APIUsageLog{
+						APIKeyID:       authCtx.KeyID,
+						UserID:         authCtx.Role,
+						Endpoint:       r.URL.Path,
+						Method:         r.Method,
 						IPAddress:      GetClientIP(r),
 						UserAgent:      r.Header.Get("User-Agent"),
 						StatusCode:     recorder.StatusCode,

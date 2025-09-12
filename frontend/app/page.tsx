@@ -18,6 +18,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { apiClient, type UserInfo } from "@/lib/api"
 import { APIKeyManagement } from "@/components/admin/api-key-management"
 import UserManagement from "@/components/admin/user-management"
+import { usePermissions } from "@/lib/permissions"
 import { useToast } from "@/lib/use-toast"
 import {
   LogOut,
@@ -88,39 +89,55 @@ export default function HomePage() {
   useEffect(() => {
     // Check if already logged in
     const checkAuth = async () => {
-      const authenticated = apiClient.isAuthenticated()
-      setIsAuthenticated(authenticated)
+      try {
+        // Always check server-side authentication status first
+        const userDetails = await fetch('/api/v1/web/auth/me', {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        })
 
-      if (authenticated) {
-        const user = apiClient.getCurrentUser()
-        setCurrentUser(user)
-
-        // Check if user needs to set up 2FA
-        if (user) {
-          try {
-            // Use fetch directly to avoid private method access
-            const userDetails = await fetch('/api/v1/web/auth/me', {
-              method: 'GET',
-              credentials: 'include',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-            })
-
-            if (userDetails.ok) {
-              const data = await userDetails.json()
-              if (data.success && data.data && data.data.user) {
-                const userInfo = data.data.user
-                // Check if user has 2FA enabled but no TOTP secret (needs setup)
-                if (userInfo.two_fa_enabled && !userInfo.totp_secret) {
-                  setShowTwoFASetup(true)
-                }
-              }
+        if (userDetails.ok) {
+          const data = await userDetails.json()
+          if (data.success && data.data && data.data.user) {
+            const userInfo = data.data.user
+            // Update local authentication state
+            apiClient.setUser(userInfo)
+            setIsAuthenticated(true)
+            setCurrentUser(userInfo)
+            
+            // Check if user has 2FA enabled but no TOTP secret (needs setup)
+            // Backend returns: two_fa (boolean), totp_secret (boolean indicating if secret exists)
+            const has2FAEnabled = userInfo.two_fa || userInfo.two_fa_enabled
+            const hasTOTPSecret = userInfo.totp_secret === true || userInfo.totp_secret === "true"
+            
+            if (has2FAEnabled && !hasTOTPSecret) {
+              console.log('User needs 2FA setup:', { userInfo, has2FAEnabled, hasTOTPSecret })
+              setShowTwoFASetup(true)
             }
-          } catch (error) {
-            // Ignore errors when checking 2FA status
+          } else {
+            // Server says not authenticated
+            setIsAuthenticated(false)
+            setCurrentUser(null)
+            apiClient.logout()
           }
+        } else {
+          // Server returned error - not authenticated
+          setIsAuthenticated(false)
+          setCurrentUser(null)
+          apiClient.logout()
+        }
+      } catch (error) {
+        console.error('Failed to check authentication status:', error)
+        // On error, fall back to local state
+        const authenticated = apiClient.isAuthenticated()
+        setIsAuthenticated(authenticated)
+        if (authenticated) {
+          const user = apiClient.getCurrentUser()
+          setCurrentUser(user)
         }
       }
 
@@ -158,6 +175,18 @@ export default function HomePage() {
     setIsAuthenticated(true)
     const user = apiClient.getCurrentUser()
     setCurrentUser(user)
+    
+    // Check if user needs 2FA setup
+    if (user) {
+      const has2FAEnabled = user.two_fa || user.two_fa_enabled
+      const hasTOTPSecret = user.totp_secret === true || user.totp_secret === "true"
+      
+      if (has2FAEnabled && !hasTOTPSecret) {
+        console.log('User needs 2FA setup after login:', { user, has2FAEnabled, hasTOTPSecret })
+        setShowTwoFASetup(true)
+      }
+    }
+    
     if (user && (user as any).status && (user as any).status !== 'active') {
       setUserNotice('Your account is pending approval. Limited access until an admin activates your account.')
     } else {
@@ -238,12 +267,20 @@ export default function HomePage() {
     setRefreshTrigger(prev => prev + 1)
   }
 
-  const isAdmin = currentUser?.role === 'administrator' || currentUser?.username === 'admin'
-  const enableUpload = isAdmin
-  const enablePackages = isAdmin
+  // 使用权限系统替代硬编码的角色检查
+  const { permissions, loading: permissionsLoading } = usePermissions()
+  
+  // 计算标签页数量
   const baseTabs = 2 // manage + recycle
-  const totalTabs = baseTabs + (enableUpload ? 1 : 0) + (enablePackages ? 1 : 0) + (isAdmin ? 1 : 0)
-  const tabsColsClass = totalTabs === 5 ? 'grid-cols-5' : totalTabs === 4 ? 'grid-cols-4' : totalTabs === 3 ? 'grid-cols-3' : 'grid-cols-2'
+  const totalTabs = baseTabs + 
+    (permissions?.canUpload ? 1 : 0) + 
+    (permissions?.canAccessPackages ? 1 : 0) + 
+    (permissions?.canManageAPIKeys ? 1 : 0) + 
+    (permissions?.canManageUsers ? 1 : 0)
+  const tabsColsClass = totalTabs === 6 ? 'grid-cols-6' : 
+                       totalTabs === 5 ? 'grid-cols-5' : 
+                       totalTabs === 4 ? 'grid-cols-4' : 
+                       totalTabs === 3 ? 'grid-cols-3' : 'grid-cols-2'
 
   if (isLoading) {
     return (
@@ -333,7 +370,7 @@ export default function HomePage() {
 
                   {showUserMenu && (
                     <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50">
-                      {isAdmin && (
+                      {permissions?.canManageAPIKeys && (
                         <>
                           {/* Admin quick links removed by request */}
                         </>
@@ -381,69 +418,78 @@ export default function HomePage() {
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Tabs value={mainTab} onValueChange={(v:any)=>setMainTab(v)} className="space-y-6">
           <TabsList className={`grid w-full ${tabsColsClass} max-w-3xl`}>
-            {enableUpload && (
+            {permissions?.canUpload && (
               <TabsTrigger value="upload" className="flex items-center gap-2">
                 <Upload className="h-4 w-4" />
                 Upload
               </TabsTrigger>
             )}
-            <TabsTrigger value="manage" className="flex items-center gap-2">
-              <Files className="h-4 w-4" />
-              Files
-            </TabsTrigger>
-            <TabsTrigger value="recycle" className="flex items-center gap-2">
-              <Trash2 className="h-4 w-4" />
-              Recycle
-            </TabsTrigger>
-            {enablePackages && (
+            {permissions?.canManageFiles && (
+              <TabsTrigger value="manage" className="flex items-center gap-2">
+                <Files className="h-4 w-4" />
+                Files
+              </TabsTrigger>
+            )}
+            {permissions?.canAccessRecycle && (
+              <TabsTrigger value="recycle" className="flex items-center gap-2">
+                <Trash2 className="h-4 w-4" />
+                Recycle
+              </TabsTrigger>
+            )}
+            {permissions?.canAccessPackages && (
               <TabsTrigger value="packages" className="flex items-center gap-2">
                 <Files className="h-4 w-4" />
                 Packages
               </TabsTrigger>
             )}
-            {isAdmin && (
-              <>
-                <TabsTrigger value="admin" className="flex items-center gap-2">
-                  <Shield className="h-4 w-4" />
-                  API Keys
-                </TabsTrigger>
-                <TabsTrigger value="admin-users" className="flex items-center gap-2">
-                  <User className="h-4 w-4" />
-                  Users
-                </TabsTrigger>
-              </>
+            {permissions?.canManageAPIKeys && (
+              <TabsTrigger value="admin" className="flex items-center gap-2">
+                <Shield className="h-4 w-4" />
+                API Keys
+              </TabsTrigger>
+            )}
+            {permissions?.canManageUsers && (
+              <TabsTrigger value="admin-users" className="flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Users
+              </TabsTrigger>
             )}
           </TabsList>
 
-          {enableUpload && (
+          {permissions?.canUpload && (
             <TabsContent value="upload" className="space-y-6">
               <FileUpload onUploadComplete={handleUploadComplete} />
             </TabsContent>
           )}
 
-          <TabsContent value="manage" className="space-y-6">
-            <FileList refreshTrigger={refreshTrigger} />
-          </TabsContent>
+          {permissions?.canManageFiles && (
+            <TabsContent value="manage" className="space-y-6">
+              <FileList refreshTrigger={refreshTrigger} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="recycle" className="space-y-6">
-            <RecycleBin />
-          </TabsContent>
+          {permissions?.canAccessRecycle && (
+            <TabsContent value="recycle" className="space-y-6">
+              <RecycleBin />
+            </TabsContent>
+          )}
 
-          {enablePackages && (
+          {permissions?.canAccessPackages && (
             <TabsContent value="packages" className="space-y-6">
               <PackagesPanel />
             </TabsContent>
           )}
 
-          {isAdmin && (
-            <>
-              <TabsContent value="admin" className="space-y-6">
-                <APIKeyManagement />
-              </TabsContent>
-              <TabsContent value="admin-users" className="space-y-6">
-                <UserManagement />
-              </TabsContent>
-            </>
+          {permissions?.canManageAPIKeys && (
+            <TabsContent value="admin" className="space-y-6">
+              <APIKeyManagement />
+            </TabsContent>
+          )}
+
+          {permissions?.canManageUsers && (
+            <TabsContent value="admin-users" className="space-y-6">
+              <UserManagement />
+            </TabsContent>
           )}
         </Tabs>
       </main>

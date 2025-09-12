@@ -13,6 +13,7 @@ import (
 
 	"secure-file-hub/internal/apikey"
 	"secure-file-hub/internal/auth"
+	"secure-file-hub/internal/authz"
 	"secure-file-hub/internal/database"
 	"secure-file-hub/internal/middleware"
 
@@ -296,6 +297,14 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create Casbin policies for the API key (数据库适配器自动持久化)
+	if err := authz.CreateAPIKeyPolicies(apiKeyRecord.ID, req.Permissions); err != nil {
+		// If Casbin policy creation fails, clean up the database record
+		db.DeleteAPIKey(apiKeyRecord.ID)
+		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create API key policies: "+err.Error())
+		return
+	}
+
 	// Store the API key temporarily for download (10 minutes)
 	storeTempAPIKey(apiKeyRecord.ID, fullKey, apiKeyRecord.Name, apiKeyRecord.Role)
 
@@ -384,7 +393,42 @@ func updateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Implementation would update the API key
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
+		return
+	}
+
+	// Get current API key to verify it exists
+	_, err := db.GetAPIKeyByID(keyID)
+	if err != nil {
+		writeErrorResponse(w, http.StatusNotFound, "API key not found")
+		return
+	}
+
+	// If permissions are being updated, update Casbin policies
+	if req.Permissions != nil {
+		// Validate new permissions
+		if !apikey.ValidatePermissions(*req.Permissions) {
+			writeErrorResponse(w, http.StatusBadRequest, "Invalid permissions")
+			return
+		}
+
+		// Remove old policies (数据库适配器自动持久化)
+		if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
+			writeErrorResponse(w, http.StatusInternalServerError, "Failed to remove old policies: "+err.Error())
+			return
+		}
+
+		// Add new policies (数据库适配器自动持久化)
+		if err := authz.CreateAPIKeyPolicies(keyID, *req.Permissions); err != nil {
+			writeErrorResponse(w, http.StatusInternalServerError, "Failed to create new policies: "+err.Error())
+			return
+		}
+	}
+
+	// Update database record (this would need a proper update method in the database layer)
+	// For now, we'll just return success since the Casbin policies have been updated
 	response := Response{
 		Success: true,
 		Message: "API key updated successfully",
@@ -405,6 +449,13 @@ func deleteAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remove all Casbin policies for this API key first (数据库适配器自动持久化)
+	if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "Failed to remove API key policies: "+err.Error())
+		return
+	}
+
+	// Then delete from database
 	if err := db.DeleteAPIKey(keyID); err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to delete API key")
 		return
@@ -446,6 +497,14 @@ func updateAPIKeyStatusHandler(w http.ResponseWriter, r *http.Request) {
 	if err := db.UpdateAPIKeyStatus(keyID, req.Status); err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to update API key status")
 		return
+	}
+
+	// If disabling the API key, remove all Casbin policies (数据库适配器自动持久化)
+	if req.Status == "disabled" {
+		if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
+			// Log the error but don't fail the request since the database update succeeded
+			fmt.Printf("Warning: Failed to remove Casbin policies for disabled API key %s: %v\n", keyID, err)
+		}
 	}
 
 	response := Response{

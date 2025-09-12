@@ -27,22 +27,22 @@ func RegisterAPIRoutes(router *mux.Router) {
 	apiV1.Use(middleware.APIKeyAuthMiddleware)
 	apiV1.Use(middleware.APILoggingMiddleware)
 
-	// File management endpoints
-	apiV1.Handle("/files", middleware.RequirePermission("read")(http.HandlerFunc(apiListFilesHandler))).Methods("GET")
-	apiV1.Handle("/files/{fileId}/download", middleware.RequirePermission("download")(http.HandlerFunc(apiDownloadFileHandler))).Methods("GET")
-	apiV1.Handle("/files/upload", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadFileHandler))).Methods("POST")
+	// File management endpoints (permissions now checked in APIKeyAuthMiddleware via Casbin)
+	apiV1.Handle("/files", http.HandlerFunc(apiListFilesHandler)).Methods("GET")
+	apiV1.Handle("/files/{fileId}/download", http.HandlerFunc(apiDownloadFileHandler)).Methods("GET")
+	apiV1.Handle("/files/upload", http.HandlerFunc(apiUploadFileHandler)).Methods("POST")
 
 	// Package upload endpoints (ZIP) for assets and others
-	apiV1.Handle("/upload/assets-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadAssetsZipHandler))).Methods("POST")
-	apiV1.Handle("/upload/others-zip", middleware.RequirePermission("upload")(http.HandlerFunc(apiUploadOthersZipHandler))).Methods("POST")
+	apiV1.Handle("/upload/assets-zip", http.HandlerFunc(apiUploadAssetsZipHandler)).Methods("POST")
+	apiV1.Handle("/upload/others-zip", http.HandlerFunc(apiUploadOthersZipHandler)).Methods("POST")
 
 	// Package list/update endpoints
-	apiV1.Handle("/packages", middleware.RequirePermission("read")(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
-	apiV1.Handle("/packages/{id}/remark", middleware.RequirePermission("upload")(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
+	apiV1.Handle("/packages", http.HandlerFunc(apiListPackagesHandler)).Methods("GET")
+	apiV1.Handle("/packages/{id}/remark", http.HandlerFunc(apiUpdatePackageRemarkHandler)).Methods("PATCH")
 
 	// File information endpoints
-	apiV1.Handle("/files/{fileId}", middleware.RequirePermission("read")(http.HandlerFunc(apiGetFileInfoHandler))).Methods("GET")
-	apiV1.Handle("/files/{fileId}/versions", middleware.RequirePermission("read")(http.HandlerFunc(apiGetFileVersionsHandler))).Methods("GET")
+	apiV1.Handle("/files/{fileId}", http.HandlerFunc(apiGetFileInfoHandler)).Methods("GET")
+	apiV1.Handle("/files/{fileId}/versions", http.HandlerFunc(apiGetFileVersionsHandler)).Methods("GET")
 
 	// API information
 	apiV1.HandleFunc("/info", apiPublicInfoHandler).Methods("GET")
@@ -545,7 +545,7 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
 		}
 	}
 
-    // No versioning for assets/others uploads
+	// No versioning for assets/others uploads
 
 	// Determine client IP
 	clientIP := r.Header.Get("X-Forwarded-For")
@@ -583,7 +583,7 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
 		size = fi.Size()
 	}
 
-    // No checksum/version manifest required for assets/others
+	// No checksum/version manifest required for assets/others
 
 	// Insert package record (preserve original filename in remark)
 	db := database.GetDatabase()
@@ -607,7 +607,7 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
 		log.Printf("Failed to insert package record: %v", err)
 	}
 
-    // Skip versioning artifacts for assets/others
+	// Skip versioning artifacts for assets/others
 
 	// Success response
 	writeAPIJSONResponse(w, http.StatusCreated, APIResponse{
@@ -622,9 +622,9 @@ func handleZipUpload(w http.ResponseWriter, r *http.Request, category string) {
 			"size":          size,
 			"ip":            clientIP,
 			"timestamp":     time.Now().UTC().Format(time.RFC3339),
-            // No version_id for assets/others
-        },
-    })
+			// No version_id for assets/others
+		},
+	})
 }
 
 // apiListPackagesHandler lists packages with filters and pagination
@@ -764,7 +764,6 @@ func apiListEndpointsHandler(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 
-
 	}
 
 	if authCtx.HasPermission("download") {
@@ -828,11 +827,11 @@ func apiListEndpointsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get user info for response
-    userInfo := map[string]interface{}{
-        "role":        authCtx.Role,
-        "key_id":      authCtx.KeyID,
-        "permissions": authCtx.APIKey.Permissions,
-    }
+	userInfo := map[string]interface{}{
+		"role":        authCtx.Role,
+		"key_id":      authCtx.KeyID,
+		"permissions": authCtx.APIKey.Permissions,
+	}
 
 	response := APIResponse{
 		Success: true,

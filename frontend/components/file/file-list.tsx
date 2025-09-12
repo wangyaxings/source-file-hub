@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { apiClient, type FileInfo } from "@/lib/api"
 import { formatFileSize, formatDate } from "@/lib/utils"
 import { useToast } from "@/lib/use-toast"
+import { usePermissions } from "@/lib/permissions"
 import {
   Files,
   Download,
@@ -63,7 +64,8 @@ export function FileList({ refreshTrigger }: FileListProps) {
   const [editTags, setEditTags] = useState<{ open: boolean; fileType: 'roadmap'|'recommendation'|null; versionId: string; text: string }>({ open: false, fileType: null, versionId: '', text: '' })
 
   const currentUser = apiClient.getCurrentUser()
-  const isAdmin = currentUser?.role === 'administrator' || currentUser?.username === 'admin'
+  // 使用权限系统替代硬编码的角色检查
+  const { permissions } = usePermissions()
 
   const loadFiles = async () => {
     setIsLoading(true)
@@ -256,7 +258,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
                     files={typeFiles}
                     onDownload={handleDownload}
                     onViewVersions={handleViewVersions}
-                    onDelete={isAdmin ? handleDelete : undefined}
+                    onDelete={permissions?.canManageFiles ? handleDelete : undefined}
                     downloadingFile={downloadingFile}
                   />
                 </CardContent>
@@ -272,7 +274,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
               files={filteredFiles.filter(f => f.isLatest)}
               onDownload={handleDownload}
               onViewVersions={handleViewVersions}
-              onDelete={isAdmin ? handleDelete : undefined}
+              onDelete={permissions?.canManageFiles ? handleDelete : undefined}
               downloadingFile={downloadingFile}
             />
           </CardContent>
@@ -333,7 +335,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
                               <Download className="h-4 w-4" />
                             </Button>
                           )}
-                          {isAdmin && (
+                          {permissions?.canManageFiles && (
                             <Button variant="ghost" size="sm" onClick={() => setEditTags({ open: true, fileType: versionsDialog.fileType, versionId: v.versionId, text: (v.tags||[]).join(', ') })} title="Edit tags">
                               <Settings className="h-4 w-4" /> Edit Tags
                             </Button>

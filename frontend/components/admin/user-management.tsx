@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/lib/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
+import { usePermissions } from "@/lib/permissions"
 
 type UserRow = {
   user_id: string
@@ -106,10 +107,9 @@ export default function UserManagement() {
   }
 
 
-  const isAdmin = mounted && (() => {
-    const cu = apiClient.getCurrentUser()
-    return cu?.role === 'administrator' || cu?.username === 'admin'
-  })()
+  // 使用权限系统替代硬编码的角色检查
+  const { permissions } = usePermissions()
+  const isAdmin = mounted && permissions?.canManageUsers
 
   if (!mounted) {
     return null

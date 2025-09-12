@@ -14,7 +14,7 @@ import (
 
 // Database manager struct
 type Database struct {
-    db *sql.DB
+	db *sql.DB
 }
 
 // FileStatus represents the status of a file
@@ -56,19 +56,19 @@ type RecycleBinItem struct {
 
 // APIKey represents an API key record
 type APIKey struct {
-    ID          string     `json:"id"`
-    Name        string     `json:"name"`
-    Description string     `json:"description,omitempty"`
-    KeyHash     string     `json:"-"`             // Never expose the hash
-    Key         string     `json:"key,omitempty"` // Only returned on creation
-    Role        string     `json:"role"`
-    Permissions []string   `json:"permissions"`
-    Status      string     `json:"status"` // active, disabled, expired
-    ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
-    UsageCount  int64      `json:"usageCount"`
-    LastUsedAt  *time.Time `json:"lastUsedAt,omitempty"`
-    CreatedAt   time.Time  `json:"createdAt"`
-    UpdatedAt   time.Time  `json:"updatedAt"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitempty"`
+	KeyHash     string     `json:"-"`             // Never expose the hash
+	Key         string     `json:"key,omitempty"` // Only returned on creation
+	Role        string     `json:"role"`
+	Permissions []string   `json:"permissions"`
+	Status      string     `json:"status"` // active, disabled, expired
+	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
+	UsageCount  int64      `json:"usageCount"`
+	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 // APIUsageLog represents an API usage log entry
@@ -92,31 +92,31 @@ type APIUsageLog struct {
 
 // UserRole represents user role and permissions
 type UserRole struct {
-    ID           int64     `json:"id"`
-    UserID       string    `json:"userId"`
-    Role         string    `json:"role"` // admin, user, api_user
-    Permissions  []string  `json:"permissions,omitempty"`
-    QuotaDaily   int64     `json:"quotaDaily"`   // -1 for unlimited
-    QuotaMonthly int64     `json:"quotaMonthly"` // -1 for unlimited
-    Status       string    `json:"status"`       // active, suspended, disabled
-    CreatedAt    time.Time `json:"createdAt"`
-    UpdatedAt    time.Time `json:"updatedAt"`
+	ID           int64     `json:"id"`
+	UserID       string    `json:"userId"`
+	Role         string    `json:"role"` // admin, user, api_user
+	Permissions  []string  `json:"permissions,omitempty"`
+	QuotaDaily   int64     `json:"quotaDaily"`   // -1 for unlimited
+	QuotaMonthly int64     `json:"quotaMonthly"` // -1 for unlimited
+	Status       string    `json:"status"`       // active, suspended, disabled
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 // AppUser represents an application user record (simplified for authboss)
 type AppUser struct {
-    Username     string    `json:"username"`
-    Email        string    `json:"email,omitempty"`
-    PasswordHash string    `json:"-"`
-    Role         string    `json:"role"` // viewer, administrator
-    TwoFAEnabled bool      `json:"twoFAEnabled"`
-    TOTPSecret   string    `json:"-"`
-    TOTPLastCode string    `json:"-"`
-    RecoveryCodes string   `json:"-"`
-    CreatedAt    time.Time `json:"createdAt"`
-    UpdatedAt    time.Time `json:"updatedAt"`
-    LastLoginAt  *time.Time `json:"lastLoginAt,omitempty"`
-    // Note: MustReset removed - authboss handles password reset flow
+	Username      string     `json:"username"`
+	Email         string     `json:"email,omitempty"`
+	PasswordHash  string     `json:"-"`
+	Role          string     `json:"role"` // viewer, administrator
+	TwoFAEnabled  bool       `json:"twoFAEnabled"`
+	TOTPSecret    string     `json:"-"`
+	TOTPLastCode  string     `json:"-"`
+	RecoveryCodes string     `json:"-"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+	LastLoginAt   *time.Time `json:"lastLoginAt,omitempty"`
+	// Note: MustReset removed - authboss handles password reset flow
 }
 
 var defaultDB *Database
@@ -128,10 +128,10 @@ func InitDatabase(dbPath string) error {
 		return fmt.Errorf("failed to create database directory: %v", err)
 	}
 
-    db, err := sql.Open("sqlite", dbPath)
-    if err != nil {
-        return fmt.Errorf("failed to open database: %v", err)
-    }
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %v", err)
+	}
 
 	// Enable foreign keys and WAL mode for better performance
 	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
@@ -142,15 +142,20 @@ func InitDatabase(dbPath string) error {
 		return fmt.Errorf("failed to enable WAL mode: %v", err)
 	}
 
-    defaultDB = &Database{db: db}
+	defaultDB = &Database{db: db}
 
-    // Perform lightweight schema migration for api_keys: user_id -> role
-    if err := defaultDB.migrateAPIKeysRoleColumn(); err != nil {
-        return fmt.Errorf("failed to migrate api_keys schema: %v", err)
-    }
+	// Perform lightweight schema migration for api_keys: user_id -> role
+	if err := defaultDB.migrateAPIKeysRoleColumn(); err != nil {
+		return fmt.Errorf("failed to migrate api_keys schema: %v", err)
+	}
 
 	if err := defaultDB.createTables(); err != nil {
 		return fmt.Errorf("failed to create tables: %v", err)
+	}
+
+	// 初始化Casbin策略数据
+	if err := defaultDB.initializeCasbinPolicies(); err != nil {
+		return fmt.Errorf("failed to initialize casbin policies: %v", err)
 	}
 
 	return nil
@@ -158,42 +163,42 @@ func InitDatabase(dbPath string) error {
 
 // migrateAPIKeysRoleColumn ensures api_keys table has 'role' column instead of legacy 'user_id'
 func (d *Database) migrateAPIKeysRoleColumn() error {
-    // Check if api_keys table exists
-    var count int
-    if err := d.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_keys'").Scan(&count); err != nil {
-        return err
-    }
-    if count == 0 {
-        // Table doesn't exist yet; nothing to migrate
-        return nil
-    }
+	// Check if api_keys table exists
+	var count int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_keys'").Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		// Table doesn't exist yet; nothing to migrate
+		return nil
+	}
 
-    // Check if 'role' column exists
-    var roleCol int
-    if err := d.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('api_keys') WHERE name='role'").Scan(&roleCol); err != nil {
-        return err
-    }
-    if roleCol > 0 {
-        // Already migrated
-        return nil
-    }
+	// Check if 'role' column exists
+	var roleCol int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('api_keys') WHERE name='role'").Scan(&roleCol); err != nil {
+		return err
+	}
+	if roleCol > 0 {
+		// Already migrated
+		return nil
+	}
 
-    // Legacy table detected: perform migration user_id -> role
-    tx, err := d.db.Begin()
-    if err != nil {
-        return err
-    }
-    defer func() {
-        if err != nil {
-            _ = tx.Rollback()
-        }
-    }()
+	// Legacy table detected: perform migration user_id -> role
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
 
-    steps := []string{
-        // Rename old table
-        "ALTER TABLE api_keys RENAME TO api_keys_old",
-        // Create new table with 'role' column
-        `CREATE TABLE api_keys (
+	steps := []string{
+		// Rename old table
+		"ALTER TABLE api_keys RENAME TO api_keys_old",
+		// Create new table with 'role' column
+		`CREATE TABLE api_keys (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             description TEXT,
@@ -207,32 +212,37 @@ func (d *Database) migrateAPIKeysRoleColumn() error {
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
-        // Copy data mapping user_id -> role
-        `INSERT INTO api_keys (id, name, description, key_hash, role, permissions, status, expires_at, usage_count, last_used_at, created_at, updated_at)
+		// Copy data mapping user_id -> role
+		`INSERT INTO api_keys (id, name, description, key_hash, role, permissions, status, expires_at, usage_count, last_used_at, created_at, updated_at)
          SELECT id, name, description, key_hash, user_id AS role, permissions, status, expires_at, usage_count, last_used_at, created_at, updated_at FROM api_keys_old`,
-        // Drop old table
-        "DROP TABLE api_keys_old",
-        // Recreate indexes
-        "CREATE INDEX IF NOT EXISTS idx_api_keys_role ON api_keys(role)",
-        "CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status)",
-        "CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)",
-    }
+		// Drop old table
+		"DROP TABLE api_keys_old",
+		// Recreate indexes
+		"CREATE INDEX IF NOT EXISTS idx_api_keys_role ON api_keys(role)",
+		"CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status)",
+		"CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)",
+	}
 
-    for _, stmt := range steps {
-        if _, err = tx.Exec(stmt); err != nil {
-            return fmt.Errorf("migration step failed: %v", err)
-        }
-    }
+	for _, stmt := range steps {
+		if _, err = tx.Exec(stmt); err != nil {
+			return fmt.Errorf("migration step failed: %v", err)
+		}
+	}
 
-    if err = tx.Commit(); err != nil {
-        return err
-    }
-    return nil
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetDatabase returns the default database instance
 func GetDatabase() *Database {
 	return defaultDB
+}
+
+// GetDB returns the underlying sql.DB instance
+func (d *Database) GetDB() *sql.DB {
+	return d.db
 }
 
 // createTables creates all necessary database tables
@@ -309,8 +319,8 @@ func (d *Database) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_audit_operation_time ON file_audit_logs(operation_time);
 	`
 
-    // API Keys table
-    createAPIKeysTable := `
+	// API Keys table
+	createAPIKeysTable := `
     CREATE TABLE IF NOT EXISTS api_keys (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -360,8 +370,8 @@ func (d *Database) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_api_usage_file_id ON api_usage_logs(file_id);
 	`
 
-    // User Roles table (enhance user management)
-    createUserRolesTable := `
+	// User Roles table (enhance user management)
+	createUserRolesTable := `
     CREATE TABLE IF NOT EXISTS user_roles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
@@ -380,8 +390,8 @@ func (d *Database) createTables() error {
     CREATE INDEX IF NOT EXISTS idx_user_roles_status ON user_roles(status);
     `
 
-    // Application Users table (simplified for authboss)
-    createUsersTable := `
+	// Application Users table (simplified for authboss)
+	createUsersTable := `
     CREATE TABLE IF NOT EXISTS users (
         username TEXT PRIMARY KEY,
         email TEXT,
@@ -419,8 +429,8 @@ func (d *Database) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_packages_timestamp ON packages(timestamp);
 	`
 
-    // Admin audit table
-    createAdminAuditTable := `
+	// Admin audit table
+	createAdminAuditTable := `
     CREATE TABLE IF NOT EXISTS admin_audit_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         actor TEXT NOT NULL,
@@ -436,12 +446,86 @@ func (d *Database) createTables() error {
     CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_logs(created_at);
     `
 
-    tables := []string{createFilesTable, createLogsTable, createAuditTable, createAPIKeysTable, createAPIUsageTable, createUserRolesTable, createUsersTable, createPackagesTable, createAdminAuditTable}
-    for _, table := range tables {
-        if _, err := d.db.Exec(table); err != nil {
-            return fmt.Errorf("failed to create table: %v", err)
-        }
-    }
+	// Casbin策略表
+	createCasbinTable := `
+	CREATE TABLE IF NOT EXISTS casbin_policies (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		ptype TEXT NOT NULL,
+		v0 TEXT,
+		v1 TEXT,
+		v2 TEXT,
+		v3 TEXT,
+		v4 TEXT,
+		v5 TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	
+	CREATE INDEX IF NOT EXISTS idx_casbin_ptype ON casbin_policies(ptype);
+	CREATE INDEX IF NOT EXISTS idx_casbin_v0 ON casbin_policies(v0);
+	CREATE INDEX IF NOT EXISTS idx_casbin_v1 ON casbin_policies(v1);
+	`
+
+	tables := []string{createFilesTable, createLogsTable, createAuditTable, createAPIKeysTable, createAPIUsageTable, createUserRolesTable, createUsersTable, createPackagesTable, createAdminAuditTable, createCasbinTable}
+	for _, table := range tables {
+		if _, err := d.db.Exec(table); err != nil {
+			return fmt.Errorf("failed to create table: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// initializeCasbinPolicies 初始化Casbin策略数据
+func (d *Database) initializeCasbinPolicies() error {
+	// 检查是否已有策略数据
+	var count int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM casbin_policies").Scan(&count); err != nil {
+		return err
+	}
+
+	// 如果已有数据，不重复初始化
+	if count > 0 {
+		return nil
+	}
+
+	// 初始化默认策略
+	policies := []struct {
+		ptype string
+		v0    string
+		v1    string
+		v2    string
+	}{
+		// 管理员权限 - 完全访问
+		{"p", "administrator", "/api/v1/web/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		{"p", "administrator", "/api/v1/admin/*", "(GET|POST|PUT|PATCH|DELETE)"},
+
+		// 查看者权限 - 只读访问
+		{"p", "viewer", "/api/v1/web/health*", "GET"},
+		{"p", "viewer", "/api/v1/web/", "GET"},
+		{"p", "viewer", "/api/v1/web/files/list", "GET"},
+		{"p", "viewer", "/api/v1/web/files/versions/*", "GET"},
+		{"p", "viewer", "/api/v1/web/files/*", "GET"},
+		{"p", "viewer", "/api/v1/web/recycle-bin", "GET"},
+		{"p", "viewer", "/api/v1/web/packages", "GET"},
+
+		// 权限检查API - 所有认证用户都可以使用
+		{"p", "administrator", "/api/v1/web/auth/check-permission", "POST"},
+		{"p", "administrator", "/api/v1/web/auth/check-permissions", "POST"},
+		{"p", "viewer", "/api/v1/web/auth/check-permission", "POST"},
+		{"p", "viewer", "/api/v1/web/auth/check-permissions", "POST"},
+	}
+
+	stmt, err := d.db.Prepare("INSERT INTO casbin_policies (ptype, v0, v1, v2) VALUES (?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, policy := range policies {
+		if _, err := stmt.Exec(policy.ptype, policy.v0, policy.v1, policy.v2); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -877,11 +961,6 @@ func (d *Database) scanFileRecords(rows *sql.Rows) ([]FileRecord, error) {
 	return records, nil
 }
 
-// GetDB returns the underlying sql.DB instance
-func (d *Database) GetDB() *sql.DB {
-	return d.db
-}
-
 // Close closes the database connection
 func (d *Database) Close() error {
 	if d.db != nil {
@@ -999,7 +1078,7 @@ func (d *Database) CreateAPIKey(apiKey *APIKey) error {
 
 	permissionsJSON, _ := json.Marshal(apiKey.Permissions)
 
-    query := `
+	query := `
     INSERT INTO api_keys (
         id, name, description, key_hash, role, permissions, status,
         expires_at, usage_count, created_at, updated_at
@@ -1011,18 +1090,71 @@ func (d *Database) CreateAPIKey(apiKey *APIKey) error {
 		expiresAtStr = sql.NullString{String: apiKey.ExpiresAt.Format(time.RFC3339), Valid: true}
 	}
 
-    _, err := d.db.Exec(query,
-        apiKey.ID, apiKey.Name, apiKey.Description, apiKey.KeyHash, apiKey.Role,
-        string(permissionsJSON), apiKey.Status, expiresAtStr, apiKey.UsageCount,
-        apiKey.CreatedAt.Format(time.RFC3339), apiKey.UpdatedAt.Format(time.RFC3339),
-    )
+	_, err := d.db.Exec(query,
+		apiKey.ID, apiKey.Name, apiKey.Description, apiKey.KeyHash, apiKey.Role,
+		string(permissionsJSON), apiKey.Status, expiresAtStr, apiKey.UsageCount,
+		apiKey.CreatedAt.Format(time.RFC3339), apiKey.UpdatedAt.Format(time.RFC3339),
+	)
 
 	return err
 }
 
+// GetAPIKeyByID retrieves an API key by its ID
+func (d *Database) GetAPIKeyByID(keyID string) (*APIKey, error) {
+	query := `
+    SELECT id, name, description, key_hash, role, permissions, status,
+           expires_at, usage_count, last_used_at, created_at, updated_at
+    FROM api_keys
+    WHERE id = ?
+    `
+
+	var apiKey APIKey
+	var permissionsJSON string
+	var expiresAtStr, lastUsedAtStr sql.NullString
+	var createdAtStr, updatedAtStr string
+
+	err := d.db.QueryRow(query, keyID).Scan(
+		&apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.KeyHash,
+		&apiKey.Role, &permissionsJSON, &apiKey.Status,
+		&expiresAtStr, &apiKey.UsageCount, &lastUsedAtStr,
+		&createdAtStr, &updatedAtStr,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse JSON permissions
+	if err := json.Unmarshal([]byte(permissionsJSON), &apiKey.Permissions); err != nil {
+		// Log the error but continue with empty permissions
+		fmt.Printf("Warning: failed to parse permissions JSON: %v\n", err)
+		apiKey.Permissions = []string{}
+	}
+
+	// Parse time strings
+	if createdAt, parseErr := time.Parse(time.RFC3339, createdAtStr); parseErr == nil {
+		apiKey.CreatedAt = createdAt
+	}
+	if updatedAt, parseErr := time.Parse(time.RFC3339, updatedAtStr); parseErr == nil {
+		apiKey.UpdatedAt = updatedAt
+	}
+	if expiresAtStr.Valid {
+		if expiresAt, parseErr := time.Parse(time.RFC3339, expiresAtStr.String); parseErr == nil {
+			apiKey.ExpiresAt = &expiresAt
+		}
+	}
+	if lastUsedAtStr.Valid {
+		if lastUsedAt, parseErr := time.Parse(time.RFC3339, lastUsedAtStr.String); parseErr == nil {
+			apiKey.LastUsedAt = &lastUsedAt
+		}
+	}
+
+	return &apiKey, nil
+}
+
 // GetAPIKeyByHash retrieves an API key by its hash
 func (d *Database) GetAPIKeyByHash(keyHash string) (*APIKey, error) {
-    query := `
+	query := `
     SELECT id, name, description, key_hash, role, permissions, status,
            expires_at, usage_count, last_used_at, created_at, updated_at
     FROM api_keys
@@ -1034,12 +1166,12 @@ func (d *Database) GetAPIKeyByHash(keyHash string) (*APIKey, error) {
 	var expiresAtStr, lastUsedAtStr sql.NullString
 	var createdAtStr, updatedAtStr string
 
-    err := d.db.QueryRow(query, keyHash).Scan(
-        &apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.KeyHash,
-        &apiKey.Role, &permissionsJSON, &apiKey.Status,
-        &expiresAtStr, &apiKey.UsageCount, &lastUsedAtStr,
-        &createdAtStr, &updatedAtStr,
-    )
+	err := d.db.QueryRow(query, keyHash).Scan(
+		&apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.KeyHash,
+		&apiKey.Role, &permissionsJSON, &apiKey.Status,
+		&expiresAtStr, &apiKey.UsageCount, &lastUsedAtStr,
+		&createdAtStr, &updatedAtStr,
+	)
 
 	if err != nil {
 		return nil, err
@@ -1075,7 +1207,7 @@ func (d *Database) GetAPIKeyByHash(keyHash string) (*APIKey, error) {
 
 // GetAPIKeysByUserID retrieves all API keys for a user
 func (d *Database) GetAPIKeysByRole(role string) ([]APIKey, error) {
-    query := `
+	query := `
     SELECT id, name, description, role, permissions, status,
            expires_at, usage_count, last_used_at, created_at, updated_at
     FROM api_keys
@@ -1083,7 +1215,7 @@ func (d *Database) GetAPIKeysByRole(role string) ([]APIKey, error) {
     ORDER BY created_at DESC
     `
 
-    rows, err := d.db.Query(query, role)
+	rows, err := d.db.Query(query, role)
 	if err != nil {
 		return nil, err
 	}
@@ -1096,11 +1228,11 @@ func (d *Database) GetAPIKeysByRole(role string) ([]APIKey, error) {
 		var expiresAtStr, lastUsedAtStr sql.NullString
 		var createdAtStr, updatedAtStr string
 
-        err := rows.Scan(
-            &apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.Role,
-            &permissionsJSON, &apiKey.Status, &expiresAtStr, &apiKey.UsageCount,
-            &lastUsedAtStr, &createdAtStr, &updatedAtStr,
-        )
+		err := rows.Scan(
+			&apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.Role,
+			&permissionsJSON, &apiKey.Status, &expiresAtStr, &apiKey.UsageCount,
+			&lastUsedAtStr, &createdAtStr, &updatedAtStr,
+		)
 
 		if err != nil {
 			log.Printf("Error scanning API key record: %v", err)
@@ -1139,7 +1271,7 @@ func (d *Database) GetAPIKeysByRole(role string) ([]APIKey, error) {
 
 // GetAllAPIKeys retrieves all API keys
 func (d *Database) GetAllAPIKeys() ([]APIKey, error) {
-    query := `
+	query := `
     SELECT id, name, description, role, permissions, status,
            expires_at, usage_count, last_used_at, created_at, updated_at
     FROM api_keys
@@ -1159,11 +1291,11 @@ func (d *Database) GetAllAPIKeys() ([]APIKey, error) {
 		var expiresAtStr, lastUsedAtStr sql.NullString
 		var createdAtStr, updatedAtStr string
 
-        err := rows.Scan(
-            &apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.Role,
-            &permissionsJSON, &apiKey.Status, &expiresAtStr, &apiKey.UsageCount,
-            &lastUsedAtStr, &createdAtStr, &updatedAtStr,
-        )
+		err := rows.Scan(
+			&apiKey.ID, &apiKey.Name, &apiKey.Description, &apiKey.Role,
+			&permissionsJSON, &apiKey.Status, &expiresAtStr, &apiKey.UsageCount,
+			&lastUsedAtStr, &createdAtStr, &updatedAtStr,
+		)
 
 		if err != nil {
 			log.Printf("Error scanning API key record: %v", err)
@@ -1416,142 +1548,152 @@ func (d *Database) GetUserRole(userID string) (*UserRole, error) {
 
 // CreateUser inserts a new application user. Caller must provide a hashed password.
 func (d *Database) CreateUser(u *AppUser) error {
-    if u == nil || u.Username == "" || u.PasswordHash == "" {
-        return fmt.Errorf("invalid user payload")
-    }
-    if u.Role == "" {
-        u.Role = "viewer"
-    }
-    now := time.Now()
-    if u.CreatedAt.IsZero() {
-        u.CreatedAt = now
-    }
-    u.UpdatedAt = now
+	if u == nil || u.Username == "" || u.PasswordHash == "" {
+		return fmt.Errorf("invalid user payload")
+	}
+	if u.Role == "" {
+		u.Role = "viewer"
+	}
+	now := time.Now()
+	if u.CreatedAt.IsZero() {
+		u.CreatedAt = now
+	}
+	u.UpdatedAt = now
 
-    _, err := d.db.Exec(`
+	_, err := d.db.Exec(`
         INSERT INTO users (username, email, password_hash, role, twofa_enabled, totp_secret, totp_last_code, recovery_codes, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
-        u.Username,
-        u.Email,
-        u.PasswordHash,
-        u.Role,
-        u.TwoFAEnabled,
-        u.TOTPSecret,
-        u.TOTPLastCode,
-        u.RecoveryCodes,
-        u.CreatedAt.Format(time.RFC3339),
-        u.UpdatedAt.Format(time.RFC3339),
-    )
-    return err
+		u.Username,
+		u.Email,
+		u.PasswordHash,
+		u.Role,
+		u.TwoFAEnabled,
+		u.TOTPSecret,
+		u.TOTPLastCode,
+		u.RecoveryCodes,
+		u.CreatedAt.Format(time.RFC3339),
+		u.UpdatedAt.Format(time.RFC3339),
+	)
+	return err
 }
 
 // GetUser retrieves a user by username.
 func (d *Database) GetUser(username string) (*AppUser, error) {
-    if username == "" {
-        return nil, fmt.Errorf("username is required")
-    }
-    row := d.db.QueryRow(`
+	if username == "" {
+		return nil, fmt.Errorf("username is required")
+	}
+	row := d.db.QueryRow(`
         SELECT username, email, password_hash, role, twofa_enabled, totp_secret, totp_last_code, recovery_codes, created_at, updated_at, last_login_at
         FROM users WHERE username = ?
     `, username)
 
-    var u AppUser
-    var createdAtStr, updatedAtStr string
-    var lastLogin sql.NullString
-    if err := row.Scan(&u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.TwoFAEnabled, &u.TOTPSecret, &u.TOTPLastCode, &u.RecoveryCodes, &createdAtStr, &updatedAtStr, &lastLogin); err != nil {
-        return nil, err
-    }
-    if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil { u.CreatedAt = t }
-    if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil { u.UpdatedAt = t }
-    if lastLogin.Valid {
-        if t, err := time.Parse(time.RFC3339, lastLogin.String); err == nil {
-            u.LastLoginAt = &t
-        }
-    }
-    return &u, nil
+	var u AppUser
+	var createdAtStr, updatedAtStr string
+	var lastLogin sql.NullString
+	if err := row.Scan(&u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.TwoFAEnabled, &u.TOTPSecret, &u.TOTPLastCode, &u.RecoveryCodes, &createdAtStr, &updatedAtStr, &lastLogin); err != nil {
+		return nil, err
+	}
+	if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+		u.CreatedAt = t
+	}
+	if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil {
+		u.UpdatedAt = t
+	}
+	if lastLogin.Valid {
+		if t, err := time.Parse(time.RFC3339, lastLogin.String); err == nil {
+			u.LastLoginAt = &t
+		}
+	}
+	return &u, nil
 }
 
 // UpdateUser updates mutable fields for a user (email, role, twofa flags, totp_secret, timestamps)
 func (d *Database) UpdateUser(u *AppUser) error {
-    if u == nil || u.Username == "" {
-        return fmt.Errorf("invalid user payload")
-    }
-    u.UpdatedAt = time.Now()
-    _, err := d.db.Exec(`
+	if u == nil || u.Username == "" {
+		return fmt.Errorf("invalid user payload")
+	}
+	u.UpdatedAt = time.Now()
+	_, err := d.db.Exec(`
         UPDATE users SET email = ?, role = ?, twofa_enabled = ?, totp_secret = ?, totp_last_code = ?, recovery_codes = ?, updated_at = ?
         WHERE username = ?
     `,
-        u.Email,
-        u.Role,
-        u.TwoFAEnabled,
-        u.TOTPSecret,
-        u.TOTPLastCode,
-        u.RecoveryCodes,
-        u.UpdatedAt.Format(time.RFC3339),
-        u.Username,
-    )
-    return err
+		u.Email,
+		u.Role,
+		u.TwoFAEnabled,
+		u.TOTPSecret,
+		u.TOTPLastCode,
+		u.RecoveryCodes,
+		u.UpdatedAt.Format(time.RFC3339),
+		u.Username,
+	)
+	return err
 }
 
 // UpdateUserPassword updates a user's password hash
 func (d *Database) UpdateUserPassword(username, passwordHash string) error {
-    if username == "" || passwordHash == "" {
-        return fmt.Errorf("username and password hash required")
-    }
-    _, err := d.db.Exec(`UPDATE users SET password_hash = ?, updated_at = ? WHERE username = ?`, passwordHash, time.Now().Format(time.RFC3339), username)
-    return err
+	if username == "" || passwordHash == "" {
+		return fmt.Errorf("username and password hash required")
+	}
+	_, err := d.db.Exec(`UPDATE users SET password_hash = ?, updated_at = ? WHERE username = ?`, passwordHash, time.Now().Format(time.RFC3339), username)
+	return err
 }
 
 // SetUser2FA sets 2FA status and optionally TOTP secret
 func (d *Database) SetUser2FA(username string, enabled bool, secret string) error {
-    if username == "" {
-        return fmt.Errorf("username is required")
-    }
-    _, err := d.db.Exec(`
+	if username == "" {
+		return fmt.Errorf("username is required")
+	}
+	_, err := d.db.Exec(`
         UPDATE users SET twofa_enabled = ?, totp_secret = ?, updated_at = ? WHERE username = ?
     `, enabled, secret, time.Now().Format(time.RFC3339), username)
-    return err
+	return err
 }
 
 // SetUserLastLogin updates the last_login_at timestamp
 func (d *Database) SetUserLastLogin(username string, when time.Time) error {
-    if username == "" {
-        return fmt.Errorf("username is required")
-    }
-    _, err := d.db.Exec(`UPDATE users SET last_login_at = ?, updated_at = ? WHERE username = ?`, when.Format(time.RFC3339), time.Now().Format(time.RFC3339), username)
-    return err
+	if username == "" {
+		return fmt.Errorf("username is required")
+	}
+	_, err := d.db.Exec(`UPDATE users SET last_login_at = ?, updated_at = ? WHERE username = ?`, when.Format(time.RFC3339), time.Now().Format(time.RFC3339), username)
+	return err
 }
 
 // Note: SetUserMustReset function removed - authboss handles password reset flow
 
 // ListUsers returns all users from users table
 func (d *Database) ListUsers() ([]AppUser, error) {
-    rows, err := d.db.Query(`
+	rows, err := d.db.Query(`
         SELECT username, email, password_hash, role, twofa_enabled, totp_secret, created_at, updated_at, last_login_at
         FROM users ORDER BY username ASC
     `)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    var users []AppUser
-    for rows.Next() {
-        var u AppUser
-        var createdAtStr, updatedAtStr string
-        var lastLogin sql.NullString
-        if err := rows.Scan(&u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.TwoFAEnabled, &u.TOTPSecret, &createdAtStr, &updatedAtStr, &lastLogin); err != nil {
-            return nil, err
-        }
-        if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil { u.CreatedAt = t }
-        if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil { u.UpdatedAt = t }
-        if lastLogin.Valid {
-            if t, err := time.Parse(time.RFC3339, lastLogin.String); err == nil { u.LastLoginAt = &t }
-        }
-        users = append(users, u)
-    }
-    return users, nil
+	var users []AppUser
+	for rows.Next() {
+		var u AppUser
+		var createdAtStr, updatedAtStr string
+		var lastLogin sql.NullString
+		if err := rows.Scan(&u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.TwoFAEnabled, &u.TOTPSecret, &createdAtStr, &updatedAtStr, &lastLogin); err != nil {
+			return nil, err
+		}
+		if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+			u.CreatedAt = t
+		}
+		if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil {
+			u.UpdatedAt = t
+		}
+		if lastLogin.Valid {
+			if t, err := time.Parse(time.RFC3339, lastLogin.String); err == nil {
+				u.LastLoginAt = &t
+			}
+		}
+		users = append(users, u)
+	}
+	return users, nil
 }
 
 // PackageRecord represents an uploaded package (assets/others)
@@ -1571,68 +1713,93 @@ type PackageRecord struct {
 
 // LogAdminAction appends an admin audit log entry
 func (d *Database) LogAdminAction(actor, targetUser, action string, details map[string]interface{}) error {
-    var detailsJSON []byte
-    var err error
-    if details != nil {
-        detailsJSON, err = json.Marshal(details)
-        if err != nil { detailsJSON = []byte("{}") }
-    } else {
-        detailsJSON = []byte("{}")
-    }
-    _, err = d.db.Exec(`
+	var detailsJSON []byte
+	var err error
+	if details != nil {
+		detailsJSON, err = json.Marshal(details)
+		if err != nil {
+			detailsJSON = []byte("{}")
+		}
+	} else {
+		detailsJSON = []byte("{}")
+	}
+	_, err = d.db.Exec(`
         INSERT INTO admin_audit_logs (actor, target_user, action, details, created_at)
         VALUES (?, ?, ?, ?, ?)
     `,
-        actor,
-        targetUser,
-        action,
-        string(detailsJSON),
-        time.Now().Format(time.RFC3339),
-    )
-    return err
+		actor,
+		targetUser,
+		action,
+		string(detailsJSON),
+		time.Now().Format(time.RFC3339),
+	)
+	return err
 }
 
 // AdminAuditLog represents admin operation audit entries
 type AdminAuditLog struct {
-    ID         int64     `json:"id"`
-    Actor      string    `json:"actor"`
-    TargetUser string    `json:"targetUser"`
-    Action     string    `json:"action"`
-    Details    string    `json:"details"`
-    CreatedAt  time.Time `json:"createdAt"`
+	ID         int64     `json:"id"`
+	Actor      string    `json:"actor"`
+	TargetUser string    `json:"targetUser"`
+	Action     string    `json:"action"`
+	Details    string    `json:"details"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // GetAdminAuditLogs returns audit logs by filters with pagination and total count
 func (d *Database) GetAdminAuditLogs(actor, target, action, since, until string, page, limit int) ([]AdminAuditLog, int, error) {
-    where := "WHERE 1=1"
-    args := []interface{}{}
-    if actor != "" { where += " AND actor = ?"; args = append(args, actor) }
-    if target != "" { where += " AND target_user = ?"; args = append(args, target) }
-    if action != "" { where += " AND action = ?"; args = append(args, action) }
-    if since != "" { where += " AND created_at >= ?"; args = append(args, since) }
-    if until != "" { where += " AND created_at <= ?"; args = append(args, until) }
+	where := "WHERE 1=1"
+	args := []interface{}{}
+	if actor != "" {
+		where += " AND actor = ?"
+		args = append(args, actor)
+	}
+	if target != "" {
+		where += " AND target_user = ?"
+		args = append(args, target)
+	}
+	if action != "" {
+		where += " AND action = ?"
+		args = append(args, action)
+	}
+	if since != "" {
+		where += " AND created_at >= ?"
+		args = append(args, since)
+	}
+	if until != "" {
+		where += " AND created_at <= ?"
+		args = append(args, until)
+	}
 
-    // Total count
-    var total int
-    row := d.db.QueryRow("SELECT COUNT(1) FROM admin_audit_logs "+where, args...)
-    if err := row.Scan(&total); err != nil { return nil, 0, err }
+	// Total count
+	var total int
+	row := d.db.QueryRow("SELECT COUNT(1) FROM admin_audit_logs "+where, args...)
+	if err := row.Scan(&total); err != nil {
+		return nil, 0, err
+	}
 
-    offset := (page-1) * limit
-    query := "SELECT id, actor, target_user, action, details, created_at FROM admin_audit_logs "+where+" ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    args2 := append([]interface{}{}, args...)
-    args2 = append(args2, limit, offset)
+	offset := (page - 1) * limit
+	query := "SELECT id, actor, target_user, action, details, created_at FROM admin_audit_logs " + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args2 := append([]interface{}{}, args...)
+	args2 = append(args2, limit, offset)
 
-    rows, err := d.db.Query(query, args2...)
-    if err != nil { return nil, 0, err }
-    defer rows.Close()
+	rows, err := d.db.Query(query, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
 
-    var items []AdminAuditLog
-    for rows.Next() {
-        var it AdminAuditLog
-        var createdAtStr string
-        if err := rows.Scan(&it.ID, &it.Actor, &it.TargetUser, &it.Action, &it.Details, &createdAtStr); err != nil { continue }
-        if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil { it.CreatedAt = t }
-        items = append(items, it)
-    }
-    return items, total, nil
+	var items []AdminAuditLog
+	for rows.Next() {
+		var it AdminAuditLog
+		var createdAtStr string
+		if err := rows.Scan(&it.ID, &it.Actor, &it.TargetUser, &it.Action, &it.Details, &createdAtStr); err != nil {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+			it.CreatedAt = t
+		}
+		items = append(items, it)
+	}
+	return items, total, nil
 }

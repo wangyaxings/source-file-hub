@@ -92,6 +92,10 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/auth/me", meHandler).Methods("GET")
 	webAPI.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
 
+	// 权限检查API
+	webAPI.HandleFunc("/auth/check-permission", middleware.RequireAuthorization(checkPermissionHandler)).Methods("POST")
+	webAPI.HandleFunc("/auth/check-permissions", middleware.RequireAuthorization(checkMultiplePermissionsHandler)).Methods("POST")
+
 	// 自定义2FA endpoints（暂时保留，需要认证）
 	// 注意：这些将在第二阶段迁移到Authboss
 	// TODO: 实现这些2FA处理器函数
@@ -107,18 +111,24 @@ func RegisterRoutes(router *mux.Router) {
 
 	// ========= 文件管理路由 =========
 	webAPI.HandleFunc("/upload", middleware.RequireAuthorization(uploadFileHandler)).Methods("POST")
-	webAPI.HandleFunc("/files/list", listFilesHandler).Methods("GET")
-	webAPI.HandleFunc("/files/versions/{type}/{filename}", getFileVersionsHandler).Methods("GET")
+	webAPI.HandleFunc("/files/list", middleware.RequireAuthorization(listFilesHandler)).Methods("GET")
+	webAPI.HandleFunc("/files/versions/{type}/{filename}", middleware.RequireAuthorization(getFileVersionsHandler)).Methods("GET")
 	webAPI.HandleFunc("/files/{id}/delete", middleware.RequireAuthorization(deleteFileHandler)).Methods("DELETE")
 	webAPI.HandleFunc("/files/{id}/restore", middleware.RequireAuthorization(restoreFileHandler)).Methods("POST")
 	webAPI.HandleFunc("/files/{id}/purge", middleware.RequireAuthorization(purgeFileHandler)).Methods("DELETE")
 
+	// ========= 版本管理路由 =========
+	webAPI.HandleFunc("/versions/{type}/versions.json", middleware.RequireAuthorization(webGetVersionsListHandler)).Methods("GET")
+	webAPI.HandleFunc("/versions/{type}/{versionId}/manifest", middleware.RequireAuthorization(webGetVersionManifestHandler)).Methods("GET")
+	webAPI.HandleFunc("/versions/{type}/{versionId}/tags", middleware.RequireAuthorization(webUpdateVersionTagsHandler)).Methods("PUT")
+
 	// 回收站管理
-	webAPI.HandleFunc("/recycle-bin", getRecycleBinHandler).Methods("GET")
+	webAPI.HandleFunc("/recycle-bin", middleware.RequireAuthorization(getRecycleBinHandler)).Methods("GET")
 	webAPI.HandleFunc("/recycle-bin/clear", middleware.RequireAuthorization(clearRecycleBinHandler)).Methods("DELETE")
 
 	// 统一文件下载
 	webFilesRouter := webAPI.PathPrefix("/files").Subrouter()
+	webFilesRouter.Use(middleware.Authorize())
 	webFilesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
 
 	// Packages web endpoints (delegate to API handlers)

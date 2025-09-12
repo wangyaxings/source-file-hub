@@ -32,6 +32,8 @@ export interface UserInfo {
   quota_daily?: number
   quota_monthly?: number
   two_fa?: boolean
+  two_fa_enabled?: boolean
+  totp_secret?: boolean | string
 }
 
 
@@ -96,7 +98,6 @@ class ApiClient {
           throw new Error('Unauthorized')
         }
 
-        // 灏濊瘯瑙ｆ瀽閿欒鍝嶅簲
         try {
           const errorData = await response.json()
           throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`)
@@ -105,7 +106,30 @@ class ApiClient {
         }
       }
 
-      const data = await response.json()
+      // Check if response has content before trying to parse JSON
+      const contentType = response.headers.get('content-type')
+      let data: any = null
+      
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          data = await response.json()
+        } catch (parseError) {
+          // If JSON parsing fails, check if response is empty
+          const text = await response.text()
+          if (text.trim() === '') {
+            // Empty response - treat as success for some endpoints
+            return { success: true, data: undefined } as any
+          }
+          throw new Error(`Invalid JSON response: ${parseError}`)
+        }
+      } else {
+        // Non-JSON response - read as text
+        const text = await response.text()
+        if (text.trim() === '') {
+          return { success: true, data: undefined } as any
+        }
+        throw new Error(`Expected JSON response but got: ${contentType}`)
+      }
 
       if (typeof (data?.success) === 'boolean') {
         if (!data.success) {
@@ -144,6 +168,10 @@ class ApiClient {
     return this.currentUser
   }
 
+  isAuthenticated(): boolean {
+    return this.currentUser !== null
+  }
+
   logout() {
     // Clear local user state - session cookie will be cleared by authboss
     this.currentUser = null
@@ -151,11 +179,6 @@ class ApiClient {
       localStorage.removeItem('currentUser')
       // Note: No longer managing token in localStorage
     }
-  }
-
-  isAuthenticated(): boolean {
-    // Cookie-session based; consider currentUser as the source of truth
-    return !!this.currentUser
   }
 
   // 统一使用Authboss登录
@@ -553,6 +576,9 @@ class ApiClient {
   // 使用Authboss TOTP API
   async startTOTP(): Promise<{ secret: string; otpauth_url: string }> {
     const resp = await this.request('/auth/ab/2fa/totp/setup', { method: 'POST' })
+    if (!resp.data) {
+      throw new Error('Failed to get TOTP setup data from server')
+    }
     return resp.data as any
   }
 
