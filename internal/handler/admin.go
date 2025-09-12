@@ -870,10 +870,8 @@ func approveUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Audit
-	if db != nil {
-		actor := getActor(r)
-		_ = db.LogAdminAction(actor, userID, "approve_user", nil)
-	}
+	actor := getActor(r)
+	_ = db.LogAdminAction(actor, userID, "approve_user", nil)
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User approved"})
 }
 
@@ -889,10 +887,8 @@ func suspendUserHandler(w http.ResponseWriter, r *http.Request) {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to suspend user")
 		return
 	}
-	if db != nil {
-		actor := getActor(r)
-		_ = db.LogAdminAction(actor, userID, "suspend_user", nil)
-	}
+	actor := getActor(r)
+	_ = db.LogAdminAction(actor, userID, "suspend_user", nil)
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User suspended"})
 }
 
@@ -908,10 +904,8 @@ func disableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to disable 2FA")
 		return
 	}
-	if db != nil {
-		actor := getActor(r)
-		_ = db.LogAdminAction(actor, userID, "disable_2fa", nil)
-	}
+	actor := getActor(r)
+	_ = db.LogAdminAction(actor, userID, "disable_2fa", nil)
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA disabled"})
 }
 
@@ -945,10 +939,8 @@ func enableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log admin action
-	if db != nil {
-		actor := getActor(r)
-		_ = db.LogAdminAction(actor, userID, "enable_2fa", nil)
-	}
+	actor := getActor(r)
+	_ = db.LogAdminAction(actor, userID, "enable_2fa", nil)
 
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA enabled. User will be prompted to complete setup on next login."})
 }
@@ -995,16 +987,14 @@ func updateUserRoleHandler(w http.ResponseWriter, r *http.Request) {
 		u.Role = userRole.Role
 		_ = db.UpdateUser(u)
 	}
-	if db != nil {
-		actor := getActor(r)
-		_ = db.LogAdminAction(actor, userID, "update_role", map[string]interface{}{
-			"role":          userRole.Role,
-			"permissions":   userRole.Permissions,
-			"quota_daily":   userRole.QuotaDaily,
-			"quota_monthly": userRole.QuotaMonthly,
-			"status":        userRole.Status,
-		})
-	}
+	actor := getActor(r)
+	_ = db.LogAdminAction(actor, userID, "update_role", map[string]interface{}{
+		"role":          userRole.Role,
+		"permissions":   userRole.Permissions,
+		"quota_daily":   userRole.QuotaDaily,
+		"quota_monthly": userRole.QuotaMonthly,
+		"status":        userRole.Status,
+	})
 
 	response := Response{
 		Success: true,
@@ -1131,13 +1121,11 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	// Create/Update user role record as active
 	_ = db.CreateOrUpdateUserRole(&database.UserRole{UserID: req.Username, Role: req.Role, Status: "active"})
 	// Audit
-	if db != nil {
-		actor := getActor(r)
-		_ = db.LogAdminAction(actor, req.Username, "create_user", map[string]interface{}{
-			"role": req.Role,
-			// Note: must_reset removed - authboss handles password reset flow
-		})
-	}
+	actor := getActor(r)
+	_ = db.LogAdminAction(actor, req.Username, "create_user", map[string]interface{}{
+		"role": req.Role,
+		// Note: must_reset removed - authboss handles password reset flow
+	})
 
 	writeJSONResponse(w, http.StatusOK, Response{
 		Success: true,
@@ -1290,10 +1278,8 @@ func resetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	// Note: Password reset flow is now handled by authboss
 	// No need to force password reset flag
 
-	if db != nil {
-		actor := getActor(r)
-		_ = db.LogAdminAction(actor, userID, "reset_password", nil)
-	}
+	actor := getActor(r)
+	_ = db.LogAdminAction(actor, userID, "reset_password", nil)
 
 	writeJSONResponse(w, http.StatusOK, Response{
 		Success: true,
