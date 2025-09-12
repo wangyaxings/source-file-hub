@@ -122,46 +122,38 @@ timeout /t 5 /nobreak >nul
 
 REM Check backend status (HTTPS)
 echo [INFO] Checking backend status (HTTPS)...
-set "backend_status=0"
-for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "backend_status=%%i"
-if "%backend_status%"=="200" (
-    echo [OK] Backend service is running
+netstat -an | findstr ":8443" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Backend service failed to start properly
+    echo [INFO] Check logs\backend.log for details
 ) else (
-    echo [WARNING] Backend may still be starting... (Status: %backend_status%)
-    timeout /t 5 /nobreak >nul
-    for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://localhost:8443/api/v1/health' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "backend_status=%%i"
-    if not "%backend_status%"=="200" (
-        echo [ERROR] Backend service failed to start properly
-        echo [INFO] Check logs\backend.log for details
-    ) else (
-        echo [OK] Backend service is now running
-    )
+    echo [OK] Backend service is running on port 8443
 )
 
 REM Start frontend service
 echo [INFO] Starting frontend service...
 cd frontend
-start "FileServer Frontend" /min cmd /c "cd /d %cd% && set BACKEND_URL=%BACKEND_URL% && yarn dev > ..\logs\frontend.log 2>&1"
+start "FileServer Frontend" /min cmd /c "cd /d %cd% && set BACKEND_URL=%BACKEND_URL% && set NODE_TLS_REJECT_UNAUTHORIZED=0 && node server.js > ..\logs\frontend.log 2>&1"
 cd ..
 echo [INFO] Waiting for frontend to start...
 timeout /t 8 /nobreak >nul
 
 REM Check if frontend is running (HTTPS)
 echo [INFO] Checking frontend status (HTTPS)...
-for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:30000' -TimeoutSec 10).StatusCode } catch { 0 }"') do set "frontend_status=%%i"
-if "%frontend_status%"=="200" (
-    echo [OK] Frontend service is running (HTTPS)
-) else (
-    echo [WARNING] Frontend may still be starting... (Status: %frontend_status%)
+netstat -an | findstr ":30000" >nul 2>&1
+if errorlevel 1 (
+    echo [WARNING] Frontend may still be starting...
     echo [INFO] Waiting additional 5 seconds for frontend...
     timeout /t 5 /nobreak >nul
-    for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:30000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "frontend_status=%%i"
-    if "%frontend_status%"=="200" (
-        echo [OK] Frontend service is now running (HTTPS)
-    ) else (
+    netstat -an | findstr ":30000" >nul 2>&1
+    if errorlevel 1 (
         echo [ERROR] Frontend service failed to start properly
         echo [INFO] Check logs\frontend.log for details
+    ) else (
+        echo [OK] Frontend service is now running on port 30000
     )
+) else (
+    echo [OK] Frontend service is running on port 30000
 )
 
 echo.
@@ -186,17 +178,17 @@ echo.
 
 REM Open main interface in browser
 echo [INFO] Preparing to open main interface...
-for /f %%i in ('powershell -Command "try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; (Invoke-WebRequest -Uri 'https://127.0.0.1:30000' -TimeoutSec 5).StatusCode } catch { 0 }"') do set "final_check=%%i"
-if "%final_check%"=="200" (
-    echo [INFO] Opening main interface in browser...
-    timeout /t 1 /nobreak >nul
-    start "" "https://127.0.0.1:30000"
-    echo [OK] Browser opened with FileServer interface
-) else (
+netstat -an | findstr ":30000" >nul 2>&1
+if errorlevel 1 (
     echo [WARNING] Frontend service not responding, opening anyway...
     echo [INFO] You may need to refresh the page once services are ready
     start "" "https://127.0.0.1:30000"
     echo [OK] Browser opened (services may still be starting)
+) else (
+    echo [INFO] Opening main interface in browser...
+    timeout /t 1 /nobreak >nul
+    start "" "https://127.0.0.1:30000"
+    echo [OK] Browser opened with FileServer interface
 )
 
 echo.
