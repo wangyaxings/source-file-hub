@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
@@ -39,6 +39,7 @@ export default function HomePage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [permissionsRefreshTrigger, setPermissionsRefreshTrigger] = useState(0)
   const [currentUser, setCurrentUser] = useState<UserInfo | null>(null)
   const [serverStatus, setServerStatus] = useState<{
     online: boolean
@@ -109,6 +110,9 @@ export default function HomePage() {
             setIsAuthenticated(true)
             setCurrentUser(userInfo)
             
+            // Trigger permissions load for authenticated user
+            setPermissionsRefreshTrigger(prev => prev + 1)
+            
             // Check if user has 2FA enabled but no TOTP secret (needs setup)
             // Backend returns: two_fa (boolean), totp_secret (boolean indicating if secret exists)
             const has2FAEnabled = userInfo.two_fa || userInfo.two_fa_enabled
@@ -176,6 +180,9 @@ export default function HomePage() {
     const user = apiClient.getCurrentUser()
     setCurrentUser(user)
     
+    // Trigger permissions reload after successful login
+    setPermissionsRefreshTrigger(prev => prev + 1)
+    
     // Check if user needs 2FA setup
     if (user) {
       const has2FAEnabled = user.two_fa || user.two_fa_enabled
@@ -212,6 +219,8 @@ export default function HomePage() {
     } finally {
       setIsAuthenticated(false)
       setCurrentUser(null)
+      // Reset permissions on logout
+      setPermissionsRefreshTrigger(0)
     }
   }
 
@@ -268,7 +277,7 @@ export default function HomePage() {
   }
 
   // 使用权限系统替代硬编码的角色检查
-  const { permissions, loading: permissionsLoading } = usePermissions()
+  const { permissions, loading: permissionsLoading } = usePermissions(permissionsRefreshTrigger)
   
   // 计算标签页数量
   const baseTabs = 2 // manage + recycle
@@ -288,6 +297,19 @@ export default function HomePage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-gray-500">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading state when authenticated but permissions are still loading
+  if (isAuthenticated && permissionsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-gray-500">Setting up your workspace...</p>
+          <p className="text-xs text-gray-400 mt-2">Loading permissions and user interface</p>
         </div>
       </div>
     )

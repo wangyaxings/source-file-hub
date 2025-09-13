@@ -92,13 +92,14 @@ export async function getUserPermissions(): Promise<UserPermissions> {
 }
 
 // 权限Hook
-export function usePermissions() {
+export function usePermissions(refreshTrigger?: number) {
   const [permissions, setPermissions] = useState<UserPermissions | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const loadPermissions = async () => {
       try {
+        setLoading(true)
         const userPermissions = await getUserPermissions()
         setPermissions(userPermissions)
       } catch (error) {
@@ -118,7 +119,7 @@ export function usePermissions() {
     }
 
     loadPermissions()
-  }, [])
+  }, [refreshTrigger])
 
   return { permissions, loading }
 }
