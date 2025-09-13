@@ -21,3 +21,6 @@ func (c *FileController) Versions(fileType, originalName string) ([]entities.Fil
     return c.uc.Versions(fileType, originalName)
 }
 
+func (c *FileController) ListWithPagination(fileType string, page, limit int) ([]entities.File, int, error) {
+    return c.uc.ListWithPagination(fileType, page, limit)
+}

@@ -38,6 +38,18 @@ func (uc *FileUseCase) List(fileType string) ([]entities.File, error) {
     return out, nil
 }
 
+// ListWithPagination returns files and total count with basic pagination.
+// If fileType is provided, filters in-memory for now to preserve behavior.
+func (uc *FileUseCase) ListWithPagination(fileType string, page, limit int) ([]entities.File, int, error) {
+    if page <= 0 { page = 1 }
+    if limit <= 0 { limit = 50 }
+    offset := (page - 1) * limit
+    if fileType == "" {
+        return uc.files.List(offset, limit)
+    }
+    return uc.files.ListByType(fileType, offset, limit)
+}
+
 func (uc *FileUseCase) Versions(fileType, originalName string) ([]entities.File, error) {
     return uc.files.GetVersions(fileType, originalName)
 }

@@ -1,6 +1,9 @@
 package repositories
 
-import "secure-file-hub/internal/domain/entities"
+import (
+    "time"
+    "secure-file-hub/internal/domain/entities"
+)
 
 type APIKeyRepository interface {
     Create(key *entities.APIKey, keyHash string) error
@@ -8,5 +11,12 @@ type APIKeyRepository interface {
     ListAll() ([]entities.APIKey, error)
     UpdateStatus(id, status string) error
     Delete(id string) error
+    Update(id string, upd APIKeyUpdate) error
 }
 
+type APIKeyUpdate struct {
+    Name        *string
+    Description *string
+    Permissions *[]string
+    ExpiresAt   *time.Time
+}

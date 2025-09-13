@@ -33,15 +33,11 @@ func toEntity(rec dbpkg.FileRecord) entities.File {
 func (r *FileRepo) GetByID(id string) (*entities.File, error) {
     db := dbpkg.GetDatabase()
     if db == nil { return nil, ErrDBUnavailable }
-    recs, err := db.GetAllFiles(false)
+    rec, err := db.GetFileRecordByID(id)
     if err != nil { return nil, err }
-    for _, rec := range recs {
-        if rec.ID == id {
-            e := toEntity(rec)
-            return &e, nil
-        }
-    }
-    return nil, nil
+    if rec == nil { return nil, nil }
+    e := toEntity(*rec)
+    return &e, nil
 }
 
 func (r *FileRepo) Insert(record *entities.File) error {
@@ -68,21 +64,22 @@ func (r *FileRepo) Insert(record *entities.File) error {
 func (r *FileRepo) List(offset, limit int) ([]entities.File, int, error) {
     db := dbpkg.GetDatabase()
     if db == nil { return nil, 0, ErrDBUnavailable }
-    recs, err := db.GetAllFiles(false)
+    recs, total, err := db.ListFilesWithPagination(offset, limit)
     if err != nil { return nil, 0, err }
-    total := len(recs)
-    if offset < 0 { offset = 0 }
-    if limit <= 0 { limit = total }
-    end := offset + limit
-    if end > total { end = total }
-    sel := recs
-    if offset < total {
-        sel = recs[offset:end]
-    } else {
-        sel = []dbpkg.FileRecord{}
+    out := make([]entities.File, 0, len(recs))
+    for _, rec := range recs {
+        out = append(out, toEntity(rec))
     }
-    out := make([]entities.File, 0, len(sel))
-    for _, rec := range sel {
+    return out, total, nil
+}
+
+func (r *FileRepo) ListByType(fileType string, offset, limit int) ([]entities.File, int, error) {
+    db := dbpkg.GetDatabase()
+    if db == nil { return nil, 0, ErrDBUnavailable }
+    recs, total, err := db.ListFilesWithPaginationByType(fileType, offset, limit)
+    if err != nil { return nil, 0, err }
+    out := make([]entities.File, 0, len(recs))
+    for _, rec := range recs {
         out = append(out, toEntity(rec))
     }
     return out, total, nil

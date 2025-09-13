@@ -28,10 +28,11 @@ import (
 
 // Response 閫氱敤鍝嶅簲缁撴瀯
 type Response struct {
-	Success bool        `json:"success"`
-	Message string      `json:"message,omitempty"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   string      `json:"error,omitempty"`
+    Success bool        `json:"success"`
+    Message string      `json:"message,omitempty"`
+    Data    interface{} `json:"data,omitempty"`
+    Error   string      `json:"error,omitempty"`
+    Code    string      `json:"code,omitempty"`
 }
 
 // FileMetadata 鏂囦欢鍏冩暟鎹粨鏋?(deprecated, use database.FileRecord)
@@ -347,12 +348,22 @@ func writeJSONResponse(w http.ResponseWriter, status int, data interface{}) {
 
 // writeErrorResponse 鍐欏叆閿欒鍝嶅簲
 func writeErrorResponse(w http.ResponseWriter, status int, message string) {
-	response := Response{
-		Success: false,
-		Error:   message,
-	}
+    response := Response{
+        Success: false,
+        Error:   message,
+    }
 
-	writeJSONResponse(w, status, response)
+    writeJSONResponse(w, status, response)
+}
+
+// writeErrorWithCode writes a structured error including a machine-readable code
+func writeErrorWithCode(w http.ResponseWriter, status int, code, message string) {
+    response := Response{
+        Success: false,
+        Error:   message,
+        Code:    code,
+    }
+    writeJSONResponse(w, status, response)
 }
 
 // Note: Login and logout are now handled by authboss under /api/v1/web/auth/ab/
@@ -719,9 +730,24 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 // listFilesHandler 鏂囦欢鍒楄〃澶勭悊鍣?
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
     fileType := r.URL.Query().Get("type")
-    // Use new controller + usecase + repo abstraction
-    controller := fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
-    items, err := controller.List(fileType)
+    // Parse pagination
+    page := 1
+    limit := 50
+    if v := r.URL.Query().Get("page"); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 { page = n }
+    }
+    if v := r.URL.Query().Get("limit"); v != "" {
+        if n, err := strconv.Atoi(v); err == nil && n > 0 { limit = n }
+    }
+
+    // Use DI controller if available
+    var controller *fc.FileController
+    if appContainer != nil && appContainer.FileController != nil {
+        controller = appContainer.FileController
+    } else {
+        controller = fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
+    }
+    items, total, err := controller.ListWithPagination(fileType, page, limit)
     if err != nil {
         writeErrorResponse(w, http.StatusInternalServerError, "Failed to get file list: "+err.Error())
         return
@@ -748,7 +774,9 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
         Message: "File list retrieved successfully",
         Data: map[string]interface{}{
             "files": files,
-            "count": len(files),
+            "count": total,
+            "page":  page,
+            "limit": limit,
         },
     }
     writeJSONResponse(w, http.StatusOK, response)

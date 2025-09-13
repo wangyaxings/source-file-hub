@@ -109,12 +109,12 @@ export default function HomePage() {
             apiClient.setUser(userInfo)
             setIsAuthenticated(true)
             setCurrentUser(userInfo)
-            
+
             // Check if user has 2FA enabled but no TOTP secret (needs setup)
             // Backend returns: two_fa (boolean), totp_secret (boolean indicating if secret exists)
             const has2FAEnabled = userInfo.two_fa || userInfo.two_fa_enabled
             const hasTOTPSecret = userInfo.totp_secret === true || userInfo.totp_secret === "true"
-            
+
             if (has2FAEnabled && !hasTOTPSecret) {
               console.log('User needs 2FA setup:', { userInfo, has2FAEnabled, hasTOTPSecret })
               setShowTwoFASetup(true)
@@ -200,12 +200,12 @@ export default function HomePage() {
     setIsAuthenticated(true)
     const user = apiClient.getCurrentUser()
     setCurrentUser(user)
-    
+
     // Check if user needs 2FA setup
     if (user) {
       const has2FAEnabled = user.two_fa || user.two_fa_enabled
       const hasTOTPSecret = user.totp_secret === true || user.totp_secret === "true"
-      
+
       if (has2FAEnabled && !hasTOTPSecret) {
         console.log('User needs 2FA setup after login:', { user, has2FAEnabled, hasTOTPSecret })
         setShowTwoFASetup(true)
@@ -218,7 +218,7 @@ export default function HomePage() {
       // No user info, trigger permissions reload
       setPermissionsRefreshTrigger(prev => prev + 1)
     }
-    
+
     if (user && (user as any).status && (user as any).status !== 'active') {
       setUserNotice('Your account is pending approval. Limited access until an admin activates your account.')
     } else {
@@ -230,7 +230,7 @@ export default function HomePage() {
     // Refresh user info to get updated 2FA status
     const user = apiClient.getCurrentUser()
     setCurrentUser(user)
-    
+
     // Now trigger permissions load since 2FA setup is complete
     setPermissionsRefreshTrigger(prev => prev + 1)
     // Exit 2FA setup screen to main workspace
@@ -304,17 +304,17 @@ export default function HomePage() {
 
   // 使用权限系统替代硬编码的角色检查
   const { permissions, loading: permissionsLoading } = usePermissions(permissionsRefreshTrigger)
-  
+
   // 计算标签页数量
   const baseTabs = 2 // manage + recycle
-  const totalTabs = baseTabs + 
-    (permissions?.canUpload ? 1 : 0) + 
-    (permissions?.canAccessPackages ? 1 : 0) + 
-    (permissions?.canManageAPIKeys ? 1 : 0) + 
+  const totalTabs = baseTabs +
+    (permissions?.canUpload ? 1 : 0) +
+    (permissions?.canAccessPackages ? 1 : 0) +
+    (permissions?.canManageAPIKeys ? 1 : 0) +
     (permissions?.canManageUsers ? 1 : 0)
-  const tabsColsClass = totalTabs === 6 ? 'grid-cols-6' : 
-                       totalTabs === 5 ? 'grid-cols-5' : 
-                       totalTabs === 4 ? 'grid-cols-4' : 
+  const tabsColsClass = totalTabs === 6 ? 'grid-cols-6' :
+                       totalTabs === 5 ? 'grid-cols-5' :
+                       totalTabs === 4 ? 'grid-cols-4' :
                        totalTabs === 3 ? 'grid-cols-3' : 'grid-cols-2'
 
   if (isLoading) {
@@ -362,7 +362,7 @@ export default function HomePage() {
               </div>
               <CardTitle className="text-2xl">Security Setup Required</CardTitle>
               <CardDescription className="text-base mt-2">
-                Your account has two-factor authentication enabled for enhanced security. 
+                Your account has two-factor authentication enabled for enhanced security.
                 Please complete the setup process to continue.
               </CardDescription>
             </CardHeader>
@@ -370,7 +370,7 @@ export default function HomePage() {
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h3 className="font-medium text-blue-800 mb-2">Why is this required?</h3>
                 <p className="text-sm text-blue-700">
-                  Two-factor authentication (2FA) provides an additional layer of security for your account. 
+                  Two-factor authentication (2FA) provides an additional layer of security for your account.
                   This setup is required by your administrator and helps protect sensitive files and data.
                 </p>
               </div>
@@ -384,7 +384,7 @@ export default function HomePage() {
         </main>
 
         <Toaster />
-        
+
         {/* 2FA Setup Dialog - Always open when in 2FA setup mode */}
         <TwoFASetupDialog
           open={true}
@@ -614,7 +614,7 @@ export default function HomePage() {
       <footer className="bg-white border-t border-gray-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-sm text-gray-500">
-            <p>漏 2024 File Manager. Secure File Management System</p>
+            <p>File Manager. Secure File Management System</p>
             <p className="mt-2">Supports versioned management of configuration files, certificates and documents</p>
           </div>
         </div>

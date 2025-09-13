@@ -358,17 +358,26 @@ func listAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
 
 // getAPIKeyHandler gets a specific API key
 func getAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	keyID := vars["keyId"]
-
-	// Implementation would get API key by ID
-	// For now, return placeholder
-	response := Response{
-		Success: true,
-		Data:    map[string]interface{}{"id": keyID},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
+    vars := mux.Vars(r)
+    keyID := vars["keyId"]
+    uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
+    k, err := uc.GetByID(keyID)
+    if err != nil || k == nil {
+        writeErrorWithCode(w, http.StatusNotFound, "API_KEY_NOT_FOUND", "API key not found")
+        return
+    }
+    response := Response{
+        Success: true,
+        Message: "API key retrieved successfully",
+        Data: map[string]interface{}{
+            "api_key": map[string]interface{}{
+                "id": k.ID, "name": k.Name, "description": k.Description, "key": k.Key, "role": k.Role,
+                "permissions": k.Permissions, "status": k.Status, "expiresAt": k.ExpiresAt,
+                "usageCount": k.UsageCount, "lastUsedAt": k.LastUsedAt, "createdAt": k.CreatedAt, "updatedAt": k.UpdatedAt,
+            },
+        },
+    }
+    writeJSONResponse(w, http.StatusOK, response)
 }
 
 // updateAPIKeyHandler updates an API key
@@ -390,36 +399,39 @@ func updateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If permissions are being updated, update Casbin policies
-	if req.Permissions != nil {
-		// Validate new permissions
-		if !apikey.ValidatePermissions(*req.Permissions) {
-			writeErrorResponse(w, http.StatusBadRequest, "Invalid permissions")
-			return
-		}
-
-		// Remove old policies (数据库适配器自动持久化)
-		if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "Failed to remove old policies: "+err.Error())
-			return
-		}
-
-		// Add new policies (数据库适配器自动持久化)
-		if err := authz.CreateAPIKeyPolicies(keyID, *req.Permissions); err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "Failed to create new policies: "+err.Error())
-			return
-		}
-	}
-
-	// Update database record (this would need a proper update method in the database layer)
-	// For now, we'll just return success since the Casbin policies have been updated
-	response := Response{
-		Success: true,
-		Message: "API key updated successfully",
-		Data:    map[string]interface{}{"id": keyID},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
+    // Build patch and update through usecase (handles policies if permissions changed)
+    var expiresAt *time.Time
+    if req.ExpiresAt != nil && *req.ExpiresAt != "" {
+        formats := []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02 15:04:05", "2006-01-02 15:04"}
+        var parseErr error
+        for _, f := range formats {
+            if t, err := time.Parse(f, *req.ExpiresAt); err == nil {
+                if t.Location() == time.UTC && f != time.RFC3339 { t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local) }
+                expiresAt = &t
+                break
+            } else { parseErr = err }
+        }
+        if expiresAt == nil {
+            writeErrorWithCode(w, http.StatusBadRequest, "INVALID_EXPIRES_AT", "Invalid expiration date format")
+            _ = parseErr
+            return
+        }
+    }
+    patch := usecases.APIKeyUpdatePatch{
+        Name:        req.Name,
+        Description: req.Description,
+        Permissions: req.Permissions,
+        ExpiresAt:   expiresAt,
+    }
+    if err := uc.Update(keyID, patch); err != nil {
+        if strings.Contains(err.Error(), "invalid permissions") {
+            writeErrorWithCode(w, http.StatusBadRequest, "INVALID_PERMISSION", "Invalid permissions")
+            return
+        }
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to update API key")
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "API key updated successfully", Data: map[string]interface{}{"id": keyID}})
 }
 
 // deleteAPIKeyHandler deletes an API key
@@ -462,10 +474,10 @@ func updateAPIKeyStatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Status != "active" && req.Status != "disabled" {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid status")
-		return
-	}
+    if req.Status != "active" && req.Status != "disabled" {
+        writeErrorWithCode(w, http.StatusBadRequest, "INVALID_STATUS", "Invalid status")
+        return
+    }
 
     uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
     if err := uc.UpdateStatus(keyID, req.Status); err != nil {
@@ -491,72 +503,49 @@ func updateAPIKeyStatusHandler(w http.ResponseWriter, r *http.Request) {
 
 // regenerateAPIKeyHandler regenerates an API key (creates new key, invalidates old one)
 func regenerateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	keyID := vars["keyId"]
+    vars := mux.Vars(r)
+    keyID := vars["keyId"]
 
 	if keyID == "" {
 		writeErrorResponse(w, http.StatusBadRequest, "API key ID is required")
 		return
 	}
 
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
-
-	// Get existing API key to preserve metadata
-	// Note: This is a simplified implementation - in production you'd want to get by ID
-	// For now, we'll generate a new key with the same prefix
-
-	// Generate new API key
-	fullKey, keyHash, err := apikey.GenerateAPIKey("sk")
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to generate new API key")
-		return
-	}
-
-	// Update the API key with new hash (this would need a proper update method)
-	// For now, we'll create a new record and mark the old one as disabled
-	// In production, you'd want to implement a proper update method
-
-	// Create new API key record with same metadata but new key
-	newAPIKey := &database.APIKey{
-		ID:          apikey.GenerateAPIKeyID(),
-		Name:        "Regenerated Key", // This should be updated from the original
-		Description: "Regenerated API key",
-		KeyHash:     keyHash,
-		Key:         fullKey,          // Only shown once
-		Role:        "unknown",        // This should be retrieved from original key
-		Permissions: []string{"read"}, // This should be retrieved from original key
-		Status:      "active",
-		UsageCount:  0,
-	}
-
-	if err := db.CreateAPIKey(newAPIKey); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create new API key")
-		return
-	}
-
-	// Store the new API key temporarily for download (10 minutes)
-	storeTempAPIKey(newAPIKey.ID, fullKey, newAPIKey.Name, newAPIKey.Role)
-
-	// Disable the old key
-	if err := db.UpdateAPIKeyStatus(keyID, "disabled"); err != nil {
-		// Log warning but don't fail the operation
-		fmt.Printf("Warning: Failed to disable old API key %s: %v\n", keyID, err)
-	}
-
-	response := Response{
-		Success: true,
-		Message: "API key regenerated successfully. The old key has been disabled. Please save this new key securely - it will not be shown again.",
-		Data: map[string]interface{}{
-			"api_key":      newAPIKey,
-			"download_url": fmt.Sprintf("/api/v1/admin/api-keys/%s/download", newAPIKey.ID),
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
+    uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
+    // Load old key
+    oldKey, err := uc.GetByID(keyID)
+    if err != nil || oldKey == nil {
+        writeErrorWithCode(w, http.StatusNotFound, "API_KEY_NOT_FOUND", "API key not found")
+        return
+    }
+    // Create new key with same metadata
+    created, err := uc.Create(oldKey.Name, "Regenerated API key", oldKey.Role, oldKey.Permissions, oldKey.ExpiresAt)
+    if err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to create new API key")
+        return
+    }
+    // Store the new API key temporarily for download (10 minutes)
+    storeTempAPIKey(created.ID, created.Key, created.Name, created.Role)
+    // Disable the old key
+    if err := uc.UpdateStatus(keyID, "disabled"); err != nil {
+        fmt.Printf("Warning: Failed to disable old API key %s: %v\n", keyID, err)
+    }
+    // Update Casbin policies
+    if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
+        fmt.Printf("Warning: Failed to remove Casbin policies for old key %s: %v\n", keyID, err)
+    }
+    if err := authz.CreateAPIKeyPolicies(created.ID, created.Permissions); err != nil {
+        fmt.Printf("Warning: Failed to create Casbin policies for new key %s: %v\n", created.ID, err)
+    }
+    response := Response{
+        Success: true,
+        Message: "API key regenerated successfully. The old key has been disabled. Please save this new key securely - it will not be shown again.",
+        Data: map[string]interface{}{
+            "api_key":      database.APIKey{ID: created.ID, Name: created.Name, Description: created.Description, Key: created.Key, Role: created.Role, Permissions: created.Permissions, Status: created.Status, ExpiresAt: created.ExpiresAt, UsageCount: created.UsageCount, LastUsedAt: created.LastUsedAt, CreatedAt: created.CreatedAt, UpdatedAt: created.UpdatedAt},
+            "download_url": fmt.Sprintf("/api/v1/admin/api-keys/%s/download", created.ID),
+        },
+    }
+    writeJSONResponse(w, http.StatusOK, response)
 }
 
 // downloadAPIKeyHandler downloads an API key as a text file

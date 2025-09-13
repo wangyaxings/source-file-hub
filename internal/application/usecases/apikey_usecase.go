@@ -1,11 +1,13 @@
 package usecases
 
 import (
+    "fmt"
     "time"
 
     "secure-file-hub/internal/apikey"
     "secure-file-hub/internal/domain/entities"
     "secure-file-hub/internal/domain/repositories"
+    "secure-file-hub/internal/authz"
 )
 
 type APIKeyUseCase struct {
@@ -64,4 +66,36 @@ func (uc *APIKeyUseCase) Delete(id string) error {
 
 func (uc *APIKeyUseCase) GetByID(id string) (*entities.APIKey, error) {
     return uc.repo.GetByID(id)
+}
+
+type APIKeyUpdatePatch struct {
+    Name        *string
+    Description *string
+    Permissions *[]string
+    ExpiresAt   *time.Time
+}
+
+// Update updates fields; when permissions change, Casbin policies are refreshed.
+func (uc *APIKeyUseCase) Update(id string, patch APIKeyUpdatePatch) error {
+    if patch.Permissions != nil && !apikey.ValidatePermissions(*patch.Permissions) {
+        return fmt.Errorf("invalid permissions")
+    }
+    // Update DB fields
+    err := uc.repo.Update(id, repositories.APIKeyUpdate{
+        Name:        patch.Name,
+        Description: patch.Description,
+        Permissions: patch.Permissions,
+        ExpiresAt:   patch.ExpiresAt,
+    })
+    if err != nil { return err }
+    // Refresh Casbin policies if permissions changed
+    if patch.Permissions != nil {
+        if err := authz.RemoveAllAPIKeyPolicies(id); err != nil {
+            return err
+        }
+        if err := authz.CreateAPIKeyPolicies(id, *patch.Permissions); err != nil {
+            return err
+        }
+    }
+    return nil
 }

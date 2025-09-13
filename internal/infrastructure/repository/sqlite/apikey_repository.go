@@ -82,3 +82,9 @@ func (r *APIKeyRepo) Delete(id string) error {
     if db == nil { return ErrDBUnavailable }
     return db.DeleteAPIKey(id)
 }
+
+func (r *APIKeyRepo) Update(id string, upd repositories.APIKeyUpdate) error {
+    db := dbpkg.GetDatabase()
+    if db == nil { return ErrDBUnavailable }
+    return db.UpdateAPIKeyFields(id, upd.Name, upd.Description, upd.Permissions, upd.ExpiresAt)
+}

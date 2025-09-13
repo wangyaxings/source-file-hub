@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -1013,6 +1014,96 @@ func (d *Database) scanFileRecords(rows *sql.Rows) ([]FileRecord, error) {
 	return records, nil
 }
 
+// GetFileRecordByID returns a file record by ID
+func (d *Database) GetFileRecordByID(id string) (*FileRecord, error) {
+    if id == "" {
+        return nil, fmt.Errorf("file id is required")
+    }
+    query := `
+    SELECT id, original_name, versioned_name, file_type, file_path, size,
+           description, uploader, upload_time, version, is_latest, status,
+           deleted_at, deleted_by, file_exists, checksum, created_at, updated_at
+    FROM files WHERE id = ?
+    `
+    row := d.db.QueryRow(query, id)
+    var rec FileRecord
+    var uploadTimeStr, createdAtStr, updatedAtStr string
+    var deletedAt sql.NullString
+    if err := row.Scan(&rec.ID, &rec.OriginalName, &rec.VersionedName, &rec.FileType, &rec.FilePath, &rec.Size,
+        &rec.Description, &rec.Uploader, &uploadTimeStr, &rec.Version, &rec.IsLatest, &rec.Status,
+        &deletedAt, &rec.DeletedBy, &rec.FileExists, &rec.Checksum, &createdAtStr, &updatedAtStr); err != nil {
+        return nil, err
+    }
+    if t, err := time.Parse(time.RFC3339, uploadTimeStr); err == nil { rec.UploadTime = t }
+    if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil { rec.CreatedAt = t }
+    if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil { rec.UpdatedAt = t }
+    if deletedAt.Valid {
+        if t, err := time.Parse(time.RFC3339, deletedAt.String); err == nil { rec.DeletedAt = &t }
+    }
+    return &rec, nil
+}
+
+// ListFilesWithPagination returns active files with pagination and total count
+func (d *Database) ListFilesWithPagination(offset, limit int) ([]FileRecord, int, error) {
+    if limit <= 0 {
+        limit = 50
+    }
+    if offset < 0 {
+        offset = 0
+    }
+    countQ := `SELECT COUNT(*) FROM files WHERE status = 'active'`
+    var total int
+    if err := d.db.QueryRow(countQ).Scan(&total); err != nil {
+        return nil, 0, fmt.Errorf("count files failed: %v", err)
+    }
+
+    query := `
+    SELECT id, original_name, versioned_name, file_type, file_path, size,
+           description, uploader, upload_time, version, is_latest, status,
+           deleted_at, deleted_by, file_exists, checksum, created_at, updated_at
+    FROM files
+    WHERE status = 'active'
+    ORDER BY upload_time DESC
+    LIMIT ? OFFSET ?
+    `
+    rows, err := d.db.Query(query, limit, offset)
+    if err != nil {
+        return nil, 0, err
+    }
+    defer rows.Close()
+    recs, err := d.scanFileRecords(rows)
+    if err != nil {
+        return nil, 0, err
+    }
+    return recs, total, nil
+}
+
+// ListFilesWithPaginationByType returns active files of a specific type with pagination and total count
+func (d *Database) ListFilesWithPaginationByType(fileType string, offset, limit int) ([]FileRecord, int, error) {
+    if limit <= 0 { limit = 50 }
+    if offset < 0 { offset = 0 }
+    countQ := `SELECT COUNT(*) FROM files WHERE status = 'active' AND file_type = ?`
+    var total int
+    if err := d.db.QueryRow(countQ, fileType).Scan(&total); err != nil {
+        return nil, 0, fmt.Errorf("count files failed: %v", err)
+    }
+    query := `
+    SELECT id, original_name, versioned_name, file_type, file_path, size,
+           description, uploader, upload_time, version, is_latest, status,
+           deleted_at, deleted_by, file_exists, checksum, created_at, updated_at
+    FROM files
+    WHERE status = 'active' AND file_type = ?
+    ORDER BY upload_time DESC
+    LIMIT ? OFFSET ?
+    `
+    rows, err := d.db.Query(query, fileType, limit, offset)
+    if err != nil { return nil, 0, err }
+    defer rows.Close()
+    recs, err := d.scanFileRecords(rows)
+    if err != nil { return nil, 0, err }
+    return recs, total, nil
+}
+
 // Close closes the database connection
 func (d *Database) Close() error {
 	if d.db != nil {
@@ -1415,6 +1506,40 @@ func (d *Database) DeleteAPIKey(keyID string) error {
 	query := `DELETE FROM api_keys WHERE id = ?`
 	_, err := d.db.Exec(query, keyID)
 	return err
+}
+
+// UpdateAPIKeyFields updates selective fields of an API key
+func (d *Database) UpdateAPIKeyFields(id string, name *string, description *string, permissions *[]string, expiresAt *time.Time) error {
+    if id == "" { return fmt.Errorf("api key id required") }
+    sets := []string{}
+    args := []interface{}{}
+    if name != nil {
+        sets = append(sets, "name = ?")
+        args = append(args, *name)
+    }
+    if description != nil {
+        sets = append(sets, "description = ?")
+        args = append(args, *description)
+    }
+    if permissions != nil {
+        permJSON, _ := json.Marshal(*permissions)
+        sets = append(sets, "permissions = ?")
+        args = append(args, string(permJSON))
+    }
+    if expiresAt != nil {
+        sets = append(sets, "expires_at = ?")
+        args = append(args, expiresAt.Format(time.RFC3339))
+    }
+    if len(sets) == 0 {
+        return nil
+    }
+    sets = append(sets, "updated_at = ?")
+    args = append(args, time.Now().Format(time.RFC3339))
+    // where clause id
+    args = append(args, id)
+    query := fmt.Sprintf("UPDATE api_keys SET %s WHERE id = ?", strings.Join(sets, ", "))
+    _, err := d.db.Exec(query, args...)
+    return err
 }
 
 // LogAPIUsage logs an API usage entry

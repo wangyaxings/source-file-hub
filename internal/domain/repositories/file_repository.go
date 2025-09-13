@@ -7,4 +7,5 @@ type FileRepository interface {
     Insert(record *entities.File) error
     List(offset, limit int) ([]entities.File, int, error)
     GetVersions(fileType, originalName string) ([]entities.File, error)
+    ListByType(fileType string, offset, limit int) ([]entities.File, int, error)
 }

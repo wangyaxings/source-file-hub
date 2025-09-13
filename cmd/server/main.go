@@ -14,6 +14,7 @@ import (
 	"secure-file-hub/internal/database"
 	cfgpkg "secure-file-hub/internal/infrastructure/config"
 	"secure-file-hub/internal/handler"
+	di "secure-file-hub/internal/infrastructure/di"
 	"secure-file-hub/internal/logger"
 	"secure-file-hub/internal/migration"
 	"secure-file-hub/internal/server"
@@ -118,6 +119,11 @@ func main() {
 	srv := server.New()
 
 	// 注册路由
+	// Wire DI container for controllers/usecases
+	if db := database.GetDatabase(); db != nil {
+		c := di.New(db.GetDB())
+		handler.SetContainer(c)
+	}
 	handler.RegisterRoutes(srv.Router)
 
 	// HTTPS-only unified mode (respect config if present)

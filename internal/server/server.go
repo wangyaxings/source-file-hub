@@ -35,6 +35,9 @@ func New() *Server {
         log.Printf("Warning: Failed to initialize Authboss: %v", err)
     }
 
+    // Centralized error handler (panic recovery, JSON errors)
+    router.Use(middleware.ErrorHandlerMiddleware)
+
     // Our auth middleware now relies on Authboss session
     router.Use(middleware.AuthMiddleware)
 
