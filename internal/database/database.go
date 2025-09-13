@@ -1,4 +1,4 @@
-package database
+﻿package database
 
 import (
 	"database/sql"
@@ -153,12 +153,12 @@ func InitDatabase(dbPath string) error {
 		return fmt.Errorf("failed to create tables: %v", err)
 	}
 
-	// 初始化Casbin策略数据
+	// Initialize policies
 	if err := defaultDB.initializeCasbinPolicies(); err != nil {
 		return fmt.Errorf("failed to initialize casbin policies: %v", err)
 	}
 
-	// 更新Casbin策略数据 (添加缺失的TOTP策略)
+	// Casbin policy section
 	if err := defaultDB.updateCasbinPolicies(); err != nil {
 		return fmt.Errorf("failed to update casbin policies: %v", err)
 	}
@@ -169,11 +169,11 @@ func InitDatabase(dbPath string) error {
 // migrateAPIKeysRoleColumn ensures api_keys table has 'role' column instead of legacy 'user_id'
 func (d *Database) migrateAPIKeysRoleColumn() error {
 	// Check if api_keys table exists
-	var count int
-	if err := d.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_keys'").Scan(&count); err != nil {
+	var c int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_keys'").Scan(&c); err != nil {
 		return err
 	}
-	if count == 0 {
+	if c == 0 {
 		// Table doesn't exist yet; nothing to migrate
 		return nil
 	}
@@ -451,7 +451,7 @@ func (d *Database) createTables() error {
     CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_logs(created_at);
     `
 
-	// Casbin策略表
+	// Casbin policy section
 	createCasbinTable := `
 	CREATE TABLE IF NOT EXISTS casbin_policies (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -464,7 +464,7 @@ func (d *Database) createTables() error {
 		v5 TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
-	
+
 	CREATE INDEX IF NOT EXISTS idx_casbin_ptype ON casbin_policies(ptype);
 	CREATE INDEX IF NOT EXISTS idx_casbin_v0 ON casbin_policies(v0);
 	CREATE INDEX IF NOT EXISTS idx_casbin_v1 ON casbin_policies(v1);
@@ -480,31 +480,31 @@ func (d *Database) createTables() error {
 	return nil
 }
 
-// initializeCasbinPolicies 初始化Casbin策略数据
+// Casbin policy section
 func (d *Database) initializeCasbinPolicies() error {
-	// 检查是否已有策略数据
-	var count int
-	if err := d.db.QueryRow("SELECT COUNT(*) FROM casbin_policies").Scan(&count); err != nil {
+	// Check if policy rows exist
+	var c int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM casbin_policies").Scan(&c); err != nil {
 		return err
 	}
 
-	// 如果已有数据，不重复初始化
-	if count > 0 {
+	// Initialize policies
+	if c > 0 {
 		return nil
 	}
 
-	// 初始化默认策略
+	// Initialize policies
 	policies := []struct {
 		ptype string
 		v0    string
 		v1    string
 		v2    string
 	}{
-		// 管理员权限 - 完全访问
+		// 缁狅紕鎮婇崨妯绘綀閿?- 鐎瑰苯鍙忕拋鍧楁６
 		{"p", "administrator", "/api/v1/web/*", "(GET|POST|PUT|PATCH|DELETE)"},
 		{"p", "administrator", "/api/v1/admin/*", "(GET|POST|PUT|PATCH|DELETE)"},
 
-		// 查看者权限 - 只读访问
+		// 閺屻儳婀呴懓鍛綀閿?- 閸欘亣顕扮拋鍧楁６
 		{"p", "viewer", "/api/v1/web/health*", "GET"},
 		{"p", "viewer", "/api/v1/web/", "GET"},
 		{"p", "viewer", "/api/v1/web/files/list", "GET"},
@@ -513,19 +513,17 @@ func (d *Database) initializeCasbinPolicies() error {
 		{"p", "viewer", "/api/v1/web/recycle-bin", "GET"},
 		{"p", "viewer", "/api/v1/web/packages", "GET"},
 
-		// 权限检查API - 所有认证用户都可以使用
-		{"p", "administrator", "/api/v1/web/auth/check-permission", "POST"},
+		// 閺夊啴妾哄Λ鈧弻顧嘝I - 閹碘偓閺堝顓荤拠浣烘暏閹寸兘鍏橀崣顖欎簰娴ｈ法鏁?		{"p", "administrator", "/api/v1/web/auth/check-permission", "POST"},
 		{"p", "administrator", "/api/v1/web/auth/check-permissions", "POST"},
 		{"p", "viewer", "/api/v1/web/auth/check-permission", "POST"},
 		{"p", "viewer", "/api/v1/web/auth/check-permissions", "POST"},
 
-		// 用户信息API - 所有认证用户都可以获取自己的信息
-		{"p", "administrator", "/api/v1/web/auth/me", "GET"},
+		// 閻劍鍩涙穱鈩冧紖API - 閹碘偓閺堝顓荤拠浣烘暏閹寸兘鍏橀崣顖欎簰閼惧嘲褰囬懛顏勭箒閻ㄥ嫪淇婇敓?		{"p", "administrator", "/api/v1/web/auth/me", "GET"},
 		{"p", "viewer", "/api/v1/web/auth/me", "GET"},
 
-		// TOTP 2FA API - 所有认证用户都可以管理自己的2FA
-		{"p", "administrator", "/api/v1/web/auth/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
-		{"p", "viewer", "/api/v1/web/auth/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		// TOTP 2FA API - 閹碘偓閺堝顓荤拠浣烘暏閹寸兘鍏橀崣顖欎簰缁狅紕鎮婇懛顏勭箒閿?FA
+		{"p", "administrator", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		{"p", "viewer", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
 	}
 
 	stmt, err := d.db.Prepare("INSERT INTO casbin_policies (ptype, v0, v1, v2) VALUES (?, ?, ?, ?)")
@@ -543,16 +541,16 @@ func (d *Database) initializeCasbinPolicies() error {
 	return nil
 }
 
-// updateCasbinPolicies adds missing TOTP policies if they don't exist
+// Casbin policy section
 func (d *Database) updateCasbinPolicies() error {
 	// Check if TOTP policies already exist
-	var count int
-	if err := d.db.QueryRow("SELECT COUNT(*) FROM casbin_policies WHERE v1 LIKE '%2fa/totp%'").Scan(&count); err != nil {
+	var c int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM casbin_policies WHERE v1 LIKE '%2fa/totp%'").Scan(&c); err != nil {
 		return err
 	}
 
 	// If TOTP policies exist, skip update
-	if count > 0 {
+	if c > 0 {
 		return nil
 	}
 
@@ -565,8 +563,8 @@ func (d *Database) updateCasbinPolicies() error {
 	}{
 		{"p", "administrator", "/api/v1/web/auth/me", "GET"},
 		{"p", "viewer", "/api/v1/web/auth/me", "GET"},
-		{"p", "administrator", "/api/v1/web/auth/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
-		{"p", "viewer", "/api/v1/web/auth/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		{"p", "administrator", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		{"p", "viewer", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
 	}
 
 	stmt, err := d.db.Prepare("INSERT INTO casbin_policies (ptype, v0, v1, v2) VALUES (?, ?, ?, ?)")
@@ -1857,3 +1855,10 @@ func (d *Database) GetAdminAuditLogs(actor, target, action, since, until string,
 	}
 	return items, total, nil
 }
+
+
+
+
+
+
+

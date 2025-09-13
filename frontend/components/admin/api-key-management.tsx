@@ -108,9 +108,7 @@ export function APIKeyManagement() {
     setIsLoading(true)
     try {
       const response = await fetch('/api/v1/web/admin/api-keys', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        }
+        credentials: 'include'
       })
 
       if (!response.ok) throw new Error('Failed to load API keys')
@@ -131,9 +129,7 @@ export function APIKeyManagement() {
   const loadUsageLogs = async () => {
     try {
       const response = await fetch('/api/v1/web/admin/usage/logs?limit=100', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        }
+        credentials: 'include'
       })
 
       if (!response.ok) throw new Error('Failed to load usage logs')
@@ -167,10 +163,8 @@ export function APIKeyManagement() {
 
       const response = await fetch('/api/v1/web/admin/api-keys', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(formData)
       })
 
@@ -261,10 +255,8 @@ export function APIKeyManagement() {
     try {
       const response = await fetch(`/api/v1/web/admin/api-keys/${keyId}/status`, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ status })
       })
 
@@ -298,9 +290,7 @@ export function APIKeyManagement() {
     try {
       const response = await fetch(`/api/v1/web/admin/api-keys/${deleteDialog.apiKey.id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        }
+        credentials: 'include'
       })
 
       if (!response.ok) throw new Error('Failed to delete API key')

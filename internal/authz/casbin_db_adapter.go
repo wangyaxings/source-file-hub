@@ -194,11 +194,26 @@ func GetEnforcerWithDB(db *sql.DB) (*casbin.Enforcer, error) {
 		return nil, fmt.Errorf("failed to create casbin table: %v", err)
 	}
 
-	// 加载模型
-	m, err := model.NewModelFromFile("configs/casbin_model.conf")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load model: %v", err)
-	}
+    // 加载模型（兼容不同工作目录）
+    var (
+        m   model.Model
+        err error
+    )
+    candidates := []string{
+        "configs/casbin_model.conf",
+        "../configs/casbin_model.conf",
+        "../../configs/casbin_model.conf",
+        "../../../configs/casbin_model.conf",
+    }
+    for _, p := range candidates {
+        m, err = model.NewModelFromFile(p)
+        if err == nil {
+            break
+        }
+    }
+    if err != nil {
+        return nil, fmt.Errorf("failed to load model: %v", err)
+    }
 
 	// 创建数据库适配器
 	adapter := NewDatabaseAdapter(db)

@@ -115,10 +115,8 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
       }
 
       const response = await fetch(`/api/v1/web/admin/analytics/data?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
       })
 
       if (response.ok) {
@@ -267,10 +265,8 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
       }
 
       const response = await fetch(`/api/v1/web/admin/analytics/export?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
       })
 
       if (response.ok) {

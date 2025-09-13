@@ -62,7 +62,7 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
     setHasStartedSetup(true)
     setIsLoading(true)
     try {
-      const response = await apiClient.startTOTP()
+      const response = await apiClient.setupTOTP()
       setSecret(response.secret || '')
       setQrCodeUrl(response.otpauth_url || '')
       // 如果该账户已经确认“已添加账户”，则直接进入验证码验证步骤
@@ -106,7 +106,7 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
 
     setIsVerifying(true)
     try {
-      await apiClient.enableTOTP(verificationCode)
+      await apiClient.confirmTOTP(verificationCode)
       toast({
         title: "2FA Enabled",
         description: "Two-factor authentication has been successfully enabled for your account"

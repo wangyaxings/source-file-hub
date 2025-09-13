@@ -96,10 +96,7 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/auth/check-permission", middleware.RequireAuthorization(checkPermissionHandler)).Methods("POST")
 	webAPI.HandleFunc("/auth/check-permissions", middleware.RequireAuthorization(checkMultiplePermissionsHandler)).Methods("POST")
 
-	// 2FA TOTP endpoints (custom, not conflicting with Authboss routes)
-	webAPI.HandleFunc("/auth/2fa/totp/setup", middleware.RequireAuthorization(startTOTPHandler)).Methods("POST")
-	webAPI.HandleFunc("/auth/2fa/totp/confirm", middleware.RequireAuthorization(enableTOTPHandler)).Methods("POST")
-	webAPI.HandleFunc("/auth/2fa/totp/remove", middleware.RequireAuthorization(disableTOTPHandler)).Methods("POST")
+    // 2FA TOTP now handled by Authboss under /api/v1/web/auth/ab/2fa/totp/*
 
 	// ========= API信息和健康检查 =========
 	webAPI.HandleFunc("", apiInfoHandler).Methods("GET")
@@ -264,11 +261,12 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
 			"endpoints": map[string]interface{}{
 				"api_info":     baseURL,
 				"health_check": baseURL + "/health",
-				"authentication": map[string]interface{}{
-					"login":         baseURL + "/auth/login",
-					"logout":        baseURL + "/auth/logout",
-					"default_users": baseURL + "/auth/users",
-				},
+            "authentication": map[string]interface{}{
+                "login":         baseURL + "/web/auth/ab/login",
+                "logout":        baseURL + "/web/auth/ab/logout",
+                "current_user":  baseURL + "/web/auth/me",
+                "default_users": baseURL + "/web/auth/users",
+            },
 				"file_downloads": map[string]interface{}{
 					"unified_download": baseURL + "/files/{path}",
 					"examples": []string{
@@ -288,8 +286,8 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
 				"/files/*",
 				"/logs/*",
 			},
-			"features": []string{
-				"JWT Authentication",
+            "features": []string{
+                "Session Authentication",
 				"Multi-tenant Support",
 				"HTTPS Only",
 				"Path Traversal Protection",

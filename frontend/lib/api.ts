@@ -577,38 +577,36 @@ class ApiClient {
     }
   }
 
-  // 使用自定义 TOTP API (避免与Authboss路由冲突)
-  async startTOTP(): Promise<{ secret: string; otpauth_url: string }> {
-    const resp = await this.request('/auth/2fa/totp/setup', { method: 'POST' })
-    if (!resp.data) {
-      throw new Error('Failed to get TOTP setup data from server')
-    }
+  // 2FA TOTP API（统一命名：setup / confirm / remove）
+  async setupTOTP(): Promise<{ secret: string; otpauth_url: string }> {
+    const resp = await this.request('/auth/ab/2fa/totp/setup', { method: 'POST' })
+    if (!resp.data) throw new Error('Failed to get TOTP setup data from server')
     return resp.data as any
   }
 
-  async enableTOTP(code: string): Promise<void> {
-    await this.request('/auth/2fa/totp/confirm', {
+  async confirmTOTP(code: string): Promise<void> {
+    await this.request('/auth/ab/2fa/totp/confirm', {
       method: 'POST',
       body: JSON.stringify({ code })
     })
 
-    // 重新获取用户信息以更新2FA状态
+    // Refresh current user after enabling 2FA
     const me = await this.request<{ user: UserInfo }>('/auth/me')
-    if (me.success && me.data) {
-      this.setUser((me.data as any).user)
-    }
+    if (me.success && me.data) this.setUser((me.data as any).user)
   }
 
-  async disableTOTP(): Promise<void> {
+  async removeTOTP(): Promise<void> {
     await this.request('/auth/ab/2fa/totp/remove', { method: 'POST' })
 
-    // 重新获取用户信息以更新2FA状态
+    // Refresh current user after disabling 2FA
     const me = await this.request<{ user: UserInfo }>('/auth/me')
-    if (me.success && me.data) {
-      this.setUser((me.data as any).user)
-    }
+    if (me.success && me.data) this.setUser((me.data as any).user)
   }
+
+  // Backward-compatible aliases (to be removed later)
+  async startTOTP(): Promise<{ secret: string; otpauth_url: string }> { return this.setupTOTP() }
+  async enableTOTP(code: string): Promise<void> { return this.confirmTOTP(code) }
+  async disableTOTP(): Promise<void> { return this.removeTOTP() }
 }
 
 export const apiClient = new ApiClient()
-

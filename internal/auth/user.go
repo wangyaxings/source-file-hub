@@ -1,16 +1,9 @@
 package auth
 
 import (
-	"errors"
-	"fmt"
-	"strings"
-	"time"
-
-	"secure-file-hub/internal/database"
-
-	"github.com/pquerna/otp"
-	"github.com/pquerna/otp/totp"
-	"golang.org/x/crypto/bcrypt"
+    "errors"
+    "secure-file-hub/internal/database"
+    "golang.org/x/crypto/bcrypt"
 )
 
 // User represents an application user
@@ -194,78 +187,4 @@ func Register(username, password, email string) error {
 	return nil
 }
 
-// StartTOTPSetup generates a new TOTP secret and returns the provisioning URL
-func StartTOTPSetup(username, issuer string) (secret string, otpauthURL string, err error) {
-	if username == "" {
-		return "", "", errors.New("username is required")
-	}
-	if issuer == "" {
-		issuer = "Secure File Hub"
-	}
-	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      issuer,
-		AccountName: username,
-		Period:      30,
-		Digits:      otp.DigitsSix,
-		Algorithm:   otp.AlgorithmSHA1,
-	})
-	if err != nil {
-		return "", "", err
-	}
-	db := database.GetDatabase()
-	if db == nil {
-		return "", "", errors.New("database not available")
-	}
-	// Retry database operation in case of SQLite busy error
-	var dbErr error
-	for i := 0; i < 3; i++ {
-		dbErr = db.SetUser2FA(username, false, key.Secret())
-		if dbErr == nil {
-			break
-		}
-		// If it's not a busy error, don't retry
-		if !strings.Contains(dbErr.Error(), "database is locked") && !strings.Contains(dbErr.Error(), "SQLITE_BUSY") {
-			break
-		}
-		// Wait a bit before retrying
-		time.Sleep(time.Duration(10+i*10) * time.Millisecond)
-	}
-	if dbErr != nil {
-		return "", "", fmt.Errorf("failed to save TOTP secret after retries: %v", dbErr)
-	}
-	return key.Secret(), key.URL(), nil
-}
-
-// EnableTOTP verifies the provided code and enables 2FA
-func EnableTOTP(username, code string) error {
-	if username == "" || code == "" {
-		return errors.New("username and code are required")
-	}
-	db := database.GetDatabase()
-	if db == nil {
-		return errors.New("database not available")
-	}
-	u, err := db.GetUser(username)
-	if err != nil {
-		return errors.New("user not found")
-	}
-	if u.TOTPSecret == "" {
-		return errors.New("2fa not initialized")
-	}
-	if !totp.Validate(code, u.TOTPSecret) {
-		return errors.New("invalid otp code")
-	}
-	return db.SetUser2FA(username, true, u.TOTPSecret)
-}
-
-// DisableTOTP disables 2FA for the user
-func DisableTOTP(username string) error {
-	if username == "" {
-		return errors.New("username is required")
-	}
-	db := database.GetDatabase()
-	if db == nil {
-		return errors.New("database not available")
-	}
-	return db.SetUser2FA(username, false, "")
-}
+// 2FA TOTP functions removed. Authboss manages TOTP setup/verification/removal.
