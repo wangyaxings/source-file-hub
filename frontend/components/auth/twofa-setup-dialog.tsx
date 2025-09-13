@@ -36,6 +36,7 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
   const [isVerifying, setIsVerifying] = useState(false)
   const [hasStartedSetup, setHasStartedSetup] = useState(false)
   const [qrAcknowledged, setQrAcknowledged] = useState(false)
+  const [setupError, setSetupError] = useState<string | null>(null)
 
   // 每次弹窗打开或账户变更时，读取本地状态：该账户是否已点击“已添加账户”
   useEffect(() => {
@@ -51,10 +52,10 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
   }, [open, username])
 
   useEffect(() => {
-    if (open && step === 'setup' && !hasStartedSetup) {
+    if (open && step === 'setup' && !hasStartedSetup && !isLoading) {
       startSetup()
     }
-  }, [open, step, hasStartedSetup])
+  }, [open, step, hasStartedSetup, isLoading])
 
   const startSetup = async () => {
     if (hasStartedSetup) return // Prevent duplicate calls
@@ -62,6 +63,7 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
     setHasStartedSetup(true)
     setIsLoading(true)
     try {
+      setSetupError(null)
       const response = await apiClient.setupTOTP()
       setSecret(response.secret || '')
       setQrCodeUrl(response.otpauth_url || '')
@@ -80,15 +82,15 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
         setStep('qrcode')
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start 2FA setup'
+      setSetupError(message)
       toast({
         variant: "destructive",
         title: "Setup Failed",
-        description: error instanceof Error ? error.message : 'Failed to start 2FA setup'
+        description: message
       })
-      if (!isRequired) {
-        onOpenChange(false)
-      }
-      setHasStartedSetup(false) // Reset on error to allow retry
+      // Do NOT auto-retry when required; avoid infinite request loops
+      // Keep dialog open and show a Retry button instead.
     } finally {
       setIsLoading(false)
     }
@@ -184,10 +186,35 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
 
         {step === 'setup' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-              <span className="ml-2">Setting up 2FA...</span>
-            </div>
+            {setupError ? (
+              <div className="space-y-4">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-4 w-4 text-red-600" />
+                    <span className="font-medium text-red-800">Setup failed</span>
+                  </div>
+                  <p className="text-sm text-red-700 break-words">{setupError}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={() => { setHasStartedSetup(false); setSetupError(null); setStep('setup') }}
+                    disabled={isLoading}
+                  >
+                    Retry
+                  </Button>
+                  {!isRequired && (
+                    <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                <span className="ml-2">Setting up 2FA...</span>
+              </div>
+            )}
           </div>
         )}
 

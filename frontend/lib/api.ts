@@ -197,7 +197,12 @@ class ApiClient {
     if (response.status === 307) {
       const result = await response.json()
 
-      // Authboss成功响应处理
+      // Detect 2FA verification requirement via redirect location
+      if (typeof result.location === 'string' && result.location.includes('/2fa/totp/validate')) {
+        throw new Error('2FA_VERIFICATION_REQUIRED: Please enter your 2FA verification code')
+      }
+
+      // Authboss成功响应处理（非2FA验证流程）
       if (result.status === 'success') {
         // 获取用户信息
         const meResponse = await this.request<{ user: UserInfo }>('/auth/me')
@@ -237,6 +242,36 @@ class ApiClient {
     }
 
     throw new Error('Login failed')
+  }
+
+  // Verify TOTP (2FA) after login redirect to validate
+  async verifyTOTP(code: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/auth/ab/2fa/totp/validate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ code }),
+      credentials: 'include',
+    })
+
+    if (response.status === 307) {
+      // Success with redirect
+      // Fall through to refresh /auth/me
+    } else if (!response.ok) {
+      // Try to parse message
+      let msg = `HTTP ${response.status}: ${response.statusText}`
+      try {
+        const data = await response.json()
+        msg = data?.error || data?.message || msg
+      } catch {}
+      throw new Error(msg)
+    }
+
+    // On success, refresh current user
+    const me = await this.request<{ user: UserInfo }>('/auth/me')
+    if (me.success && me.data) this.setUser((me.data as any).user)
   }
 
   // Note: changePassword method removed - password changes are now handled by authboss
@@ -579,9 +614,29 @@ class ApiClient {
 
   // 2FA TOTP API（统一命名：setup / confirm / remove）
   async setupTOTP(): Promise<{ secret: string; otpauth_url: string }> {
-    const resp = await this.request('/auth/ab/2fa/totp/setup', { method: 'POST' })
-    if (!resp.data) throw new Error('Failed to get TOTP setup data from server')
-    return resp.data as any
+    // Attempt JSON setup first (backend shim returns secret immediately)
+    const setupResp = await this.request<any>('/auth/ab/2fa/totp/setup', { method: 'POST' })
+    let body: any = (setupResp as any)?.data ?? setupResp
+    let payload: any = (body as any)?.data ?? body
+    let secret: string = (payload?.totp_secret ?? payload?.secret ?? '').toString()
+
+    // If setup didn't include the secret (e.g., 307 flow), fetch from confirm
+    if (!secret) {
+      const confirm = await this.request<any>('/auth/ab/2fa/totp/confirm', { method: 'GET' })
+      body = (confirm as any)?.data ?? confirm
+      payload = (body as any)?.data ?? body
+      secret = (payload?.totp_secret ?? payload?.secret ?? '').toString()
+    }
+
+    if (!secret) {
+      throw new Error('TOTP secret not provided by server after setup')
+    }
+
+    const issuer = 'Secure File Hub'
+    const label = this.currentUser?.username || 'user'
+    const otpauth_url = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(label)}?issuer=${encodeURIComponent(issuer)}&secret=${encodeURIComponent(secret)}`
+
+    return { secret, otpauth_url }
   }
 
   async confirmTOTP(code: string): Promise<void> {
@@ -589,6 +644,13 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ code })
     })
+
+    // Mark this session as 2FA-verified by validating once
+    try {
+      await this.verifyTOTP(code)
+    } catch {
+      // Ignore if validation step fails here; user can still navigate and verify when prompted
+    }
 
     // Refresh current user after enabling 2FA
     const me = await this.request<{ user: UserInfo }>('/auth/me')

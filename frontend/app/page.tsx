@@ -233,11 +233,8 @@ export default function HomePage() {
     
     // Now trigger permissions load since 2FA setup is complete
     setPermissionsRefreshTrigger(prev => prev + 1)
-    
-    toast({
-      title: "2FA Enabled",
-      description: "Two-factor authentication has been successfully enabled for your account"
-    })
+    // Exit 2FA setup screen to main workspace
+    setShowTwoFASetup(false)
   }
 
   const handleLogout = async () => {

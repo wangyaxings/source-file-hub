@@ -38,6 +38,9 @@ func New() *Server {
     // Our auth middleware now relies on Authboss session
     router.Use(middleware.AuthMiddleware)
 
+    // Provide JSON shim for Authboss TOTP endpoints (setup/confirm)
+    router.Use(middleware.TOTPJSONShimMiddleware)
+
     // Add 2FA setup middleware to check if user needs to complete 2FA setup
     router.Use(middleware.TwoFASetupMiddleware)
 

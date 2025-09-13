@@ -327,3 +327,31 @@ func WaitForCondition(t *testing.T, condition func() bool, timeout time.Duration
 
 	t.Fatalf("Condition not met within timeout: %s", message)
 }
+
+// LoginAndGetSessionCookie logs in via Authboss and returns the session cookie
+func LoginAndGetSessionCookie(t *testing.T, router http.Handler, username, password string) *http.Cookie {
+    t.Helper()
+    loginData := map[string]string{"username": username, "password": password}
+    body, _ := json.Marshal(loginData)
+    req := httptest.NewRequest(http.MethodPost, "/api/v1/web/auth/ab/login", bytes.NewReader(body))
+    req.Header.Set("Content-Type", "application/json")
+    rr := httptest.NewRecorder()
+    router.ServeHTTP(rr, req)
+
+    if rr.Code != http.StatusOK && rr.Code != http.StatusFound && rr.Code != http.StatusTemporaryRedirect {
+        t.Fatalf("Login failed: status=%d body=%s", rr.Code, rr.Body.String())
+    }
+    for _, c := range rr.Result().Cookies() {
+        if c.Name == "ab_session" && c.Value != "" {
+            return c
+        }
+    }
+    t.Fatalf("No ab_session cookie returned on login; status=%d body=%s", rr.Code, rr.Body.String())
+    return nil
+}
+
+// AddSessionCookie adds an Authboss session cookie to a request
+func AddSessionCookie(req *http.Request, cookie *http.Cookie) *http.Request {
+    req.AddCookie(cookie)
+    return req
+}

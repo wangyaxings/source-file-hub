@@ -33,6 +33,9 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     setError("")
 
     try {
+      // Ensure any existing session is cleared to avoid cross-user mixups (e.g., previous admin session)
+      try { await apiClient.logoutUser() } catch {}
+
       const result = await apiClient.login(formData)
 
       if (result.status === 'success') {
@@ -83,10 +86,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
 
     setIsLoading(true)
     try {
-      const result = await apiClient.login({ ...formData, otp: otpCode })
-      if (result.status === 'success') {
-        onLogin()
-      }
+      await apiClient.verifyTOTP(otpCode)
+      onLogin()
     } catch (error: any) {
       setError(error?.message || '2FA verification failed')
       // 验证失败，自动logout

@@ -1,25 +1,37 @@
 package middleware
 
 import (
-	"net/http"
-	"os"
-	"strings"
+    "net/http"
+    "os"
+    "strings"
 )
 
 // CorsMiddleware CORS中间件
 func CorsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        origin := r.Header.Get("Origin")
+        if origin != "" {
+            // When credentials are involved, echo back the Origin (not *)
+            w.Header().Set("Access-Control-Allow-Origin", origin)
+            w.Header().Set("Vary", "Origin")
+            w.Header().Set("Access-Control-Allow-Credentials", "true")
+        } else {
+            // Non CORS or same-origin
+            w.Header().Set("Access-Control-Allow-Origin", "*")
+        }
+        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        // Allow common headers and X-Requested-With for AJAX
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept")
+        // Expose minimal headers if needed by client
+        w.Header().Set("Access-Control-Expose-Headers", "Content-Type")
 
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
 
-		next.ServeHTTP(w, r)
-	})
+        next.ServeHTTP(w, r)
+    })
 }
 
 // HTTPSRedirectMiddleware redirects HTTP requests to HTTPS

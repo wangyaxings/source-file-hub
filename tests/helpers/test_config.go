@@ -22,11 +22,9 @@ type TestConfigData struct {
 		MaxFileSize  int64    `json:"max_file_size"`
 		AllowedTypes []string `json:"allowed_types"`
 	} `json:"upload"`
-	Auth struct {
-		JWTSecret    string `json:"jwt_secret"`
-		TokenExpiry  int    `json:"token_expiry"`
-		TwoFAEnabled bool   `json:"twofa_enabled"`
-	} `json:"auth"`
+    Auth struct {
+        TwoFAEnabled bool `json:"twofa_enabled"`
+    } `json:"auth"`
 	Logging struct {
 		Level  string `json:"level"`
 		Format string `json:"format"`
@@ -61,15 +59,11 @@ func CreateTestConfig(t *testing.T, configPath string) *TestConfigData {
 			MaxFileSize:  100 * 1024 * 1024, // 100MB
 			AllowedTypes: []string{".txt", ".pdf", ".doc", ".docx", ".xlsx", ".tsv", ".zip"},
 		},
-		Auth: struct {
-			JWTSecret    string `json:"jwt_secret"`
-			TokenExpiry  int    `json:"token_expiry"`
-			TwoFAEnabled bool   `json:"twofa_enabled"`
-		}{
-			JWTSecret:    "test_jwt_secret_key",
-			TokenExpiry:  3600, // 1 hour
-			TwoFAEnabled: true,
-		},
+        Auth: struct {
+            TwoFAEnabled bool `json:"twofa_enabled"`
+        }{
+            TwoFAEnabled: true,
+        },
 		Logging: struct {
 			Level  string `json:"level"`
 			Format string `json:"format"`
@@ -141,15 +135,11 @@ func DefaultTestConfig() *TestConfigData {
 			MaxFileSize:  100 * 1024 * 1024, // 100MB
 			AllowedTypes: []string{".txt", ".pdf", ".doc", ".docx", ".xlsx", ".tsv", ".zip"},
 		},
-		Auth: struct {
-			JWTSecret    string `json:"jwt_secret"`
-			TokenExpiry  int    `json:"token_expiry"`
-			TwoFAEnabled bool   `json:"twofa_enabled"`
-		}{
-			JWTSecret:    "test_jwt_secret_key",
-			TokenExpiry:  3600, // 1 hour
-			TwoFAEnabled: true,
-		},
+        Auth: struct {
+            TwoFAEnabled bool `json:"twofa_enabled"`
+        }{
+            TwoFAEnabled: true,
+        },
 		Logging: struct {
 			Level  string `json:"level"`
 			Format string `json:"format"`
