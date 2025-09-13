@@ -22,9 +22,10 @@ interface TwoFASetupDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSetupComplete: () => void
+  isRequired?: boolean
 }
 
-export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete }: TwoFASetupDialogProps) {
+export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequired = false }: TwoFASetupDialogProps) {
   const { toast } = useToast()
   const [step, setStep] = useState<'setup' | 'verify'>('setup')
   const [secret, setSecret] = useState('')
@@ -52,7 +53,9 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete }: TwoFAS
         title: "Setup Failed",
         description: error instanceof Error ? error.message : 'Failed to start 2FA setup'
       })
-      onOpenChange(false)
+      if (!isRequired) {
+        onOpenChange(false)
+      }
     } finally {
       setIsLoading(false)
     }
@@ -110,15 +113,18 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete }: TwoFAS
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={isRequired ? () => {} : onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-blue-600" />
-            Enable Two-Factor Authentication
+            {isRequired ? "Complete Required Security Setup" : "Enable Two-Factor Authentication"}
           </DialogTitle>
           <DialogDescription>
-            Secure your account with two-factor authentication using an authenticator app
+            {isRequired 
+              ? "Your administrator requires two-factor authentication for your account. Please complete the setup to continue."
+              : "Secure your account with two-factor authentication using an authenticator app"
+            }
           </DialogDescription>
         </DialogHeader>
 
@@ -222,9 +228,11 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete }: TwoFAS
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
+          {!isRequired && (
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+          )}
           {step === 'verify' && (
             <Button onClick={verifyAndEnable} disabled={isVerifying || verificationCode.length !== 6}>
               {isVerifying ? (

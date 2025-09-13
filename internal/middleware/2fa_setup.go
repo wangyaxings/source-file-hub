@@ -21,7 +21,8 @@ func TwoFASetupMiddleware(next http.Handler) http.Handler {
 			strings.Contains(path, "/auth/me") ||
 			strings.Contains(path, "/health") ||
 			strings.Contains(path, "/static/") ||
-			strings.Contains(path, "/admin/") {
+			strings.Contains(path, "/admin/") ||
+			strings.Contains(path, "2fa/totp") {
 			next.ServeHTTP(w, r)
 			return
 		}

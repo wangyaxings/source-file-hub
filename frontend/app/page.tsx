@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { LoginForm } from "@/components/auth/login-form"
@@ -110,9 +110,6 @@ export default function HomePage() {
             setIsAuthenticated(true)
             setCurrentUser(userInfo)
             
-            // Trigger permissions load for authenticated user
-            setPermissionsRefreshTrigger(prev => prev + 1)
-            
             // Check if user has 2FA enabled but no TOTP secret (needs setup)
             // Backend returns: two_fa (boolean), totp_secret (boolean indicating if secret exists)
             const has2FAEnabled = userInfo.two_fa || userInfo.two_fa_enabled
@@ -121,6 +118,10 @@ export default function HomePage() {
             if (has2FAEnabled && !hasTOTPSecret) {
               console.log('User needs 2FA setup:', { userInfo, has2FAEnabled, hasTOTPSecret })
               setShowTwoFASetup(true)
+              // Don't load permissions yet - wait for 2FA setup completion
+            } else {
+              // Trigger permissions load for authenticated user who doesn't need 2FA setup
+              setPermissionsRefreshTrigger(prev => prev + 1)
             }
           } else {
             // Server says not authenticated
@@ -129,10 +130,30 @@ export default function HomePage() {
             apiClient.logout()
           }
         } else {
-          // Server returned error - not authenticated
-          setIsAuthenticated(false)
-          setCurrentUser(null)
-          apiClient.logout()
+          // Check if this is a 2FA setup required error
+          try {
+            const errorData = await userDetails.json()
+            if (errorData.code === "2FA_SETUP_REQUIRED") {
+              // User is authenticated but needs 2FA setup
+              // Try to get user info from local storage as fallback
+              const user = apiClient.getCurrentUser()
+              if (user) {
+                setIsAuthenticated(true)
+                setCurrentUser(user)
+                setShowTwoFASetup(true)
+              }
+            } else {
+              // Other error - not authenticated
+              setIsAuthenticated(false)
+              setCurrentUser(null)
+              apiClient.logout()
+            }
+          } catch {
+            // Server returned error - not authenticated
+            setIsAuthenticated(false)
+            setCurrentUser(null)
+            apiClient.logout()
+          }
         }
       } catch (error) {
         console.error('Failed to check authentication status:', error)
@@ -180,9 +201,6 @@ export default function HomePage() {
     const user = apiClient.getCurrentUser()
     setCurrentUser(user)
     
-    // Trigger permissions reload after successful login
-    setPermissionsRefreshTrigger(prev => prev + 1)
-    
     // Check if user needs 2FA setup
     if (user) {
       const has2FAEnabled = user.two_fa || user.two_fa_enabled
@@ -191,7 +209,14 @@ export default function HomePage() {
       if (has2FAEnabled && !hasTOTPSecret) {
         console.log('User needs 2FA setup after login:', { user, has2FAEnabled, hasTOTPSecret })
         setShowTwoFASetup(true)
+        // Don't load permissions yet - wait for 2FA setup completion
+      } else {
+        // Trigger permissions reload after successful login for users who don't need 2FA setup
+        setPermissionsRefreshTrigger(prev => prev + 1)
       }
+    } else {
+      // No user info, trigger permissions reload
+      setPermissionsRefreshTrigger(prev => prev + 1)
     }
     
     if (user && (user as any).status && (user as any).status !== 'active') {
@@ -205,6 +230,10 @@ export default function HomePage() {
     // Refresh user info to get updated 2FA status
     const user = apiClient.getCurrentUser()
     setCurrentUser(user)
+    
+    // Now trigger permissions load since 2FA setup is complete
+    setPermissionsRefreshTrigger(prev => prev + 1)
+    
     toast({
       title: "2FA Enabled",
       description: "Two-factor authentication has been successfully enabled for your account"
@@ -298,6 +327,74 @@ export default function HomePage() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-gray-500">Loading...</p>
         </div>
+      </div>
+    )
+  }
+
+  // Show 2FA setup interface if user needs to complete 2FA setup
+  if (isAuthenticated && showTwoFASetup) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        {/* Header */}
+        <header className="bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center py-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary rounded-lg">
+                  <Shield className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900">File Management System</h1>
+                  <p className="text-sm text-gray-500">Secure File Upload and Management Platform</p>
+                </div>
+              </div>
+              <Button variant="outline" onClick={handleLogout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Logout
+              </Button>
+            </div>
+          </div>
+        </header>
+
+        {/* 2FA Setup Content */}
+        <main className="flex-1 flex items-center justify-center p-4">
+          <Card className="w-full max-w-2xl">
+            <CardHeader className="text-center">
+              <div className="mx-auto mb-4 p-3 bg-blue-100 rounded-full w-fit">
+                <Shield className="h-8 w-8 text-blue-600" />
+              </div>
+              <CardTitle className="text-2xl">Security Setup Required</CardTitle>
+              <CardDescription className="text-base mt-2">
+                Your account has two-factor authentication enabled for enhanced security. 
+                Please complete the setup process to continue.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="font-medium text-blue-800 mb-2">Why is this required?</h3>
+                <p className="text-sm text-blue-700">
+                  Two-factor authentication (2FA) provides an additional layer of security for your account. 
+                  This setup is required by your administrator and helps protect sensitive files and data.
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-sm text-gray-600 mb-4">
+                  Click the button below to open the 2FA setup wizard.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </main>
+
+        <Toaster />
+        
+        {/* 2FA Setup Dialog - Always open when in 2FA setup mode */}
+        <TwoFASetupDialog
+          open={true}
+          onOpenChange={() => {}}
+          onSetupComplete={handleTwoFASetupComplete}
+          isRequired={true}
+        />
       </div>
     )
   }

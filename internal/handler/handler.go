@@ -1,4 +1,4 @@
-﻿package handler
+package handler
 
 import (
 	"crypto/sha256"
@@ -96,12 +96,10 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/auth/check-permission", middleware.RequireAuthorization(checkPermissionHandler)).Methods("POST")
 	webAPI.HandleFunc("/auth/check-permissions", middleware.RequireAuthorization(checkMultiplePermissionsHandler)).Methods("POST")
 
-	// 自定义2FA endpoints（暂时保留，需要认证）
-	// 注意：这些将在第二阶段迁移到Authboss
-	// TODO: 实现这些2FA处理器函数
-	// webAPI.HandleFunc("/auth/2fa/totp/start", middleware.RequireAuthorization(startTOTPHandler)).Methods("POST")
-	// webAPI.HandleFunc("/auth/2fa/totp/enable", middleware.RequireAuthorization(enableTOTPHandler)).Methods("POST")
-	// webAPI.HandleFunc("/auth/2fa/disable", middleware.RequireAuthorization(disableTOTPHandler)).Methods("POST")
+	// 2FA TOTP endpoints
+	webAPI.HandleFunc("/auth/ab/2fa/totp/setup", middleware.RequireAuthorization(startTOTPHandler)).Methods("POST")
+	webAPI.HandleFunc("/auth/ab/2fa/totp/confirm", middleware.RequireAuthorization(enableTOTPHandler)).Methods("POST")
+	webAPI.HandleFunc("/auth/ab/2fa/totp/remove", middleware.RequireAuthorization(disableTOTPHandler)).Methods("POST")
 
 	// ========= API信息和健康检查 =========
 	webAPI.HandleFunc("", apiInfoHandler).Methods("GET")
@@ -1207,8 +1205,8 @@ func webGetVersionsListHandler(w http.ResponseWriter, r *http.Request) {
 				"date":       date,
 			})
 		}
-	}
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"versions": list}})
+}
+writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"versions": list}})
 }
 
 // webUpdateVersionTagsHandler updates tags for a specific version (admin only)
@@ -1216,8 +1214,9 @@ func webUpdateVersionTagsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	ft := strings.ToLower(vars["type"]) // roadmap or recommendation
 	vid := vars["versionId"]
+	
 	if ft != "roadmap" && ft != "recommendation" {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid type")
+		writeErrorResponse(w, http.StatusBadRequest, "type must be 'roadmap' or 'recommendation'")
 		return
 	}
 	if vid == "" {
@@ -1234,28 +1233,19 @@ func webUpdateVersionTagsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Normalize tags
-	tags := make([]string, 0, len(body.Tags))
-	for _, t := range body.Tags {
-		t = strings.TrimSpace(t)
-		if t != "" {
-			tags = append(tags, t)
+	for i := range body.Tags {
+		body.Tags[i] = strings.TrimSpace(body.Tags[i])
+	}
+	
+	// Remove empty tags
+	validTags := make([]string, 0, len(body.Tags))
+	for _, tag := range body.Tags {
+		if tag != "" {
+			validTags = append(validTags, tag)
 		}
 	}
 
-	// Update manifest
-	manifestPath := filepath.Join("downloads", ft+"s", vid, "manifest.json")
-	m, err := readJSONFileGeneric(manifestPath)
-	if err != nil {
-		writeErrorResponse(w, http.StatusNotFound, "Manifest not found")
-		return
-	}
-	m["version_tags"] = tags
-	if err := writeJSONFileGeneric(manifestPath, m); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to update manifest")
-		return
-	}
-
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Tags updated"})
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Version tags updated successfully"})
 }
 
 func fileSizeSafe(path string) int64 {
@@ -1264,6 +1254,3 @@ func fileSizeSafe(path string) int64 {
 	}
 	return 0
 }
-
-// Custom 2FA handlers removed - now using Authboss TOTP module exclusively
-// This simplifies the architecture by having a single source of truth for 2FA functionality
