@@ -1,13 +1,18 @@
 package auth
 
 import (
-	"testing"
+    "encoding/json"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+    "time"
 
-	"secure-file-hub/internal/auth"
-	"secure-file-hub/internal/database"
-	"secure-file-hub/tests/helpers"
+    "secure-file-hub/internal/database"
+    "secure-file-hub/internal/server"
+    "secure-file-hub/tests/helpers"
 
-	"golang.org/x/crypto/bcrypt"
+    "github.com/pquerna/otp/totp"
+    "golang.org/x/crypto/bcrypt"
 )
 
 // Helper function to validate password format
@@ -116,143 +121,85 @@ func TestCheckPassword(t *testing.T) {
 
 // TestTOTPSetup tests TOTP setup functionality
 func TestTOTPSetup(t *testing.T) {
-	helpers.SetupTestEnvironment(t)
+    helpers.SetupTestEnvironment(t)
+    srv := server.New()
+    // Create test user and login
+    _ = helpers.CreateTestUser(t, "totpuser", "TotpUser123!", "viewer")
+    cookie := helpers.LoginAndGetSessionCookie(t, srv.Router, "totpuser", "TotpUser123!")
 
-	db := database.GetDatabase()
-	if db == nil {
-		t.Fatal("Database not initialized")
-	}
+    // Call Authboss TOTP setup endpoint
+    req := httptest.NewRequest(http.MethodPost, "/api/v1/web/auth/ab/2fa/totp/setup", nil)
+    req.AddCookie(cookie)
+    rr := httptest.NewRecorder()
+    srv.Router.ServeHTTP(rr, req)
 
-	// Create a test user first
-	username := "totpuser"
-	password := "TotpUser123!"
-	// Use bcrypt directly since hashPassword is private
-	hashedBytes, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	hashedPassword := string(hashedBytes)
+    if rr.Code != http.StatusOK {
+        t.Fatalf("Expected 200 on TOTP setup, got %d: %s", rr.Code, rr.Body.String())
+    }
 
-	user := &database.AppUser{
-		Username:     username,
-		PasswordHash: hashedPassword,
-		Role:         "viewer",
-	}
-
-	if err := db.CreateUser(user); err != nil {
-		t.Fatalf("Failed to create test user: %v", err)
-	}
-
-	// Test TOTP setup
-	secret, otpauthURL, err := auth.StartTOTPSetup(username, "TestApp")
-	if err != nil {
-		t.Fatalf("Failed to setup TOTP: %v", err)
-	}
-
-	if secret == "" {
-		t.Error("Expected TOTP secret to be non-empty")
-	}
-
-	if otpauthURL == "" {
-		t.Error("Expected OTP auth URL to be non-empty")
-	}
-
-	// Verify user has TOTP secret
-	dbUser, err := db.GetUser(username)
-	if err != nil {
-		t.Fatalf("Failed to get user: %v", err)
-	}
-
-	if dbUser.TOTPSecret == "" {
-		t.Error("Expected user to have TOTP secret")
-	}
-
-	if dbUser.TwoFAEnabled {
-		t.Error("Expected 2FA to be disabled initially")
-	}
+    var resp struct{
+        Success bool `json:"success"`
+        Data map[string]string `json:"data"`
+    }
+    _ = json.Unmarshal(rr.Body.Bytes(), &resp)
+    if !resp.Success || resp.Data["secret"] == "" || resp.Data["otpauth_url"] == "" {
+        t.Fatalf("Invalid setup response: %s", rr.Body.String())
+    }
 }
 
 // TestEnableTOTP tests TOTP enabling
 func TestEnableTOTP(t *testing.T) {
-	helpers.SetupTestEnvironment(t)
+    helpers.SetupTestEnvironment(t)
+    srv := server.New()
+    _ = helpers.CreateTestUser(t, "enabletotpuser", "EnableTotp123!", "viewer")
+    cookie := helpers.LoginAndGetSessionCookie(t, srv.Router, "enabletotpuser", "EnableTotp123!")
 
-	db := database.GetDatabase()
-	if db == nil {
-		t.Fatal("Database not initialized")
-	}
+    // Setup to get secret
+    req := httptest.NewRequest(http.MethodPost, "/api/v1/web/auth/ab/2fa/totp/setup", nil)
+    req.AddCookie(cookie)
+    rr := httptest.NewRecorder()
+    srv.Router.ServeHTTP(rr, req)
+    if rr.Code != http.StatusOK {
+        t.Fatalf("setup failed: %d", rr.Code)
+    }
+    var resp struct{ Success bool; Data map[string]string }
+    _ = json.Unmarshal(rr.Body.Bytes(), &resp)
+    secret := resp.Data["secret"]
+    if secret == "" { t.Fatal("empty secret") }
 
-	// Create a test user with TOTP secret
-	username := "enabletotpuser"
-	password := "EnableTotp123!"
-	// Use bcrypt directly since hashPassword is private
-	hashedBytes, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	hashedPassword := string(hashedBytes)
-
-	user := &database.AppUser{
-		Username:     username,
-		PasswordHash: hashedPassword,
-		Role:         "viewer",
-		TOTPSecret:   "test_secret",
-	}
-
-	if err := db.CreateUser(user); err != nil {
-		t.Fatalf("Failed to create test user: %v", err)
-	}
-
-	// Test enabling TOTP with invalid code
-	err := auth.EnableTOTP(username, "000000")
-	if err == nil {
-		t.Error("Expected error for invalid TOTP code")
-	}
-
-	// Note: Testing with valid TOTP code would require generating a real code
-	// which depends on time and the secret, so we'll skip that for now
+    // Generate current code and confirm
+    code, _ := totp.GenerateCode(secret, time.Now())
+    confirmBody := map[string]string{"code": code}
+    b, _ := json.Marshal(confirmBody)
+    req = httptest.NewRequest(http.MethodPost, "/api/v1/web/auth/ab/2fa/totp/confirm", bytes.NewReader(b))
+    req.Header.Set("Content-Type", "application/json")
+    req.AddCookie(cookie)
+    rr = httptest.NewRecorder()
+    srv.Router.ServeHTTP(rr, req)
+    if rr.Code != http.StatusOK {
+        t.Fatalf("confirm failed: %d %s", rr.Code, rr.Body.String())
+    }
 }
 
 // TestDisableTOTP tests TOTP disabling
 func TestDisableTOTP(t *testing.T) {
-	helpers.SetupTestEnvironment(t)
+    helpers.SetupTestEnvironment(t)
+    srv := server.New()
+    _ = helpers.CreateTestUser(t, "disabletotpuser", "DisableTotp123!", "viewer")
+    cookie := helpers.LoginAndGetSessionCookie(t, srv.Router, "disabletotpuser", "DisableTotp123!")
 
-	db := database.GetDatabase()
-	if db == nil {
-		t.Fatal("Database not initialized")
-	}
+    // Setup then remove
+    req := httptest.NewRequest(http.MethodPost, "/api/v1/web/auth/ab/2fa/totp/setup", nil)
+    req.AddCookie(cookie)
+    rr := httptest.NewRecorder()
+    srv.Router.ServeHTTP(rr, req)
+    if rr.Code != http.StatusOK { t.Fatalf("setup failed: %d", rr.Code) }
 
-	// Create a test user with 2FA enabled
-	username := "disabletotpuser"
-	password := "DisableTotp123!"
-	// Use bcrypt directly since hashPassword is private
-	hashedBytes, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	hashedPassword := string(hashedBytes)
-
-	user := &database.AppUser{
-		Username:     username,
-		PasswordHash: hashedPassword,
-		Role:         "viewer",
-		TwoFAEnabled: true,
-		TOTPSecret:   "test_secret",
-	}
-
-	if err := db.CreateUser(user); err != nil {
-		t.Fatalf("Failed to create test user: %v", err)
-	}
-
-	// Test disabling TOTP
-	err := auth.DisableTOTP(username)
-	if err != nil {
-		t.Fatalf("Failed to disable TOTP: %v", err)
-	}
-
-	// Verify TOTP is disabled
-	dbUser, err := db.GetUser(username)
-	if err != nil {
-		t.Fatalf("Failed to get user: %v", err)
-	}
-
-	if dbUser.TwoFAEnabled {
-		t.Error("Expected 2FA to be disabled")
-	}
-
-	if dbUser.TOTPSecret != "" {
-		t.Error("Expected TOTP secret to be cleared")
-	}
+    req = httptest.NewRequest(http.MethodPost, "/api/v1/web/auth/ab/2fa/totp/remove", nil)
+    req.AddCookie(cookie)
+    rr = httptest.NewRecorder()
+    srv.Router.ServeHTTP(rr, req)
+    if rr.Code != http.StatusOK { t.Fatalf("remove failed: %d %s", rr.Code, rr.Body.String()) }
 }
 
 // Note: SetPassword and ChangePassword tests removed as these functions are no longer needed

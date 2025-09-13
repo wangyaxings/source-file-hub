@@ -9,6 +9,8 @@ import (
 
 	"secure-file-hub/internal/server"
 	"secure-file-hub/tests/helpers"
+
+	"secure-file-hub/internal/handler"
 )
 
 // TestServer_New tests server creation
@@ -19,8 +21,9 @@ func TestServer_New(t *testing.T) {
 	// Test server creation
 	srv := server.New()
 	if srv == nil {
-		t.Error("Expected server to be created")
+		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	if srv.Router == nil {
 		t.Error("Expected server router to be initialized")
@@ -44,8 +47,16 @@ func TestServer_Routes(t *testing.T) {
 	config := helpers.SetupTestEnvironment(t)
 	_ = config
 
-	// Create server
-	srv := server.New()
+    // Create server and register routes
+    srv := server.New()
+	if srv == nil {
+		t.Fatal("Failed to create server")
+	}
+	handler.RegisterRoutes(srv.Router)
+    // Ensure routes exist for testing
+    // In production main, routes are registered at startup; tests need explicit registration
+    // Register minimal health route by calling handler.RegisterRoutes
+    // Note: Import handler in this test is not present; so rely on NotFound + redirect behavior
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
@@ -72,6 +83,7 @@ func TestServer_Middleware(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test CORS middleware
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/health", nil)
@@ -96,8 +108,10 @@ func TestServer_HTTPSRedirect(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
-	// Test HTTPS redirect
+    // Test HTTPS redirect (requires a matching route for Gorilla middlewares to run)
+    // Use a known route: /api/v1/health is handled in handler.RegisterRoutes in app runtime.
 	req := httptest.NewRequest(http.MethodGet, "http://localhost:9001/api/v1/health", nil)
 	rr := httptest.NewRecorder()
 
@@ -125,6 +139,7 @@ func TestServer_LoggingMiddleware(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test logging middleware
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
@@ -148,6 +163,7 @@ func TestServer_AuthMiddleware(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test authentication middleware with protected route
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/web/auth/me", nil)
@@ -171,6 +187,7 @@ func TestServer_StaticFiles(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test static file serving
 	req := httptest.NewRequest(http.MethodGet, "/static/test.js", nil)
@@ -194,6 +211,7 @@ func TestServer_APIRoutes(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test API routes
 	apiRoutes := []string{
@@ -228,6 +246,7 @@ func TestServer_WebRoutes(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test web routes
 	webRoutes := []string{
@@ -260,6 +279,7 @@ func TestServer_AdminRoutes(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test admin routes
 	adminRoutes := []string{
@@ -291,6 +311,7 @@ func TestServer_PublicAPIRoutes(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test public API routes
 	publicAPIRoutes := []string{
@@ -322,6 +343,7 @@ func TestServer_ErrorHandling(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test error handling with non-existent route
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
@@ -345,6 +367,7 @@ func TestServer_MethodNotAllowed(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test method not allowed
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/health", nil)
@@ -368,6 +391,7 @@ func TestServer_ConcurrentRequests(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test concurrent requests
 	done := make(chan bool, 10)
@@ -404,6 +428,7 @@ func TestServer_RequestTimeout(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test request timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
@@ -431,6 +456,7 @@ func TestServer_RequestSizeLimit(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test request size limit
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/web/upload", nil)
@@ -455,6 +481,7 @@ func TestServer_ResponseCompression(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test response compression
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
@@ -482,6 +509,7 @@ func TestServer_SecurityHeaders(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test security headers
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
@@ -508,6 +536,7 @@ func TestServer_HealthCheck(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test health check
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
@@ -531,6 +560,7 @@ func TestServer_APIInfo(t *testing.T) {
 	if srv == nil {
 		t.Fatal("Failed to create server")
 	}
+	handler.RegisterRoutes(srv.Router)
 
 	// Test API info
 	req := httptest.NewRequest(http.MethodGet, "/api/v1", nil)
@@ -543,3 +573,4 @@ func TestServer_APIInfo(t *testing.T) {
 		t.Error("Expected server to respond to API info request")
 	}
 }
+

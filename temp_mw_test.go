@@ -8,7 +8,7 @@ import (
 
 	"secure-file-hub/internal/auth"
 	"secure-file-hub/internal/middleware"
-    "secure-file-hub/tests/helpers"
+	"secure-file-hub/tests/helpers"
 )
 
 func TestCORS_Preflight(t *testing.T) {
@@ -125,62 +125,14 @@ func TestAuthMiddleware_Unauthorized(t *testing.T) {
 	h := middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/web/files", nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/web/protected", nil)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
+
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rr.Code)
 	}
-}
-
-func TestAuthMiddleware_Authorized(t *testing.T) {
-	helpers.SetupTestEnvironment(t)
-	// Build full server to include Authboss and middleware chain
-	srv := server.New()
-	// Register a simple route
-	srv.Router.HandleFunc("/api/v1/web/protected-test", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }).Methods("GET")
-
-	// Create test user and login
-	_ = helpers.CreateTestUser(t, "testuser", "password123", "viewer")
-	cookie := helpers.LoginAndGetSessionCookie(t, srv.Router, "testuser", "password123")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/web/protected-test", nil)
-	req.AddCookie(cookie)
-	rr := httptest.NewRecorder()
-	srv.Router.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-}
-
-func TestAuthorize_Unauthorized(t *testing.T) {
-	config := helpers.SetupTestEnvironment(t)
-	_ = config
-
-	// Create test user with limited permissions
-	user := helpers.CreateTestUser(t, "testuser", "password123", "viewer")
-	_ = user
-
-	// Create auth user for context
-	authUser := &auth.User{
-		Username: "testuser",
-		Role:     "viewer",
-	}
-
-	h := middleware.Authorize()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/web/admin", nil)
-	req = helpers.AddAuthContext(req, authUser)
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", rr.Code)
-	}
-
 }
 
 // TestAuthMiddleware_Authorized tests auth middleware with valid token
@@ -471,6 +423,4 @@ func TestMiddlewareChain(t *testing.T) {
 		t.Error("expected CORS headers")
 	}
 }
-
-
 
