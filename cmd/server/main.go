@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"secure-file-hub/internal/auth"
 	"secure-file-hub/internal/database"
+	cfgpkg "secure-file-hub/internal/infrastructure/config"
 	"secure-file-hub/internal/handler"
 	"secure-file-hub/internal/logger"
 	"secure-file-hub/internal/migration"
@@ -20,11 +22,12 @@ import (
 func main() {
 	log.Println("Starting Secure File Hub...")
 
+	// 加载配置（YAML + 环境变量），保持向后兼容默认值
+	appCfg := cfgpkg.Load()
+
 	// 初始化数据库系统
 	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "data/fileserver.db"
-	}
+	if dbPath == "" { dbPath = appCfg.Database.Database }
 	if err := database.InitDatabase(dbPath); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -117,12 +120,12 @@ func main() {
 	// 注册路由
 	handler.RegisterRoutes(srv.Router)
 
-	// HTTPS-only unified mode
-	certFile := "certs/server.crt"
-	keyFile := "certs/server.key"
+	// HTTPS-only unified mode (respect config if present)
+	certFile := appCfg.Server.TLS.CertFile
+	keyFile := appCfg.Server.TLS.KeyFile
 
 	httpsServer := &http.Server{
-		Addr:         ":8443",
+		Addr:         ":" + func() string { if appCfg.Server.Port>0 { return fmt.Sprint(appCfg.Server.Port) }; return "8443" }(),
 		Handler:      srv.Router,
 		ReadTimeout:  120 * time.Second,
 		WriteTimeout: 120 * time.Second,

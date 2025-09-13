@@ -214,14 +214,11 @@ export function APIKeyManagement() {
         description: "API key created successfully"
       })
 
-      // 刷新API Key列表
-      await loadAPIKeys()
+      // 立即显示新建的 API Key 弹窗
+      setShowKeyDialog(true)
 
-      // 延迟显示key对话框，确保状态已更新
-      setTimeout(() => {
-        console.log('Opening key display dialog') // Debug log
-        setShowKeyDialog(true)
-      }, 200)
+      // 异步刷新列表，不阻塞弹窗展示
+      loadAPIKeys().catch(() => {})
 
     } catch (error) {
       console.error('API key creation error:', error) // Debug log
