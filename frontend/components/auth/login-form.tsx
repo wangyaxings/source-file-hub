@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -26,6 +26,15 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   const [pendingUsername, setPendingUsername] = useState("")
   const [loginStep, setLoginStep] = useState<'login' | '2fa-setup' | '2fa-verify'>('login')
   const [otpCode, setOtpCode] = useState("")
+  const [otpAttempts, setOtpAttempts] = useState(0)
+  const [cooldown, setCooldown] = useState(0) // seconds remaining
+  const otpInputRef = useRef<HTMLInputElement | null>(null)
+  
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const t = setInterval(() => setCooldown((c) => c - 1), 1000)
+    return () => clearInterval(t)
+  }, [cooldown])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -87,11 +96,32 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     setIsLoading(true)
     try {
       await apiClient.verifyTOTP(otpCode)
+      setOtpAttempts(0)
       onLogin()
     } catch (error: any) {
-      setError(error?.message || '2FA verification failed')
-      // 验证失败，自动logout
-      await apiClient.logoutUser()
+      const code = error?.code as string | undefined
+      const retryAfter = Number(error?.retry_after || 0)
+
+      if (code === '2FA_COOLDOWN') {
+        setError(error?.message || 'Too many attempts. Please wait.')
+        setCooldown(retryAfter > 0 ? retryAfter : 5)
+      } else if (code === '2FA_TOO_MANY_ATTEMPTS') {
+        setError('Too many 2FA failures. Please login again.')
+        // Force re-login
+        try { await apiClient.logoutUser() } catch {}
+        setLoginStep('login')
+        setShow2FAVerification(false)
+        setOtpAttempts(0)
+        setOtpCode("")
+        return
+      } else {
+        setError(error?.message || 'Invalid 2FA code')
+        setOtpAttempts((n) => n + 1)
+      }
+
+      // Clear and focus input for retry
+      setOtpCode("")
+      setTimeout(() => otpInputRef.current?.focus(), 50)
     } finally {
       setIsLoading(false)
     }
@@ -187,7 +217,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
                 value={otpCode}
                 onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="123456"
-                className="text-center text-lg font-mono tracking-widest"
+                ref={otpInputRef}
+                className={`text-center text-lg font-mono tracking-widest ${error ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
                 maxLength={6}
               />
             </div>
@@ -202,12 +233,14 @@ export function LoginForm({ onLogin }: LoginFormProps) {
             <Button variant="outline" onClick={() => setLoginStep('login')} className="flex-1">
               Back
             </Button>
-            <Button onClick={handle2FAVerification} disabled={isLoading || otpCode.length !== 6} className="flex-1">
+            <Button onClick={handle2FAVerification} disabled={isLoading || otpCode.length !== 6 || cooldown > 0} className="flex-1">
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Verifying...
                 </>
+              ) : cooldown > 0 ? (
+                `Wait ${cooldown}s`
               ) : (
                 'Verify'
               )}

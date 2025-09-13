@@ -6,7 +6,9 @@ import (
     "io"
     "net/http"
     "net/url"
+    "strconv"
     "strings"
+    "time"
 
     ab "github.com/aarondl/authboss/v3"
     "github.com/aarondl/authboss/v3/otp/twofactor/totp2fa"
@@ -168,6 +170,28 @@ func TOTPJSONShimMiddleware(next http.Handler) http.Handler {
                 return
             }
 
+            // Throttling / lockout controls (per-session)
+            constMaxAttempts := 5
+            constCooldownAfterFailSeconds := 5
+            // constLockoutMinutes := 2 // reserved for future use
+
+            // Cooldown check
+            if untilStr, ok := ab.GetSession(r, "totp_cooldown_until"); ok && untilStr != "" {
+                if untilUnix, err := strconv.ParseInt(untilStr, 10, 64); err == nil {
+                    now := time.Now().Unix()
+                    if now < untilUnix {
+                        retryAfter := int(untilUnix - now)
+                        writeJSON(w, http.StatusOK, map[string]any{
+                            "success":     false,
+                            "error":       "Too many recent attempts. Please wait.",
+                            "code":        "2FA_COOLDOWN",
+                            "retry_after": retryAfter,
+                        })
+                        return
+                    }
+                }
+            }
+
             // Read code from JSON or form
             var code string
             ct := r.Header.Get("Content-Type")
@@ -188,11 +212,50 @@ func TOTPJSONShimMiddleware(next http.Handler) http.Handler {
             }
 
             if !totp.Validate(code, secret) {
-                writeJSON(w, http.StatusOK, map[string]any{"success": false, "error": "Invalid 2FA code"})
+                // Increment attempts
+                attempts := 0
+                if aStr, ok := ab.GetSession(r, "totp_attempts"); ok && aStr != "" {
+                    if v, err := strconv.Atoi(aStr); err == nil {
+                        attempts = v
+                    }
+                }
+                attempts++
+                ab.PutSession(w, "totp_attempts", strconv.Itoa(attempts))
+
+                // Apply cooldown
+                if constCooldownAfterFailSeconds > 0 {
+                    until := time.Now().Add(time.Duration(constCooldownAfterFailSeconds) * time.Second).Unix()
+                    ab.PutSession(w, "totp_cooldown_until", strconv.FormatInt(until, 10))
+                }
+
+                // Lockout and force re-login
+                if attempts >= constMaxAttempts {
+                    // Clear sessions and force full re-login
+                    if auth.AB != nil {
+                        ab.DelAllSession(w, auth.AB.Config.Storage.SessionStateWhitelistKeys)
+                        ab.DelKnownSession(w)
+                        ab.DelKnownCookie(w)
+                    }
+                    writeJSON(w, http.StatusOK, map[string]any{
+                        "success": false,
+                        "error":   "Too many 2FA failures. Please login again.",
+                        "code":    "2FA_TOO_MANY_ATTEMPTS",
+                    })
+                    return
+                }
+
+                writeJSON(w, http.StatusOK, map[string]any{
+                    "success": false,
+                    "error":   "Invalid 2FA code",
+                    "code":    "INVALID_2FA_CODE",
+                })
                 return
             }
 
             // Success: set sessions to full-auth with 2FA flag and clear pending
+            // Reset attempts/cooldown on success
+            ab.DelSession(w, "totp_attempts")
+            ab.DelSession(w, "totp_cooldown_until")
             ab.PutSession(w, ab.SessionKey, pid)
             ab.PutSession(w, ab.Session2FA, "totp")
             ab.DelSession(w, ab.SessionHalfAuthKey)

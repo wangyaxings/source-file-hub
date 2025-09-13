@@ -246,13 +246,26 @@ class ApiClient {
 
   // Verify TOTP (2FA) after login redirect to validate
   async verifyTOTP(code: string): Promise<void> {
-    const resp = await this.request<any>('/auth/ab/2fa/totp/validate', {
+    const response = await fetch(`${this.baseUrl}/auth/ab/2fa/totp/validate`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
       body: JSON.stringify({ code }),
+      credentials: 'include',
     })
-    if (!resp.success) {
-      throw new Error(resp.error || 'Invalid 2FA code')
+
+    let data: any = null
+    try { data = await response.json() } catch {}
+
+    if (!response.ok || !data || data.success === false) {
+      const errCode = data?.code
+      const errMsg = data?.error || `HTTP ${response.status}: ${response.statusText}`
+      // Throw structured error so UI can handle cooldown/lockout
+      throw { code: errCode, message: errMsg, retry_after: data?.retry_after }
     }
+
     // On success, refresh current user
     const me = await this.request<{ user: UserInfo }>('/auth/me')
     if (me.success && me.data) this.setUser((me.data as any).user)
