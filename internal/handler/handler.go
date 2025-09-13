@@ -9,14 +9,17 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"secure-file-hub/internal/application/usecases"
 	"secure-file-hub/internal/auth"
 	"secure-file-hub/internal/database"
+	repo "secure-file-hub/internal/infrastructure/repository/sqlite"
+	fc "secure-file-hub/internal/presentation/http/controllers"
 	"secure-file-hub/internal/logger"
 	"secure-file-hub/internal/middleware"
 
@@ -357,41 +360,20 @@ func writeErrorResponse(w http.ResponseWriter, status int, message string) {
 
 // meHandler returns current user info from session (Authboss)
 func meHandler(w http.ResponseWriter, r *http.Request) {
-	userCtx := r.Context().Value("user")
-	if userCtx == nil {
-		writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
-		return
-	}
-	u, ok := userCtx.(*auth.User)
-	if !ok {
-		writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
-		return
-	}
-	payload := map[string]interface{}{"username": u.Username, "role": u.Role}
-	if db := database.GetDatabase(); db != nil {
-		if ur, err := db.GetUserRole(u.Username); err == nil && ur != nil {
-			if ur.Status != "" {
-				payload["status"] = ur.Status
-			}
-			payload["permissions"] = ur.Permissions
-			payload["quota_daily"] = ur.QuotaDaily
-			payload["quota_monthly"] = ur.QuotaMonthly
-		}
-
-		// Get detailed user info including TOTP secret status
-		if appUser, err := db.GetUser(u.Username); err == nil {
-			payload["two_fa"] = appUser.TwoFAEnabled
-			payload["totp_secret"] = appUser.TOTPSecret != ""
-			payload["two_fa_enabled"] = appUser.TwoFAEnabled
-		}
-	}
-	// Include current 2FA state from context user as fallback
-	if payload["two_fa"] == nil {
-		payload["two_fa"] = u.TwoFAEnabled
-	}
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
-		"user": payload,
-	}})
+    userCtx := r.Context().Value("user")
+    if userCtx == nil {
+        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
+        return
+    }
+    u, ok := userCtx.(*auth.User)
+    if !ok {
+        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
+        return
+    }
+    payload := usecases.NewUserUseCase().BuildMePayload(u.Username, u.Role, u.TwoFAEnabled)
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+        "user": payload,
+    }})
 }
 
 // Note: Password change is now handled by authboss under /api/v1/web/auth/ab/
@@ -736,86 +718,81 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 // listFilesHandler 鏂囦欢鍒楄〃澶勭悊鍣?
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
-	fileType := r.URL.Query().Get("type")
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not initialized")
-		return
-	}
-
-	var records []database.FileRecord
-	var err error
-
-	if fileType != "" {
-		records, err = db.GetFilesByType(fileType, false)
-	} else {
-		records, err = db.GetAllFiles(false)
-	}
-
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to get file list: "+err.Error())
-		return
-	}
-
-	// Convert to FileInfo format
-	var files []FileInfo
-	for _, record := range records {
-		// Check file existence and update database if needed
-		if _, err := os.Stat(record.FilePath); err != nil {
-			// File doesn't exist, update database
-			if checkErr := db.CheckFileExists(record.ID); checkErr != nil {
-				log.Printf("Warning: Failed to check file existence: %v", checkErr)
-			}
-		}
-		files = append(files, convertToFileInfo(record))
-	}
-
-	response := Response{
-		Success: true,
-		Message: "File list retrieved successfully",
-		Data: map[string]interface{}{
-			"files": files,
-			"count": len(files),
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
+    fileType := r.URL.Query().Get("type")
+    // Use new controller + usecase + repo abstraction
+    controller := fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
+    items, err := controller.List(fileType)
+    if err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to get file list: "+err.Error())
+        return
+    }
+    // Convert to FileInfo format
+    files := make([]FileInfo, 0, len(items))
+    for _, f := range items {
+        files = append(files, FileInfo{
+            ID:           f.ID,
+            FileName:     f.VersionedName,
+            OriginalName: f.OriginalName,
+            FileType:     f.FileType,
+            Size:         f.Size,
+            Description:  f.Description,
+            UploadTime:   f.UploadTime,
+            Version:      f.Version,
+            IsLatest:     f.IsLatest,
+            Uploader:     f.Uploader,
+            Path:         f.FilePath,
+        })
+    }
+    response := Response{
+        Success: true,
+        Message: "File list retrieved successfully",
+        Data: map[string]interface{}{
+            "files": files,
+            "count": len(files),
+        },
+    }
+    writeJSONResponse(w, http.StatusOK, response)
 }
 
 // getFileVersionsHandler 鑾峰彇鏂囦欢鐗堟湰澶勭悊鍣?
 func getFileVersionsHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	fileType := vars["type"]
-	filename := vars["filename"]
+    vars := mux.Vars(r)
+    fileType := vars["type"]
+    filename := vars["filename"]
 
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not initialized")
-		return
-	}
+    controller := fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
+    items, err := controller.Versions(fileType, filename)
+    if err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to get file versions: "+err.Error())
+        return
+    }
+    versions := make([]FileInfo, 0, len(items))
+    for _, f := range items {
+        versions = append(versions, FileInfo{
+            ID:           f.ID,
+            FileName:     f.VersionedName,
+            OriginalName: f.OriginalName,
+            FileType:     f.FileType,
+            Size:         f.Size,
+            Description:  f.Description,
+            UploadTime:   f.UploadTime,
+            Version:      f.Version,
+            IsLatest:     f.IsLatest,
+            Uploader:     f.Uploader,
+            Path:         f.FilePath,
+        })
+    }
 
-	records, err := db.GetFileVersions(fileType, filename)
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to get file versions: "+err.Error())
-		return
-	}
+    response := Response{
+        Success: true,
+        Message: "File versions retrieved successfully",
+        Data: map[string]interface{}{
+            "versions": versions,
+            "count":    len(versions),
+        },
+    }
 
-	// Convert to FileInfo format
-	var versions []FileInfo
-	for _, record := range records {
-		versions = append(versions, convertToFileInfo(record))
-	}
-
-	response := Response{
-		Success: true,
-		Message: "File versions retrieved successfully",
-		Data: map[string]interface{}{
-			"versions": versions,
-			"count":    len(versions),
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
 }
 
 // deleteFileHandler 鍒犻櫎鏂囦欢锛堢Щ鍔ㄥ埌鍥炴敹绔欙級

@@ -87,3 +87,15 @@ func (r *FileRepo) List(offset, limit int) ([]entities.File, int, error) {
     }
     return out, total, nil
 }
+
+func (r *FileRepo) GetVersions(fileType, originalName string) ([]entities.File, error) {
+    db := dbpkg.GetDatabase()
+    if db == nil { return nil, ErrDBUnavailable }
+    recs, err := db.GetFileVersions(fileType, originalName)
+    if err != nil { return nil, err }
+    out := make([]entities.File, 0, len(recs))
+    for _, rec := range recs {
+        out = append(out, toEntity(rec))
+    }
+    return out, nil
+}

@@ -4,6 +4,7 @@ import (
     dbpkg "secure-file-hub/internal/database"
     "secure-file-hub/internal/domain/entities"
     "secure-file-hub/internal/domain/repositories"
+    "secure-file-hub/internal/apikey"
 )
 
 type APIKeyRepo struct{}
@@ -18,7 +19,7 @@ func mapDBToEntity(k *dbpkg.APIKey) *entities.APIKey {
         ID:          k.ID,
         Name:        k.Name,
         Description: k.Description,
-        Key:         k.Key,
+        Key:         func() string { if k.Key != "" { return k.Key } ; return apikey.MaskAPIKey(k.KeyHash) }(),
         Role:        k.Role,
         Permissions: k.Permissions,
         Status:      k.Status,

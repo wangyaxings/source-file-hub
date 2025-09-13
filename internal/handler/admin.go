@@ -11,10 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"secure-file-hub/internal/apikey"
-	"secure-file-hub/internal/auth"
-	"secure-file-hub/internal/authz"
-	"secure-file-hub/internal/database"
+    "secure-file-hub/internal/apikey"
+    "secure-file-hub/internal/auth"
+    "secure-file-hub/internal/authz"
+    "secure-file-hub/internal/database"
+    "secure-file-hub/internal/application/usecases"
+    repo "secure-file-hub/internal/infrastructure/repository/sqlite"
 	"secure-file-hub/internal/middleware"
 
 	"github.com/gorilla/mux"
@@ -205,15 +207,10 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate API key
-	fullKey, keyHash, err := apikey.GenerateAPIKey("sk")
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to generate API key")
-		return
-	}
-
-	// Parse expiration date if provided
-	var expiresAt *time.Time
+    // Prepare expiration
+    
+    // Parse expiration date if provided
+    var expiresAt *time.Time
 	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
 		// Support multiple date formats
 		dateFormats := []string{
@@ -272,52 +269,48 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create API key record
-	apiKeyRecord := &database.APIKey{
-		ID:          apikey.GenerateAPIKeyID(),
-		Name:        req.Name,
-		Description: req.Description,
-		KeyHash:     keyHash,
-		Key:         fullKey, // Only set for creation response
-		Role:        req.Role,
-		Permissions: req.Permissions,
-		Status:      "active",
-		ExpiresAt:   expiresAt,
-		UsageCount:  0,
-	}
-
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
-
-	if err := db.CreateAPIKey(apiKeyRecord); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create API key: "+err.Error())
-		return
-	}
+    // Use usecase to generate and persist API key
+    uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
+    created, err := uc.Create(req.Name, req.Description, req.Role, req.Permissions, expiresAt)
+    if err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to create API key: "+err.Error())
+        return
+    }
 
 	// Create Casbin policies for the API key (数据库适配器自动持久化)
-	if err := authz.CreateAPIKeyPolicies(apiKeyRecord.ID, req.Permissions); err != nil {
-		// If Casbin policy creation fails, clean up the database record
-		db.DeleteAPIKey(apiKeyRecord.ID)
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create API key policies: "+err.Error())
-		return
-	}
+    if err := authz.CreateAPIKeyPolicies(created.ID, req.Permissions); err != nil {
+        // If Casbin policy creation fails, clean up the database record
+        if db := database.GetDatabase(); db != nil { _ = db.DeleteAPIKey(created.ID) }
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to create API key policies: "+err.Error())
+        return
+    }
 
-	// Store the API key temporarily for download (10 minutes)
-	storeTempAPIKey(apiKeyRecord.ID, fullKey, apiKeyRecord.Name, apiKeyRecord.Role)
+    // Store the API key temporarily for download (10 minutes)
+    storeTempAPIKey(created.ID, created.Key, created.Name, created.Role)
 
-	// Return the API key (only time the full key is shown)
-	// Create a copy for response that includes the full key
-	responseData := *apiKeyRecord
+    // Return the API key (only time the full key is shown)
+    // Create a copy for response that includes the full key
+    responseData := database.APIKey{
+        ID:          created.ID,
+        Name:        created.Name,
+        Description: created.Description,
+        Key:         created.Key,
+        Role:        created.Role,
+        Permissions: created.Permissions,
+        Status:      created.Status,
+        ExpiresAt:   created.ExpiresAt,
+        UsageCount:  created.UsageCount,
+        LastUsedAt:  created.LastUsedAt,
+        CreatedAt:   created.CreatedAt,
+        UpdatedAt:   created.UpdatedAt,
+    }
 
 	response := Response{
 		Success: true,
 		Message: "API key created successfully. Please save this key securely - it will not be shown again.",
 		Data: map[string]interface{}{
-			"api_key":      responseData,
-			"download_url": fmt.Sprintf("/api/v1/admin/api-keys/%s/download", apiKeyRecord.ID),
+            "api_key":      responseData,
+            "download_url": fmt.Sprintf("/api/v1/admin/api-keys/%s/download", responseData.ID),
 		},
 	}
 
@@ -326,45 +319,41 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 // listAPIKeysHandler lists all API keys
 func listAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
-	role := r.URL.Query().Get("role")
+    role := r.URL.Query().Get("role")
 
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
-
-	var apiKeys []database.APIKey
-	var err error
-
-	if role != "" {
-		apiKeys, err = db.GetAPIKeysByRole(role)
-	} else {
-		// Get all API keys
-		apiKeys, err = db.GetAllAPIKeys()
-	}
-
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve API keys")
-		return
-	}
-
-	// Mask keys in response - never show full keys after creation
-	for i := range apiKeys {
-		apiKeys[i].Key = apikey.MaskAPIKey(apiKeys[i].KeyHash)
-		apiKeys[i].KeyHash = "" // Don't expose hash
-	}
-
-	response := Response{
-		Success: true,
-		Message: "API keys retrieved successfully",
-		Data: map[string]interface{}{
-			"keys":  apiKeys,
-			"count": len(apiKeys),
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
+    uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
+    items, err := uc.List(role)
+    if err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve API keys")
+        return
+    }
+    // Map domain entity to database.APIKey for backward-compatible response
+    apiKeys := make([]database.APIKey, 0, len(items))
+    for _, k := range items {
+        apiKeys = append(apiKeys, database.APIKey{
+            ID:          k.ID,
+            Name:        k.Name,
+            Description: k.Description,
+            Key:         k.Key, // masked in repo for listings
+            Role:        k.Role,
+            Permissions: k.Permissions,
+            Status:      k.Status,
+            ExpiresAt:   k.ExpiresAt,
+            UsageCount:  k.UsageCount,
+            LastUsedAt:  k.LastUsedAt,
+            CreatedAt:   k.CreatedAt,
+            UpdatedAt:   k.UpdatedAt,
+        })
+    }
+    response := Response{
+        Success: true,
+        Message: "API keys retrieved successfully",
+        Data: map[string]interface{}{
+            "keys":  apiKeys,
+            "count": len(apiKeys),
+        },
+    }
+    writeJSONResponse(w, http.StatusOK, response)
 }
 
 // getAPIKeyHandler gets a specific API key
@@ -384,8 +373,8 @@ func getAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 // updateAPIKeyHandler updates an API key
 func updateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	keyID := vars["keyId"]
+    vars := mux.Vars(r)
+    keyID := vars["keyId"]
 
 	var req UpdateAPIKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -393,14 +382,9 @@ func updateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
-
-	// Get current API key to verify it exists
-	_, err := db.GetAPIKeyByID(keyID)
+    uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
+    // Get current API key to verify it exists
+    _, err := uc.GetByID(keyID)
 	if err != nil {
 		writeErrorResponse(w, http.StatusNotFound, "API key not found")
 		return
@@ -440,26 +424,21 @@ func updateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 // deleteAPIKeyHandler deletes an API key
 func deleteAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	keyID := vars["keyId"]
+    vars := mux.Vars(r)
+    keyID := vars["keyId"]
 
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    // Remove all Casbin policies for this API key first (数据库适配器自动持久化)
+    if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to remove API key policies: "+err.Error())
+        return
+    }
 
-	// Remove all Casbin policies for this API key first (数据库适配器自动持久化)
-	if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to remove API key policies: "+err.Error())
-		return
-	}
-
-	// Then delete from database
-	if err := db.DeleteAPIKey(keyID); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to delete API key")
-		return
-	}
+    // Then delete from database
+    uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
+    if err := uc.Delete(keyID); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to delete API key")
+        return
+    }
 
 	response := Response{
 		Success: true,
@@ -488,16 +467,11 @@ func updateAPIKeyStatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
-
-	if err := db.UpdateAPIKeyStatus(keyID, req.Status); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to update API key status")
-		return
-	}
+    uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
+    if err := uc.UpdateStatus(keyID, req.Status); err != nil {
+        writeErrorResponse(w, http.StatusInternalServerError, "Failed to update API key status")
+        return
+    }
 
 	// If disabling the API key, remove all Casbin policies (数据库适配器自动持久化)
 	if req.Status == "disabled" {
@@ -1359,3 +1333,4 @@ func getActor(r *http.Request) string {
 	}
 	return "unknown"
 }
+
