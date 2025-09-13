@@ -11,13 +11,11 @@
 3. **用户信息**: `GET /api/v1/web/auth/me`
 4. **登出**: `POST /api/v1/web/auth/ab/logout`
 
-### 2FA功能
+### 2FA 功能（Authboss 原生）
 
-- **设置**: `POST /api/v1/web/auth/2fa/totp/start`
-- **启用**: `POST /api/v1/web/auth/2fa/totp/enable`
-- **禁用**: `POST /api/v1/web/auth/2fa/disable`
-
-注意：2FA功能将在后续版本中迁移到Authboss统一管理。
+- 设置: `POST /api/v1/web/auth/ab/2fa/totp/setup`
+- 确认: `POST /api/v1/web/auth/ab/2fa/totp/confirm`
+- 移除: `POST /api/v1/web/auth/ab/2fa/totp/remove`
 
 ### 前端集成
 
@@ -84,15 +82,15 @@ sequenceDiagram
 - POST `/api/v1/web/auth/ab/password` — requires auth; password change handled by Authboss
 - GET `/api/v1/web/auth/users` — demo users listing (no auth)
 
-## 2FA Lifecycle (Web wrappers)
+## 2FA Lifecycle (Authboss)
 
 ```mermaid
 sequenceDiagram
   participant FE
   participant BE
-  FE->>BE: POST /auth/2fa/totp/start
+  FE->>BE: POST /auth/ab/2fa/totp/setup
   BE-->>FE: 200 { secret, otpauth_url }
-  FE->>BE: POST /auth/2fa/totp/enable { code }
+  FE->>BE: POST /auth/ab/2fa/totp/confirm { code }
   BE-->>FE: 200 { success }
   FE->>BE: GET /auth/me
   BE-->>FE: 200 { user.two_fa = true }

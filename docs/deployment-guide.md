@@ -1,32 +1,32 @@
-# FileServer Deployment Guide
+﻿# FileServer Deployment Guide
 
-## 概述
+## 姒傝堪
 
-本指南将详细说明如何使用预构建的Docker镜像 `ghcr.io/wangyaxings/source-file-hub:latest` 部署FileServer项目。
+鏈寚鍗楀皢璇︾粏璇存槑濡備綍浣跨敤棰勬瀯寤虹殑Docker闀滃儚 `ghcr.io/wangyaxings/source-file-hub:latest` 閮ㄧ讲FileServer椤圭洰銆?
 
-## 前置要求
+## 鍓嶇疆瑕佹眰
 
 - Docker 20.0+
 - Docker Compose 2.0+
-- 至少 2GB 可用磁盘空间
+- 鑷冲皯 2GB 鍙敤纾佺洏绌洪棿
 
-## 快速开始
+## 蹇€熷紑濮?
 
-### 1. 创建项目目录结构
+### 1. 鍒涘缓椤圭洰鐩綍缁撴瀯
 
 ```bash
-# 创建主目录
+# 鍒涘缓涓荤洰褰?
 mkdir fileserver-docker
 cd fileserver-docker
 
-# 创建必要的子目录
+# 鍒涘缓蹇呰鐨勫瓙鐩綍
 mkdir -p {configs,certs,data,downloads,logs}
 mkdir -p downloads/{configs,certificates,docs}
 ```
 
-### 2. 准备配置文件
+### 2. 鍑嗗閰嶇疆鏂囦欢
 
-创建 `configs/config.json`:
+鍒涘缓 `configs/config.json`:
 
 ```json
 {
@@ -58,18 +58,17 @@ mkdir -p downloads/{configs,certificates,docs}
     "authenticated_downloads": true
   },
   "auth": {
-    "token_expiry": "24h",
     "require_auth": true,
     "default_users": [
       {
         "tenant_id": "demo",
         "username": "admin",
-        "description": "管理员账户"
+        "description": "绠＄悊鍛樿处鎴?
       },
       {
         "tenant_id": "demo",
         "username": "user1",
-        "description": "普通用户账户"
+        "description": "鏅€氱敤鎴疯处鎴?
       }
     ]
   },
@@ -85,21 +84,21 @@ mkdir -p downloads/{configs,certificates,docs}
 }
 ```
 
-### 3. 生成SSL证书
+### 3. 鐢熸垚SSL璇佷功
 
-创建证书生成脚本 `generate-certs.sh`:
+鍒涘缓璇佷功鐢熸垚鑴氭湰 `generate-certs.sh`:
 
 ```bash
 #!/bin/bash
 
-# 生成SSL证书用于HTTPS
+# 鐢熸垚SSL璇佷功鐢ㄤ簬HTTPS
 openssl genrsa -out certs/server.key 2048
 
 openssl req -new -x509 -key certs/server.key -out certs/server.crt -days 365 \
   -subj "/C=CN/ST=Beijing/L=Beijing/O=FileServer/CN=localhost" \
   -addext "subjectAltName=DNS:localhost,DNS:fileserver.local,IP:127.0.0.1"
 
-# 生成证书信息文件
+# 鐢熸垚璇佷功淇℃伅鏂囦欢
 cat > certs/cert_info.json << 'EOF'
 {
   "subject": {
@@ -126,21 +125,21 @@ cat > certs/cert_info.json << 'EOF'
 }
 EOF
 
-echo "✅ SSL证书生成完成"
-echo "  证书文件: certs/server.crt"
-echo "  私钥文件: certs/server.key"
-echo "  证书信息: certs/cert_info.json"
+echo "鉁?SSL璇佷功鐢熸垚瀹屾垚"
+echo "  璇佷功鏂囦欢: certs/server.crt"
+echo "  绉侀挜鏂囦欢: certs/server.key"
+echo "  璇佷功淇℃伅: certs/cert_info.json"
 ```
 
-执行生成证书:
+鎵ц鐢熸垚璇佷功:
 ```bash
 chmod +x generate-certs.sh
 ./generate-certs.sh
 ```
 
-### 4. 创建Docker Compose配置
+### 4. 鍒涘缓Docker Compose閰嶇疆
 
-创建 `docker-compose.yml`:
+鍒涘缓 `docker-compose.yml`:
 
 ```yaml
 version: '3.8'
@@ -150,13 +149,13 @@ services:
     image: ghcr.io/wangyaxings/source-file-hub:latest
     container_name: fileserver-app
     ports:
-      - "8443:8443"  # HTTPS端口
+      - "8443:8443"  # HTTPS绔彛
     volumes:
-      # 持久化数据
+      # 鎸佷箙鍖栨暟鎹?
       - ./data:/app/data
       - ./downloads:/app/downloads
       - ./logs:/app/logs
-      # 配置文件 (只读)
+      # 閰嶇疆鏂囦欢 (鍙)
       - ./configs:/app/configs:ro
       - ./certs:/app/certs:ro
     environment:
@@ -177,163 +176,163 @@ networks:
     driver: bridge
 
 volumes:
-  # 如果需要外部卷管理，可以定义命名卷
+  # 濡傛灉闇€瑕佸閮ㄥ嵎绠＄悊锛屽彲浠ュ畾涔夊懡鍚嶅嵎
   fileserver_data:
     driver: local
   fileserver_logs:
     driver: local
 ```
 
-### 5. 准备初始下载文件
+### 5. 鍑嗗鍒濆涓嬭浇鏂囦欢
 
-复制配置文件到下载目录:
+澶嶅埗閰嶇疆鏂囦欢鍒颁笅杞界洰褰?
 ```bash
-# 复制配置文件到下载目录
+# 澶嶅埗閰嶇疆鏂囦欢鍒颁笅杞界洰褰?
 cp configs/config.json downloads/configs/
 cp certs/server.crt downloads/certificates/
 cp certs/server.key downloads/certificates/
 cp certs/cert_info.json downloads/certificates/
 
-# 创建API文档
+# 鍒涘缓API鏂囨。
 cat > downloads/docs/api_guide.txt << 'EOF'
-FileServer API 使用指南
+FileServer API 浣跨敤鎸囧崡
 
-基础信息:
+鍩虹淇℃伅:
 - API Base URL: https://localhost:8443/api/v1
-- 认证方式: Bearer Token
-- 协议: HTTPS Only
+- 璁よ瘉鏂瑰紡: Bearer Token
+- 鍗忚: HTTPS Only
 
-主要接口:
-1. 健康检查: GET /health
-2. 用户登录: POST /auth/login
-3. 获取用户: GET /auth/users
-4. 文件下载: GET /files/{path}
-5. 用户登出: POST /auth/logout
+涓昏鎺ュ彛:
+1. 鍋ュ悍妫€鏌? GET /health
+2. 鐢ㄦ埛鐧诲綍: POST /auth/login
+3. 鑾峰彇鐢ㄦ埛: GET /auth/users
+4. 鏂囦欢涓嬭浇: GET /files/{path}
+5. 鐢ㄦ埛鐧诲嚭: POST /auth/logout
 
-使用步骤:
-1. 调用 /auth/users 获取测试用户
-2. 调用 /auth/login 登录获取token
-3. 使用token访问 /files/* 下载文件
-4. 调用 /auth/logout 登出
+浣跨敤姝ラ:
+1. 璋冪敤 /auth/users 鑾峰彇娴嬭瘯鐢ㄦ埛
+2. 璋冪敤 /auth/login 鐧诲綍鑾峰彇token
+3. 浣跨敤token璁块棶 /files/* 涓嬭浇鏂囦欢
+4. 璋冪敤 /auth/logout 鐧诲嚭
 
-注意事项:
-- 所有API都需要HTTPS访问
-- 文件下载需要用户认证
-- Token有效期24小时
+娉ㄦ剰浜嬮」:
+- 鎵€鏈堿PI閮介渶瑕丠TTPS璁块棶
+- 鏂囦欢涓嬭浇闇€瑕佺敤鎴疯璇?
+- Token鏈夋晥鏈?4灏忔椂
 EOF
 ```
 
-## 启动服务
+## 鍚姩鏈嶅姟
 
-### 6. 拉取镜像并启动
+### 6. 鎷夊彇闀滃儚骞跺惎鍔?
 
 ```bash
-# 拉取最新镜像
+# 鎷夊彇鏈€鏂伴暅鍍?
 docker pull ghcr.io/wangyaxings/source-file-hub:latest
 
-# 启动服务
+# 鍚姩鏈嶅姟
 docker-compose up -d
 
-# 查看服务状态
+# 鏌ョ湅鏈嶅姟鐘舵€?
 docker-compose ps
 
-# 查看日志
+# 鏌ョ湅鏃ュ織
 docker-compose logs -f fileserver
 ```
 
-### 7. 验证服务运行
+### 7. 楠岃瘉鏈嶅姟杩愯
 
 ```bash
-# 检查健康状态
+# 妫€鏌ュ仴搴风姸鎬?
 curl -k https://localhost:8443/api/v1/health
 
-# 获取API信息
+# 鑾峰彇API淇℃伅
 curl -k https://localhost:8443/api/v1
 
-# 获取默认用户列表
+# 鑾峰彇榛樿鐢ㄦ埛鍒楄〃
 curl -k https://localhost:8443/api/v1/auth/users
 ```
 
-## 完整测试流程
+## 瀹屾暣娴嬭瘯娴佺▼
 
-### 8. API功能验证
+### 8. API鍔熻兘楠岃瘉
 
 ```bash
-# 1. 用户登录
+# 1. 鐢ㄦ埛鐧诲綍
 RESPONSE=$(curl -k -s -X POST https://localhost:8443/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"tenant_id": "demo", "username": "admin", "password": "admin123"}')
 
-# 2. 提取token
+# 2. 鎻愬彇token
 TOKEN=$(echo $RESPONSE | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 echo "Token: $TOKEN"
 
-# 3. 下载配置文件
-curl -k -H "Authorization: Bearer $TOKEN" \
+# 3. 涓嬭浇閰嶇疆鏂囦欢
+curl -k -H "(use cookie.txt)" \
   -O -J https://localhost:8443/api/v1/files/configs/config.json
 
-# 4. 下载SSL证书
-curl -k -H "Authorization: Bearer $TOKEN" \
+# 4. 涓嬭浇SSL璇佷功
+curl -k -H "(use cookie.txt)" \
   -O -J https://localhost:8443/api/v1/files/certificates/server.crt
 
-# 5. 下载API文档
-curl -k -H "Authorization: Bearer $TOKEN" \
+# 5. 涓嬭浇API鏂囨。
+curl -k -H "(use cookie.txt)" \
   -O -J https://localhost:8443/api/v1/files/docs/api_guide.txt
 
-# 6. 用户登出
+# 6. 鐢ㄦ埛鐧诲嚭
 curl -k -X POST https://localhost:8443/api/v1/auth/logout \
-  -H "Authorization: Bearer $TOKEN"
+  -H "(use cookie.txt)"
 ```
 
-## 管理操作
+## 绠＄悊鎿嶄綔
 
-### 9. 服务管理命令
+### 9. 鏈嶅姟绠＄悊鍛戒护
 
 ```bash
-# 停止服务
+# 鍋滄鏈嶅姟
 docker-compose down
 
-# 重启服务
+# 閲嶅惎鏈嶅姟
 docker-compose restart
 
-# 查看实时日志
+# 鏌ョ湅瀹炴椂鏃ュ織
 docker-compose logs -f
 
-# 进入容器
+# 杩涘叆瀹瑰櫒
 docker-compose exec fileserver sh
 
-# 备份数据
+# 澶囦唤鏁版嵁
 tar -czf fileserver-backup-$(date +%Y%m%d).tar.gz data/ downloads/ configs/
 
-# 清理（慎用 - 会删除所有数据）
+# 娓呯悊锛堟厧鐢?- 浼氬垹闄ゆ墍鏈夋暟鎹級
 docker-compose down -v
 ```
 
-### 10. 故障排除
+### 10. 鏁呴殰鎺掗櫎
 
 ```bash
-# 查看容器状态
+# 鏌ョ湅瀹瑰櫒鐘舵€?
 docker ps -a
 
-# 查看详细日志
+# 鏌ョ湅璇︾粏鏃ュ織
 docker logs fileserver-app
 
-# 检查配置文件
+# 妫€鏌ラ厤缃枃浠?
 docker-compose config
 
-# 检查网络连接
+# 妫€鏌ョ綉缁滆繛鎺?
 docker network ls
 docker network inspect fileserver_fileserver-network
 
-# 检查卷挂载
+# 妫€鏌ュ嵎鎸傝浇
 docker inspect fileserver-app | grep -A 20 "Mounts"
 ```
 
-## 高级配置
+## 楂樼骇閰嶇疆
 
-### 11. 生产环境优化
+### 11. 鐢熶骇鐜浼樺寲
 
-对于生产环境，创建 `docker-compose.prod.yml`:
+瀵逛簬鐢熶骇鐜锛屽垱寤?`docker-compose.prod.yml`:
 
 ```yaml
 version: '3.8'
@@ -345,7 +344,7 @@ services:
     ports:
       - "8443:8443"
     volumes:
-      # 使用绝对路径挂载
+      # 浣跨敤缁濆璺緞鎸傝浇
       - /var/lib/fileserver/data:/app/data
       - /var/lib/fileserver/downloads:/app/downloads
       - /var/log/fileserver:/app/logs
@@ -375,9 +374,9 @@ networks:
     name: fileserver-prod-network
 ```
 
-### 12. 反向代理配置 (可选)
+### 12. 鍙嶅悜浠ｇ悊閰嶇疆 (鍙€?
 
-如需要通过Nginx反向代理，创建 `nginx.conf`:
+濡傞渶瑕侀€氳繃Nginx鍙嶅悜浠ｇ悊锛屽垱寤?`nginx.conf`:
 
 ```nginx
 upstream fileserver_backend {
@@ -408,29 +407,29 @@ server {
 }
 ```
 
-## 安全建议
+## 瀹夊叏寤鸿
 
-1. **更换默认密码**: 登录后立即更改默认用户密码
-2. **使用正式证书**: 生产环境使用CA签发的SSL证书
-3. **定期备份**: 设置自动备份数据库和配置文件
-4. **网络隔离**: 使用防火墙限制访问端口
-5. **日志监控**: 定期检查访问日志发现异常
-6. **更新镜像**: 定期拉取最新镜像获取安全更新
+1. **鏇存崲榛樿瀵嗙爜**: 鐧诲綍鍚庣珛鍗虫洿鏀归粯璁ょ敤鎴峰瘑鐮?
+2. **浣跨敤姝ｅ紡璇佷功**: 鐢熶骇鐜浣跨敤CA绛惧彂鐨凷SL璇佷功
+3. **瀹氭湡澶囦唤**: 璁剧疆鑷姩澶囦唤鏁版嵁搴撳拰閰嶇疆鏂囦欢
+4. **缃戠粶闅旂**: 浣跨敤闃茬伀澧欓檺鍒惰闂鍙?
+5. **鏃ュ織鐩戞帶**: 瀹氭湡妫€鏌ヨ闂棩蹇楀彂鐜板紓甯?
+6. **鏇存柊闀滃儚**: 瀹氭湡鎷夊彇鏈€鏂伴暅鍍忚幏鍙栧畨鍏ㄦ洿鏂?
 
-## 常见问题
+## 甯歌闂
 
-**Q: 容器启动失败怎么办？**
-A: 检查日志 `docker logs fileserver-app`，通常是配置文件或权限问题
+**Q: 瀹瑰櫒鍚姩澶辫触鎬庝箞鍔烇紵**
+A: 妫€鏌ユ棩蹇?`docker logs fileserver-app`锛岄€氬父鏄厤缃枃浠舵垨鏉冮檺闂
 
-**Q: 无法访问HTTPS服务？**
-A: 确认证书文件存在且格式正确，检查防火墙设置
+**Q: 鏃犳硶璁块棶HTTPS鏈嶅姟锛?*
+A: 纭璇佷功鏂囦欢瀛樺湪涓旀牸寮忔纭紝妫€鏌ラ槻鐏璁剧疆
 
-**Q: 文件下载失败？**
-A: 检查downloads目录权限，确认文件存在于allowed_paths中
+**Q: 鏂囦欢涓嬭浇澶辫触锛?*
+A: 妫€鏌ownloads鐩綍鏉冮檺锛岀‘璁ゆ枃浠跺瓨鍦ㄤ簬allowed_paths涓?
 
-**Q: 如何更新服务？**
-A: 拉取新镜像后执行 `docker-compose up -d` 会自动重启服务
+**Q: 濡備綍鏇存柊鏈嶅姟锛?*
+A: 鎷夊彇鏂伴暅鍍忓悗鎵ц `docker-compose up -d` 浼氳嚜鍔ㄩ噸鍚湇鍔?
 
 ---
 
-💡 **提示**: 首次启动建议先在测试环境验证所有功能正常后再部署到生产环境。
+馃挕 **鎻愮ず**: 棣栨鍚姩寤鸿鍏堝湪娴嬭瘯鐜楠岃瘉鎵€鏈夊姛鑳芥甯稿悗鍐嶉儴缃插埌鐢熶骇鐜銆?

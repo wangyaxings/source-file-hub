@@ -10,7 +10,7 @@ A secure REST API file server implemented in Go with HTTPS support and unified a
 - ✅ **Unified File Downloads**: All files downloaded through unified API
 - ✅ **Mandatory Authentication**: All file downloads require user authentication
 - ✅ **Multi-tenant Support**: tenant_id + username authentication model
-- ✅ **Token-based Authentication**: 24-hour long-lived tokens
+- ✅ **Session-based Authentication**: Secure Authboss sessions via HttpOnly cookies
 - ✅ **RESTful API Design**: Compliant with REST standards
 - ✅ **Modern Web UI**: Complete frontend interface built with Next.js
 - ✅ **Structured Logging**: Best practice structured logging system
@@ -197,13 +197,12 @@ curl -k -X POST https://localhost:8443/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"tenant_id": "demo", "username": "admin", "password": "admin123"}'
 
-# 3. Download files with token
-curl -k -H "Authorization: Bearer YOUR_TOKEN" \
-  -O -J https://localhost:8443/api/v1/files/configs/config.json
+# 3. Download files with session cookie
+curl -k -b cookie.txt -O -J https://localhost:8443/api/v1/web/files/configs/config.json
 
 # 4. Logout
 curl -k -X POST https://localhost:8443/api/v1/auth/logout \
-  -H "Authorization: Bearer YOUR_TOKEN"
+  -b cookie.txt
 ```
 
 ## 🤝 Contributing
