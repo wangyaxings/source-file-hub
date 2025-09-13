@@ -2,6 +2,9 @@ package auth
 
 import (
 	"errors"
+	"fmt"
+	"strings"
+	"time"
 
 	"secure-file-hub/internal/database"
 
@@ -213,8 +216,22 @@ func StartTOTPSetup(username, issuer string) (secret string, otpauthURL string, 
 	if db == nil {
 		return "", "", errors.New("database not available")
 	}
-	if err := db.SetUser2FA(username, false, key.Secret()); err != nil {
-		return "", "", err
+	// Retry database operation in case of SQLite busy error
+	var dbErr error
+	for i := 0; i < 3; i++ {
+		dbErr = db.SetUser2FA(username, false, key.Secret())
+		if dbErr == nil {
+			break
+		}
+		// If it's not a busy error, don't retry
+		if !strings.Contains(dbErr.Error(), "database is locked") && !strings.Contains(dbErr.Error(), "SQLITE_BUSY") {
+			break
+		}
+		// Wait a bit before retrying
+		time.Sleep(time.Duration(10+i*10) * time.Millisecond)
+	}
+	if dbErr != nil {
+		return "", "", fmt.Errorf("failed to save TOTP secret after retries: %v", dbErr)
 	}
 	return key.Secret(), key.URL(), nil
 }

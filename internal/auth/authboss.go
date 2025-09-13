@@ -1,13 +1,13 @@
 package auth
 
 import (
-	"os"
+    "os"
 
-	ab "github.com/aarondl/authboss/v3"
-	_ "github.com/aarondl/authboss/v3/auth"
-	"github.com/aarondl/authboss/v3/defaults"
-	_ "github.com/aarondl/authboss/v3/logout"
-	"github.com/aarondl/authboss/v3/otp/twofactor/totp2fa"
+    ab "github.com/aarondl/authboss/v3"
+    _ "github.com/aarondl/authboss/v3/auth"
+    "github.com/aarondl/authboss/v3/defaults"
+    _ "github.com/aarondl/authboss/v3/logout"
+    "github.com/aarondl/authboss/v3/otp/twofactor/totp2fa"
 )
 
 var AB *ab.Authboss
@@ -46,16 +46,21 @@ func InitAuthboss() (*ab.Authboss, error) {
 	a.Config.Modules.TOTP2FAIssuer = "Secure File Hub"
 	// Configure TOTP to handle setup required flow
 	a.Config.Modules.TwoFactorEmailAuthRequired = false
+    // Note: Authboss v3.5.x does not expose TOTP2FARequired / TOTP2FASetupRequired
+    // TOTP behavior is managed by the totp2fa module and TwoFactorEmailAuthRequired
 
 	// Initialize only imported modules (auth, logout, totp2fa)
 	if err := a.Init(); err != nil {
 		return nil, err
 	}
-	// Setup TOTP module
+	
+	// Setup TOTP module for 2FA verification
 	t := &totp2fa.TOTP{Authboss: a}
 	if err := t.Setup(); err != nil {
 		return nil, err
 	}
+	// 	return nil, err
+	// }
 	AB = a
 	return a, nil
 }

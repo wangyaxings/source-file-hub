@@ -1,4 +1,4 @@
-﻿export interface FileInfo {
+export interface FileInfo {
   id: string
   fileName: string
   originalName: string
@@ -213,7 +213,11 @@ class ApiClient {
       const errorMessage = errorData.error || errorData.message || 'Login failed'
 
       // 处理2FA相关错误
-      if (errorMessage.includes('otp') || errorMessage.includes('2fa')) {
+      if (errorMessage.includes('2FA_SETUP_REQUIRED')) {
+        throw new Error(`2FA_SETUP_REQUIRED: ${errorMessage}`)
+      } else if (errorMessage.includes('2FA_VERIFICATION_REQUIRED')) {
+        throw new Error(`2FA_VERIFICATION_REQUIRED: ${errorMessage}`)
+      } else if (errorMessage.includes('otp') || errorMessage.includes('2fa')) {
         throw new Error(`2FA_REQUIRED: ${errorMessage}`)
       }
 
@@ -573,9 +577,9 @@ class ApiClient {
     }
   }
 
-  // 使用Authboss TOTP API
+  // 使用自定义 TOTP API (避免与Authboss路由冲突)
   async startTOTP(): Promise<{ secret: string; otpauth_url: string }> {
-    const resp = await this.request('/auth/ab/2fa/totp/setup', { method: 'POST' })
+    const resp = await this.request('/auth/2fa/totp/setup', { method: 'POST' })
     if (!resp.data) {
       throw new Error('Failed to get TOTP setup data from server')
     }
@@ -583,7 +587,7 @@ class ApiClient {
   }
 
   async enableTOTP(code: string): Promise<void> {
-    await this.request('/auth/ab/2fa/totp/confirm', {
+    await this.request('/auth/2fa/totp/confirm', {
       method: 'POST',
       body: JSON.stringify({ code })
     })

@@ -73,57 +73,73 @@ func (s UserStorer) Load(ctx context.Context, key string) (ab.User, error) {
 }
 
 func (s UserStorer) Save(ctx context.Context, user ab.User) error {
-	db := database.GetDatabase()
-	if db == nil {
-		return errors.New("database not available")
-	}
-	// Support various user interfaces
-	var au *ABUser
-	switch v := user.(type) {
-	case *ABUser:
-		au = v
-	case twofactor.User:
-		// Build from interface methods minimally
-		tmp := &ABUser{}
-		tmp.PutPID(v.GetPID())
-		tmp.PutEmail(v.GetEmail())
-		au = tmp
-	default:
-		return errors.New("invalid user type")
-	}
-	// Upsert minimal fields
-	current, err := db.GetUser(au.Username)
-	if err != nil {
-		// Create user record
-		if createErr := db.CreateUser(&database.AppUser{Username: au.Username, Email: au.Email, PasswordHash: au.Password, Role: "viewer"}); createErr != nil {
-			return createErr
-		}
-		// Create user role record with active status
-		_ = db.CreateOrUpdateUserRole(&database.UserRole{
-			UserID:       au.Username,
-			Role:         "viewer",
-			Permissions:  []string{"read"},
-			QuotaDaily:   -1,
-			QuotaMonthly: -1,
-			Status:       "active",
-		})
-		return nil
-	}
-	current.Email = au.Email
-	if au.Password != "" {
-		current.PasswordHash = au.Password
-	}
-	// TOTP/Recovery fields
-	if au.TOTPSecret != "" {
-		current.TOTPSecret = au.TOTPSecret
-	}
-	if au.TOTPLastCode != "" {
-		current.TOTPLastCode = au.TOTPLastCode
-	}
-	if au.RecoveryCodes != "" {
-		current.RecoveryCodes = au.RecoveryCodes
-	}
-	return db.UpdateUser(current)
+    db := database.GetDatabase()
+    if db == nil {
+        return errors.New("database not available")
+    }
+    // Normalize to *ABUser for persistence
+    var au *ABUser
+    switch v := user.(type) {
+    case *ABUser:
+        au = v
+    default:
+        tmp := &ABUser{}
+        // Core fields
+        tmp.PutPID(v.GetPID())
+        if authable, ok := any(v).(ab.AuthableUser); ok {
+            tmp.PutPassword(authable.GetPassword())
+        }
+        // Optional email
+        if withEmail, ok := any(v).(interface{ GetEmail() string }); ok {
+            tmp.PutEmail(withEmail.GetEmail())
+        }
+        // Two-factor recovery codes
+        if tfu, ok := any(v).(twofactor.User); ok {
+            tmp.PutRecoveryCodes(tfu.GetRecoveryCodes())
+        }
+        // TOTP secret and last one-time code
+        if tu, ok := any(v).(totp2fa.User); ok {
+            tmp.PutTOTPSecretKey(tu.GetTOTPSecretKey())
+        }
+        if tou, ok := any(v).(totp2fa.UserOneTime); ok {
+            tmp.PutTOTPLastCode(tou.GetTOTPLastCode())
+        }
+        au = tmp
+    }
+
+    // Upsert minimal fields
+    current, err := db.GetUser(au.Username)
+    if err != nil {
+        // Create user record
+        if createErr := db.CreateUser(&database.AppUser{Username: au.Username, Email: au.Email, PasswordHash: au.Password, Role: "viewer"}); createErr != nil {
+            return createErr
+        }
+        // Create user role record with active status
+        _ = db.CreateOrUpdateUserRole(&database.UserRole{
+            UserID:       au.Username,
+            Role:         "viewer",
+            Permissions:  []string{"read"},
+            QuotaDaily:   -1,
+            QuotaMonthly: -1,
+            Status:       "active",
+        })
+        return nil
+    }
+    current.Email = au.Email
+    if au.Password != "" {
+        current.PasswordHash = au.Password
+    }
+    // TOTP/Recovery fields
+    if au.TOTPSecret != "" {
+        current.TOTPSecret = au.TOTPSecret
+    }
+    if au.TOTPLastCode != "" {
+        current.TOTPLastCode = au.TOTPLastCode
+    }
+    if au.RecoveryCodes != "" {
+        current.RecoveryCodes = au.RecoveryCodes
+    }
+    return db.UpdateUser(current)
 }
 
 func (s UserStorer) New(ctx context.Context) ab.User { return &ABUser{} }

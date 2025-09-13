@@ -96,10 +96,10 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/auth/check-permission", middleware.RequireAuthorization(checkPermissionHandler)).Methods("POST")
 	webAPI.HandleFunc("/auth/check-permissions", middleware.RequireAuthorization(checkMultiplePermissionsHandler)).Methods("POST")
 
-	// 2FA TOTP endpoints
-	webAPI.HandleFunc("/auth/ab/2fa/totp/setup", middleware.RequireAuthorization(startTOTPHandler)).Methods("POST")
-	webAPI.HandleFunc("/auth/ab/2fa/totp/confirm", middleware.RequireAuthorization(enableTOTPHandler)).Methods("POST")
-	webAPI.HandleFunc("/auth/ab/2fa/totp/remove", middleware.RequireAuthorization(disableTOTPHandler)).Methods("POST")
+	// 2FA TOTP endpoints (custom, not conflicting with Authboss routes)
+	webAPI.HandleFunc("/auth/2fa/totp/setup", middleware.RequireAuthorization(startTOTPHandler)).Methods("POST")
+	webAPI.HandleFunc("/auth/2fa/totp/confirm", middleware.RequireAuthorization(enableTOTPHandler)).Methods("POST")
+	webAPI.HandleFunc("/auth/2fa/totp/remove", middleware.RequireAuthorization(disableTOTPHandler)).Methods("POST")
 
 	// ========= API信息和健康检查 =========
 	webAPI.HandleFunc("", apiInfoHandler).Methods("GET")

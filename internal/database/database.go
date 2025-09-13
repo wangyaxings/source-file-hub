@@ -158,6 +158,11 @@ func InitDatabase(dbPath string) error {
 		return fmt.Errorf("failed to initialize casbin policies: %v", err)
 	}
 
+	// 更新Casbin策略数据 (添加缺失的TOTP策略)
+	if err := defaultDB.updateCasbinPolicies(); err != nil {
+		return fmt.Errorf("failed to update casbin policies: %v", err)
+	}
+
 	return nil
 }
 
@@ -513,6 +518,14 @@ func (d *Database) initializeCasbinPolicies() error {
 		{"p", "administrator", "/api/v1/web/auth/check-permissions", "POST"},
 		{"p", "viewer", "/api/v1/web/auth/check-permission", "POST"},
 		{"p", "viewer", "/api/v1/web/auth/check-permissions", "POST"},
+
+		// 用户信息API - 所有认证用户都可以获取自己的信息
+		{"p", "administrator", "/api/v1/web/auth/me", "GET"},
+		{"p", "viewer", "/api/v1/web/auth/me", "GET"},
+
+		// TOTP 2FA API - 所有认证用户都可以管理自己的2FA
+		{"p", "administrator", "/api/v1/web/auth/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		{"p", "viewer", "/api/v1/web/auth/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
 	}
 
 	stmt, err := d.db.Prepare("INSERT INTO casbin_policies (ptype, v0, v1, v2) VALUES (?, ?, ?, ?)")
@@ -522,6 +535,47 @@ func (d *Database) initializeCasbinPolicies() error {
 	defer stmt.Close()
 
 	for _, policy := range policies {
+		if _, err := stmt.Exec(policy.ptype, policy.v0, policy.v1, policy.v2); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// updateCasbinPolicies adds missing TOTP policies if they don't exist
+func (d *Database) updateCasbinPolicies() error {
+	// Check if TOTP policies already exist
+	var count int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM casbin_policies WHERE v1 LIKE '%2fa/totp%'").Scan(&count); err != nil {
+		return err
+	}
+
+	// If TOTP policies exist, skip update
+	if count > 0 {
+		return nil
+	}
+
+	// Add missing policies
+	missingPolicies := []struct {
+		ptype string
+		v0    string
+		v1    string
+		v2    string
+	}{
+		{"p", "administrator", "/api/v1/web/auth/me", "GET"},
+		{"p", "viewer", "/api/v1/web/auth/me", "GET"},
+		{"p", "administrator", "/api/v1/web/auth/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		{"p", "viewer", "/api/v1/web/auth/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+	}
+
+	stmt, err := d.db.Prepare("INSERT INTO casbin_policies (ptype, v0, v1, v2) VALUES (?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, policy := range missingPolicies {
 		if _, err := stmt.Exec(policy.ptype, policy.v0, policy.v1, policy.v2); err != nil {
 			return err
 		}

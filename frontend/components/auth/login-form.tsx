@@ -13,7 +13,6 @@ interface LoginFormProps {
   onLogin: () => void
 }
 
-
 export function LoginForm({ onLogin }: LoginFormProps) {
   const [formData, setFormData] = useState<LoginRequest>({
     username: "",
@@ -23,9 +22,10 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   const [showOtpInfo, setShowOtpInfo] = useState(true)
   const [error, setError] = useState("")
   const [show2FASetup, setShow2FASetup] = useState(false)
+  const [show2FAVerification, setShow2FAVerification] = useState(false)
   const [pendingUsername, setPendingUsername] = useState("")
-  const [loginStep, setLoginStep] = useState<'login' | '2fa'>('login')
-
+  const [loginStep, setLoginStep] = useState<'login' | '2fa-setup' | '2fa-verify'>('login')
+  const [otpCode, setOtpCode] = useState("")
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,12 +42,19 @@ export function LoginForm({ onLogin }: LoginFormProps) {
       const errorMessage = error?.message || 'Login failed'
 
       // 处理2FA相关错误
-      if (errorMessage.includes('2FA_REQUIRED')) {
-        setLoginStep('2fa')
-        setError("Please enter your 2FA verification code")
-      } else if (errorMessage.includes('2fa setup required')) {
+      if (errorMessage.includes('2FA_SETUP_REQUIRED')) {
+        setPendingUsername(formData.username)
+        setLoginStep('2fa-setup')
         setShow2FASetup(true)
         setError("Please complete 2FA setup")
+      } else if (errorMessage.includes('2FA_VERIFICATION_REQUIRED')) {
+        setLoginStep('2fa-verify')
+        setShow2FAVerification(true)
+        setError("Please enter your 2FA verification code")
+      } else if (errorMessage.includes('2FA_REQUIRED')) {
+        setLoginStep('2fa-verify')
+        setShow2FAVerification(true)
+        setError("Please enter your 2FA verification code")
       } else {
         setError(errorMessage)
       }
@@ -68,6 +75,27 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     }
   }
 
+  const handle2FAVerification = async () => {
+    if (!otpCode.trim()) {
+      setError("Please enter your 2FA verification code")
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const result = await apiClient.login({ ...formData, otp: otpCode })
+      if (result.status === 'success') {
+        onLogin()
+      }
+    } catch (error: any) {
+      setError(error?.message || '2FA verification failed')
+      // 验证失败，自动logout
+      await apiClient.logoutUser()
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader className="space-y-1">
@@ -76,66 +104,116 @@ export function LoginForm({ onLogin }: LoginFormProps) {
           Enter your credentials to access the system
         </CardDescription>
       </CardHeader>
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-4">
-          {/* Removed preset user select for production security */}
+      
+      {loginStep === 'login' && (
+        <form onSubmit={handleSubmit}>
+          <CardContent className="space-y-4">
+            {/* Removed preset user select for production security */}
 
-          <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
-            <Input
-              id="username"
-              type="text"
-              value={formData.username}
-              onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
-              placeholder="admin"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              value={formData.password}
-              onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-              placeholder="Enter password"
-              required
-            />
-          </div>
-
-          {showOtpInfo && (
-            <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded">
-              If your account has 2FA enabled, you will be prompted for verification code.
-              <br />
-              <small>
-                After login, you can manage 2FA settings in your profile.
-              </small>
+            <div className="space-y-2">
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                type="text"
+                value={formData.username}
+                onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
+                placeholder="admin"
+                required
+              />
             </div>
-          )}
 
-          {error && (
-            <div className="text-sm text-red-500 bg-red-50 p-3 rounded-md border border-red-200">
-              {error}
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                placeholder="Enter password"
+                required
+              />
             </div>
-          )}
-        </CardContent>
-        <CardFooter>
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Logging in...
-              </>
-            ) : (
-              <>
-                <LogIn className="mr-2 h-4 w-4" />
-                Login
-              </>
+
+            {showOtpInfo && (
+              <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded">
+                If your account has 2FA enabled, you will be prompted for verification code.
+                <br />
+                <small>
+                  After login, you can manage 2FA settings in your profile.
+                </small>
+              </div>
             )}
-          </Button>
-        </CardFooter>
-      </form>
+
+            {error && (
+              <div className="text-sm text-red-500 bg-red-50 p-3 rounded-md border border-red-200">
+                {error}
+              </div>
+            )}
+          </CardContent>
+          <CardFooter>
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Logging in...
+                </>
+              ) : (
+                <>
+                  <LogIn className="mr-2 h-4 w-4" />
+                  Login
+                </>
+              )}
+            </Button>
+          </CardFooter>
+        </form>
+      )}
+
+      {loginStep === '2fa-verify' && (
+        <>
+          <CardContent className="space-y-4">
+            <div className="text-center">
+              <h3 className="text-lg font-semibold">2FA Verification</h3>
+              <p className="text-sm text-muted-foreground">
+                Enter the 6-digit code from your authenticator app
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="otp">Verification Code</Label>
+              <Input
+                id="otp"
+                type="text"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="123456"
+                className="text-center text-lg font-mono tracking-widest"
+                maxLength={6}
+              />
+            </div>
+
+            {error && (
+              <div className="text-sm text-red-500 bg-red-50 p-3 rounded-md border border-red-200">
+                {error}
+              </div>
+            )}
+          </CardContent>
+          <CardFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => setLoginStep('login')} className="flex-1">
+              Back
+            </Button>
+            <Button onClick={handle2FAVerification} disabled={isLoading || otpCode.length !== 6} className="flex-1">
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Verifying...
+                </>
+              ) : (
+                'Verify'
+              )}
+            </Button>
+          </CardFooter>
+        </>
+      )}
       
       {/* 2FA设置对话框 */}
       {show2FASetup && (
@@ -143,6 +221,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
           open={show2FASetup}
           onOpenChange={setShow2FASetup}
           onSetupComplete={handle2FASetupComplete}
+          isRequired={true}
+          username={pendingUsername}
         />
       )}
     </Card>
