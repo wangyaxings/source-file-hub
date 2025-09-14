@@ -9,8 +9,8 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"path/filepath"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,13 +18,14 @@ import (
 	"secure-file-hub/internal/application/usecases"
 	"secure-file-hub/internal/auth"
 	"secure-file-hub/internal/database"
+	"secure-file-hub/internal/domain/entities"
 	repo "secure-file-hub/internal/infrastructure/repository/sqlite"
-	fc "secure-file-hub/internal/presentation/http/controllers"
 	"secure-file-hub/internal/logger"
 	"secure-file-hub/internal/middleware"
+	fc "secure-file-hub/internal/presentation/http/controllers"
 
-	"github.com/gorilla/mux"
 	ab "github.com/aarondl/authboss/v3"
+	"github.com/gorilla/mux"
 )
 
 // Global upload size limit (bytes)
@@ -84,6 +85,23 @@ func convertToFileInfo(record database.FileRecord) FileInfo {
 		IsLatest:     record.IsLatest,
 		Uploader:     record.Uploader,
 		Path:         record.FilePath,
+	}
+}
+
+// convertEntityToFileInfo converts entities.File to FileInfo
+func convertEntityToFileInfo(entity entities.File) FileInfo {
+	return FileInfo{
+		ID:           entity.ID,
+		FileName:     entity.VersionedName,
+		OriginalName: entity.OriginalName,
+		FileType:     entity.FileType,
+		Size:         entity.Size,
+		Description:  entity.Description,
+		UploadTime:   entity.UploadTime,
+		Version:      entity.Version,
+		IsLatest:     entity.IsLatest,
+		Uploader:     entity.Uploader,
+		Path:         entity.FilePath,
 	}
 }
 
@@ -415,13 +433,13 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
             writeErrorWithCode(w, http.StatusUnauthorized, "USER_NOT_FOUND", "User not found in database")
             return
         }
-        
+
         // Check user status
         if err := checkUserStatus(user.Username); err != nil {
             writeErrorWithCode(w, http.StatusUnauthorized, "ACCOUNT_SUSPENDED", err.Error())
             return
         }
-        
+
         // Build user payload
         payload := usecases.NewUserUseCase().BuildMePayload(user.Username, user.Role, user.TwoFAEnabled)
         writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
@@ -429,7 +447,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
         }})
         return
     }
-    
+
     // Not authenticated
     writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
 }
@@ -882,19 +900,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
     // Convert to FileInfo format
     files := make([]FileInfo, 0, len(items))
     for _, f := range items {
-        files = append(files, FileInfo{
-            ID:           f.ID,
-            FileName:     f.VersionedName,
-            OriginalName: f.OriginalName,
-            FileType:     f.FileType,
-            Size:         f.Size,
-            Description:  f.Description,
-            UploadTime:   f.UploadTime,
-            Version:      f.Version,
-            IsLatest:     f.IsLatest,
-            Uploader:     f.Uploader,
-            Path:         f.FilePath,
-        })
+        files = append(files, convertEntityToFileInfo(f))
     }
     response := Response{
         Success: true,
@@ -925,19 +931,7 @@ func getFileVersionsHandler(w http.ResponseWriter, r *http.Request) {
     }
     versions := make([]FileInfo, 0, len(items))
     for _, f := range items {
-        versions = append(versions, FileInfo{
-            ID:           f.ID,
-            FileName:     f.VersionedName,
-            OriginalName: f.OriginalName,
-            FileType:     f.FileType,
-            Size:         f.Size,
-            Description:  f.Description,
-            UploadTime:   f.UploadTime,
-            Version:      f.Version,
-            IsLatest:     f.IsLatest,
-            Uploader:     f.Uploader,
-            Path:         f.FilePath,
-        })
+        versions = append(versions, convertEntityToFileInfo(f))
     }
 
     response := Response{
@@ -1374,7 +1368,7 @@ func webUpdateVersionTagsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	ft := strings.ToLower(vars["type"]) // roadmap or recommendation
 	vid := vars["versionId"]
-	
+
     if ft != "roadmap" && ft != "recommendation" {
         writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type", "allowed": []string{"roadmap", "recommendation"}})
         return
@@ -1396,7 +1390,7 @@ func webUpdateVersionTagsHandler(w http.ResponseWriter, r *http.Request) {
 	for i := range body.Tags {
 		body.Tags[i] = strings.TrimSpace(body.Tags[i])
 	}
-	
+
 	// Remove empty tags
 	validTags := make([]string, 0, len(body.Tags))
 	for _, tag := range body.Tags {
