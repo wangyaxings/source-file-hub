@@ -12,11 +12,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"secure-file-hub/internal/auth"
 	"secure-file-hub/internal/database"
+	"secure-file-hub/internal/server"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -30,11 +32,19 @@ type TestConfig struct {
 }
 
 // SetupTestEnvironment creates a complete test environment
-func SetupTestEnvironment(t *testing.T) *TestConfig {
-	t.Helper()
+func SetupTestEnvironment(t testing.TB) *TestConfig {
+	config := &TestConfig{}
 
-	config := &TestConfig{
-		TempDir: t.TempDir(),
+	// Use TempDir if available (testing.T), otherwise use a temporary directory
+	if tempDirer, ok := t.(interface{ TempDir() string }); ok {
+		config.TempDir = tempDirer.TempDir()
+	} else {
+		// For testing.B, create a temporary directory
+		var err error
+		config.TempDir, err = os.MkdirTemp("", "test_*")
+		if err != nil {
+			t.Fatalf("Failed to create temp directory: %v", err)
+		}
 	}
 
 	config.DBPath = filepath.Join(config.TempDir, "test.db")
@@ -62,8 +72,7 @@ func SetupTestEnvironment(t *testing.T) *TestConfig {
 }
 
 // CreateTestUser creates a test user with given parameters
-func CreateTestUser(t *testing.T, username, password, role string) *database.AppUser {
-	t.Helper()
+func CreateTestUser(t testing.TB, username, password, role string) *database.AppUser {
 
 	db := database.GetDatabase()
 	if db == nil {
@@ -193,8 +202,7 @@ func GenerateRandomID(length int) string {
 }
 
 // CreateTestRequest creates an HTTP request with optional body and headers
-func CreateTestRequest(t *testing.T, method, url string, body interface{}, headers map[string]string) *http.Request {
-	t.Helper()
+func CreateTestRequest(t testing.TB, method, url string, body interface{}, headers map[string]string) *http.Request {
 
 	var reqBody io.Reader
 	if body != nil {
@@ -219,8 +227,7 @@ func CreateTestRequest(t *testing.T, method, url string, body interface{}, heade
 }
 
 // CreateMultipartRequest creates a multipart form request for file uploads
-func CreateMultipartRequest(t *testing.T, url string, filename, content string, fields map[string]string) *http.Request {
-	t.Helper()
+func CreateMultipartRequest(t testing.TB, url string, filename, content string, fields map[string]string) *http.Request {
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -332,8 +339,7 @@ func WaitForCondition(t *testing.T, condition func() bool, timeout time.Duration
 }
 
 // LoginAndGetSessionCookie logs in via Authboss and returns the session cookie
-func LoginAndGetSessionCookie(t *testing.T, router http.Handler, username, password string) *http.Cookie {
-    t.Helper()
+func LoginAndGetSessionCookie(t testing.TB, router http.Handler, username, password string) *http.Cookie {
     loginData := map[string]string{"username": username, "password": password}
     body, _ := json.Marshal(loginData)
     req := httptest.NewRequest(http.MethodPost, "/api/v1/web/auth/ab/login", bytes.NewReader(body))
@@ -357,4 +363,422 @@ func LoginAndGetSessionCookie(t *testing.T, router http.Handler, username, passw
 func AddSessionCookie(req *http.Request, cookie *http.Cookie) *http.Request {
     req.AddCookie(cookie)
     return req
+}
+
+// CreateTestServer creates a test server with proper configuration
+func CreateTestServer(t *testing.T) *server.Server {
+	t.Helper()
+
+	// Disable HTTPS redirect for tests
+	oldHTTPSRedirect := os.Getenv("DISABLE_HTTPS_REDIRECT")
+	os.Setenv("DISABLE_HTTPS_REDIRECT", "true")
+	t.Cleanup(func() {
+		if oldHTTPSRedirect == "" {
+			os.Unsetenv("DISABLE_HTTPS_REDIRECT")
+		} else {
+			os.Setenv("DISABLE_HTTPS_REDIRECT", oldHTTPSRedirect)
+		}
+	})
+
+	SetupTestEnvironment(t)
+
+	// Create server
+	srv := server.New()
+	if srv == nil {
+		t.Fatal("Failed to create server")
+	}
+
+	return srv
+}
+
+// CreateTestUserWithRole creates a test user with specific role and returns both user and session cookie
+func CreateTestUserWithRole(t *testing.T, srv *server.Server, username, password, role string) (*database.AppUser, *http.Cookie) {
+	t.Helper()
+
+	user := CreateTestUser(t, username, password, role)
+	cookie := LoginAndGetSessionCookie(t, srv.Router, username, password)
+	return user, cookie
+}
+
+// CreateTestUsers creates multiple test users with different roles
+func CreateTestUsers(t *testing.T, srv *server.Server, count int, role string) []struct {
+	user   *database.AppUser
+	cookie *http.Cookie
+} {
+	t.Helper()
+
+	users := make([]struct {
+		user   *database.AppUser
+		cookie *http.Cookie
+	}, count)
+
+	for i := 0; i < count; i++ {
+		username := fmt.Sprintf("testuser%d", i)
+		password := "TestPassword123!"
+		user, cookie := CreateTestUserWithRole(t, srv, username, password, role)
+		users[i] = struct {
+			user   *database.AppUser
+			cookie *http.Cookie
+		}{user, cookie}
+	}
+
+	return users
+}
+
+// CreateTestFileWithContent creates a test file with specific content and returns the file path
+func CreateTestFileWithContent(t *testing.T, config *TestConfig, filename, content string) string {
+	t.Helper()
+
+	filePath := filepath.Join(config.UploadDir, filename)
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	return filePath
+}
+
+// CreateTestFiles creates multiple test files with different content
+func CreateTestFiles(t *testing.T, config *TestConfig, count int, prefix string) []string {
+	t.Helper()
+
+	files := make([]string, count)
+	for i := 0; i < count; i++ {
+		filename := fmt.Sprintf("%s_%d.txt", prefix, i)
+		content := fmt.Sprintf("Test file content %d", i)
+		files[i] = CreateTestFileWithContent(t, config, filename, content)
+	}
+
+	return files
+}
+
+// AssertResponseStatus asserts that the response has the expected status code
+func AssertResponseStatus(t *testing.T, rr *httptest.ResponseRecorder, expectedStatus int) {
+	t.Helper()
+
+	if rr.Code != expectedStatus {
+		t.Errorf("Expected status %d, got %d. Body: %s", expectedStatus, rr.Code, rr.Body.String())
+	}
+}
+
+// AssertResponseContains asserts that the response body contains the expected text
+func AssertResponseContains(t *testing.T, rr *httptest.ResponseRecorder, expectedText string) {
+	t.Helper()
+
+	body := rr.Body.String()
+	if !strings.Contains(body, expectedText) {
+		t.Errorf("Expected response to contain '%s', but got: %s", expectedText, body)
+	}
+}
+
+// AssertResponseNotContains asserts that the response body does not contain the expected text
+func AssertResponseNotContains(t *testing.T, rr *httptest.ResponseRecorder, unexpectedText string) {
+	t.Helper()
+
+	body := rr.Body.String()
+	if strings.Contains(body, unexpectedText) {
+		t.Errorf("Expected response to not contain '%s', but got: %s", unexpectedText, body)
+	}
+}
+
+// AssertResponseHeader asserts that the response has the expected header value
+func AssertResponseHeader(t *testing.T, rr *httptest.ResponseRecorder, headerName, expectedValue string) {
+	t.Helper()
+
+	actualValue := rr.Header().Get(headerName)
+	if actualValue != expectedValue {
+		t.Errorf("Expected header %s to be '%s', got '%s'", headerName, expectedValue, actualValue)
+	}
+}
+
+// AssertResponseHeaderContains asserts that the response header contains the expected text
+func AssertResponseHeaderContains(t *testing.T, rr *httptest.ResponseRecorder, headerName, expectedText string) {
+	t.Helper()
+
+	actualValue := rr.Header().Get(headerName)
+	if !strings.Contains(actualValue, expectedText) {
+		t.Errorf("Expected header %s to contain '%s', got '%s'", headerName, expectedText, actualValue)
+	}
+}
+
+// AssertJSONField asserts that a JSON response has the expected field value
+func AssertJSONField(t *testing.T, response map[string]interface{}, fieldPath, expectedValue string) {
+	t.Helper()
+
+	// Support nested field access like "data.user.username"
+	parts := strings.Split(fieldPath, ".")
+	current := response
+
+	for i, part := range parts {
+		if i == len(parts)-1 {
+			// Last part - check the value
+			if value, ok := current[part]; !ok {
+				t.Errorf("Expected field '%s' not found in response", fieldPath)
+			} else if value != expectedValue {
+				t.Errorf("Expected field '%s' to be '%s', got '%v'", fieldPath, expectedValue, value)
+			}
+		} else {
+			// Navigate deeper
+			if next, ok := current[part].(map[string]interface{}); ok {
+				current = next
+			} else {
+				t.Errorf("Expected field '%s' to be an object, got '%T'", strings.Join(parts[:i+1], "."), current[part])
+				return
+			}
+		}
+	}
+}
+
+// AssertJSONArrayLength asserts that a JSON array field has the expected length
+func AssertJSONArrayLength(t *testing.T, response map[string]interface{}, fieldPath string, expectedLength int) {
+	t.Helper()
+
+	// Support nested field access
+	parts := strings.Split(fieldPath, ".")
+	current := response
+
+	for i, part := range parts {
+		if i == len(parts)-1 {
+			// Last part - check the array length
+			if value, ok := current[part].([]interface{}); !ok {
+				t.Errorf("Expected field '%s' to be an array, got '%T'", fieldPath, current[part])
+			} else if len(value) != expectedLength {
+				t.Errorf("Expected field '%s' to have length %d, got %d", fieldPath, expectedLength, len(value))
+			}
+		} else {
+			// Navigate deeper
+			if next, ok := current[part].(map[string]interface{}); ok {
+				current = next
+			} else {
+				t.Errorf("Expected field '%s' to be an object, got '%T'", strings.Join(parts[:i+1], "."), current[part])
+				return
+			}
+		}
+	}
+}
+
+// CreateTestRequestWithAuth creates a test request with authentication
+func CreateTestRequestWithAuth(t *testing.T, method, url string, body interface{}, headers map[string]string, cookie *http.Cookie) *http.Request {
+	t.Helper()
+
+	req := CreateTestRequest(t, method, url, body, headers)
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	return req
+}
+
+// CreateTestRequestWithAPIKey creates a test request with API key authentication
+func CreateTestRequestWithAPIKey(t *testing.T, method, url string, body interface{}, headers map[string]string, apiKey string) *http.Request {
+	t.Helper()
+
+	if headers == nil {
+		headers = make(map[string]string)
+	}
+	headers["X-API-Key"] = apiKey
+
+	return CreateTestRequest(t, method, url, body, headers)
+}
+
+// ExecuteRequest executes a request and returns the response recorder
+func ExecuteRequest(t *testing.T, srv *server.Server, req *http.Request) *httptest.ResponseRecorder {
+	t.Helper()
+
+	rr := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rr, req)
+	return rr
+}
+
+// ExecuteRequestAndAssert executes a request and asserts the response status
+func ExecuteRequestAndAssert(t *testing.T, srv *server.Server, req *http.Request, expectedStatus int) *httptest.ResponseRecorder {
+	t.Helper()
+
+	rr := ExecuteRequest(t, srv, req)
+	AssertResponseStatus(t, rr, expectedStatus)
+	return rr
+}
+
+// ExecuteRequestAndAssertSuccess executes a request and asserts success response
+func ExecuteRequestAndAssertSuccess(t *testing.T, srv *server.Server, req *http.Request, expectedStatus int) map[string]interface{} {
+	t.Helper()
+
+	rr := ExecuteRequestAndAssert(t, srv, req, expectedStatus)
+	return AssertSuccessResponse(t, rr, expectedStatus)
+}
+
+// ExecuteRequestAndAssertError executes a request and asserts error response
+func ExecuteRequestAndAssertError(t *testing.T, srv *server.Server, req *http.Request, expectedStatus int) {
+	t.Helper()
+
+	rr := ExecuteRequestAndAssert(t, srv, req, expectedStatus)
+	AssertErrorResponse(t, rr, expectedStatus)
+}
+
+// CreateTestDatabase creates a test database with sample data
+func CreateTestDatabase(t *testing.T) *database.Database {
+	t.Helper()
+
+	config := SetupTestEnvironment(t)
+	db := database.GetDatabase()
+	if db == nil {
+		t.Fatal("Failed to get database")
+	}
+
+	// Create sample users
+	users := []struct {
+		username string
+		password string
+		role     string
+	}{
+		{"admin", "Admin123!", "admin"},
+		{"viewer", "Viewer123!", "viewer"},
+		{"user", "User123!", "user"},
+	}
+
+	for _, u := range users {
+		CreateTestUser(t, u.username, u.password, u.role)
+	}
+
+	// Create sample files
+	for i := 0; i < 5; i++ {
+		filename := fmt.Sprintf("test_file_%d.txt", i)
+		content := fmt.Sprintf("Test file content %d", i)
+		CreateTestFileWithContent(t, config, filename, content)
+	}
+
+	return db
+}
+
+// CleanupTestDatabase cleans up test database
+func CleanupTestDatabase(t *testing.T) {
+	t.Helper()
+
+	if db := database.GetDatabase(); db != nil {
+		_ = db.Close()
+	}
+}
+
+// WaitForConditionWithTimeout waits for a condition to be true with timeout
+func WaitForConditionWithTimeout(t *testing.T, condition func() bool, timeout time.Duration, message string) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("Condition not met within timeout %v: %s", timeout, message)
+}
+
+// RetryOperation retries an operation until it succeeds or max attempts are reached
+func RetryOperation(t *testing.T, operation func() error, maxAttempts int, delay time.Duration) error {
+	t.Helper()
+
+	var lastErr error
+	for i := 0; i < maxAttempts; i++ {
+		if err := operation(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			if i < maxAttempts-1 {
+				time.Sleep(delay)
+			}
+		}
+	}
+
+	return fmt.Errorf("operation failed after %d attempts: %v", maxAttempts, lastErr)
+}
+
+// MeasureExecutionTime measures the execution time of a function
+func MeasureExecutionTime(t *testing.T, operation func()) time.Duration {
+	t.Helper()
+
+	start := time.Now()
+	operation()
+	return time.Since(start)
+}
+
+// CreateTestConfigWithCustomSettings creates a test config with custom settings
+func CreateTestConfigWithCustomSettings(t *testing.T, settings map[string]interface{}) *TestConfig {
+	t.Helper()
+
+	config := SetupTestEnvironment(t)
+
+	// Apply custom settings if needed
+	// This is a placeholder for future customization
+
+	return config
+}
+
+// AssertFileExists asserts that a file exists
+func AssertFileExists(t *testing.T, filePath string) {
+	t.Helper()
+
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		t.Errorf("Expected file to exist: %s", filePath)
+	}
+}
+
+// AssertFileNotExists asserts that a file does not exist
+func AssertFileNotExists(t *testing.T, filePath string) {
+	t.Helper()
+
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		t.Errorf("Expected file to not exist: %s", filePath)
+	}
+}
+
+// AssertFileContent asserts that a file contains the expected content
+func AssertFileContent(t *testing.T, filePath, expectedContent string) {
+	t.Helper()
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to read file %s: %v", filePath, err)
+	}
+
+	if string(content) != expectedContent {
+		t.Errorf("Expected file content to be '%s', got '%s'", expectedContent, string(content))
+	}
+}
+
+// CreateTestDirectory creates a test directory
+func CreateTestDirectory(t *testing.T, dirPath string) {
+	t.Helper()
+
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		t.Fatalf("Failed to create directory %s: %v", dirPath, err)
+	}
+}
+
+// AssertDirectoryExists asserts that a directory exists
+func AssertDirectoryExists(t *testing.T, dirPath string) {
+	t.Helper()
+
+	info, err := os.Stat(dirPath)
+	if os.IsNotExist(err) {
+		t.Errorf("Expected directory to exist: %s", dirPath)
+	} else if err != nil {
+		t.Fatalf("Failed to stat directory %s: %v", dirPath, err)
+	} else if !info.IsDir() {
+		t.Errorf("Expected %s to be a directory", dirPath)
+	}
+}
+
+// GetTestDataPath returns the path to test data directory
+func GetTestDataPath(t *testing.T) string {
+	t.Helper()
+
+	return filepath.Join(t.TempDir(), "testdata")
+}
+
+// CreateTestDataDirectory creates a test data directory
+func CreateTestDataDirectory(t *testing.T) string {
+	t.Helper()
+
+	path := GetTestDataPath(t)
+	CreateTestDirectory(t, path)
+	return path
 }

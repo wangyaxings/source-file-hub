@@ -8,7 +8,8 @@ import (
 
 	"secure-file-hub/internal/auth"
 	"secure-file-hub/internal/middleware"
-    "secure-file-hub/tests/helpers"
+	"secure-file-hub/internal/server"
+	"secure-file-hub/tests/helpers"
 )
 
 func TestCORS_Preflight(t *testing.T) {

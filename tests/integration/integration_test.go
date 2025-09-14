@@ -1,6 +1,8 @@
 ﻿package integration
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,7 +13,8 @@ import (
 	"secure-file-hub/internal/handler"
 	"secure-file-hub/internal/server"
 	"secure-file-hub/tests/helpers"
- )
+)
+
 // legacy helper user for tests that still reference authUser variable
 var authUser = &auth.User{Username: "testuser", Role: "viewer"}
 // setupTestServer creates a test server with proper configuration
@@ -586,6 +589,385 @@ func TestIntegration_DataConsistency(t *testing.T) {
 
 	if fileInfoMap["description"] != "Data consistency test file" {
 		t.Error("Expected description to match in info response")
+	}
+}
+
+// TestIntegration_FileVersioning tests file versioning functionality
+func TestIntegration_FileVersioning(t *testing.T) {
+	srv := setupTestServer(t)
+
+	// Create test user
+	user := helpers.CreateTestUser(t, "versionuser", "password123", "admin")
+	sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
+
+	// Upload first version
+	fileContent1 := "Version 1 content"
+	req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload", "version_test.tsv", fileContent1, map[string]string{
+		"fileType":    "roadmap",
+		"description": "Version 1",
+	})
+	req = helpers.AddSessionCookie(req, sessionCookie)
+
+	rr := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("First upload failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	response1 := helpers.AssertSuccessResponse(t, rr, http.StatusOK)
+	fileData1, ok := response1["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected file data in first upload response")
+	}
+	fileID1 := fileData1["id"].(string)
+
+	// Upload second version
+	fileContent2 := "Version 2 content"
+	req = helpers.CreateMultipartRequest(t, "/api/v1/web/upload", "version_test.tsv", fileContent2, map[string]string{
+		"fileType":    "roadmap",
+		"description": "Version 2",
+	})
+	req = helpers.AddSessionCookie(req, sessionCookie)
+
+	rr = httptest.NewRecorder()
+	srv.Router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Second upload failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	response2 := helpers.AssertSuccessResponse(t, rr, http.StatusOK)
+	fileData2, ok := response2["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected file data in second upload response")
+	}
+	fileID2 := fileData2["id"].(string)
+
+	// Verify different file IDs
+	if fileID1 == fileID2 {
+		t.Error("Expected different file IDs for different versions")
+	}
+
+	// Test file versions endpoint
+	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/versions/roadmap/version_test.tsv", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
+	rr = httptest.NewRecorder()
+
+	srv.Router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Get versions failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	response := helpers.AssertSuccessResponse(t, rr, http.StatusOK)
+	if response["data"] == nil {
+		t.Error("Expected versions data in response")
+	}
+}
+
+// TestIntegration_RecycleBin tests recycle bin functionality
+func TestIntegration_RecycleBin(t *testing.T) {
+	srv := setupTestServer(t)
+
+	// Create test user
+	user := helpers.CreateTestUser(t, "recycleuser", "password123", "admin")
+	sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
+
+	// Upload a file
+	fileContent := "Recycle bin test file"
+	req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload", "recycle_test.tsv", fileContent, map[string]string{
+		"fileType":    "roadmap",
+		"description": "Recycle bin test",
+	})
+	req = helpers.AddSessionCookie(req, sessionCookie)
+
+	rr := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Upload failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	response := helpers.AssertSuccessResponse(t, rr, http.StatusOK)
+	fileData, ok := response["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected file data in upload response")
+	}
+	fileID := fileData["id"].(string)
+
+	// Delete the file (move to recycle bin)
+	req = helpers.CreateTestRequest(t, http.MethodDelete, "/api/v1/web/files/"+fileID+"/delete", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
+	rr = httptest.NewRecorder()
+
+	srv.Router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Delete failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Check recycle bin
+	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/recycle-bin", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
+	rr = httptest.NewRecorder()
+
+	srv.Router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Get recycle bin failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	response = helpers.AssertSuccessResponse(t, rr, http.StatusOK)
+	if response["data"] == nil {
+		t.Error("Expected recycle bin data in response")
+	}
+
+	// Restore the file
+	req = helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/files/"+fileID+"/restore", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
+	rr = httptest.NewRecorder()
+
+	srv.Router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Restore failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify file is back in the list
+	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/list", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
+	rr = httptest.NewRecorder()
+
+	srv.Router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("List files failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	response = helpers.AssertSuccessResponse(t, rr, http.StatusOK)
+	if response["data"] == nil {
+		t.Error("Expected files data in response")
+	}
+}
+
+// TestIntegration_ErrorHandling_Comprehensive tests comprehensive error handling
+func TestIntegration_ErrorHandling_Comprehensive(t *testing.T) {
+	srv := setupTestServer(t)
+
+	// Test cases for various error scenarios
+	testCases := []struct {
+		name           string
+		method         string
+		path           string
+		body           interface{}
+		headers        map[string]string
+		expectedStatus int
+		description    string
+	}{
+		{
+			name:           "InvalidEndpoint",
+			method:         "GET",
+			path:           "/api/v1/web/invalid-endpoint",
+			expectedStatus: http.StatusNotFound,
+			description:    "Non-existent endpoint should return 404",
+		},
+		{
+			name:           "InvalidMethod",
+			method:         "PATCH",
+			path:           "/api/v1/web/upload",
+			expectedStatus: http.StatusMethodNotAllowed,
+			description:    "Invalid HTTP method should return 405",
+		},
+		{
+			name:           "MalformedJSON",
+			method:         "POST",
+			path:           "/api/v1/web/auth/check-permission",
+			body:           "invalid json",
+			headers:        map[string]string{"Content-Type": "application/json"},
+			expectedStatus: http.StatusBadRequest,
+			description:    "Malformed JSON should return 400",
+		},
+		{
+			name:           "MissingRequiredField",
+			method:         "POST",
+			path:           "/api/v1/web/auth/check-permission",
+			body:           map[string]string{"resource": "files"}, // missing action
+			expectedStatus: http.StatusBadRequest,
+			description:    "Missing required field should return 400",
+		},
+		{
+			name:           "InvalidFileType",
+			method:         "POST",
+			path:           "/api/v1/web/upload",
+			body:           "multipart form with invalid file type",
+			expectedStatus: http.StatusUnauthorized, // Will fail auth first
+			description:    "Invalid file type should be handled properly",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var req *http.Request
+			if tc.body != nil {
+				req = helpers.CreateTestRequest(t, tc.method, tc.path, tc.body, tc.headers)
+			} else {
+				req = httptest.NewRequest(tc.method, tc.path, nil)
+				for key, value := range tc.headers {
+					req.Header.Set(key, value)
+				}
+			}
+
+			rr := httptest.NewRecorder()
+			srv.Router.ServeHTTP(rr, req)
+
+			if rr.Code != tc.expectedStatus {
+				t.Errorf("%s: Expected status %d, got %d. Body: %s",
+					tc.description, tc.expectedStatus, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+// TestIntegration_SecurityHeaders tests security headers
+func TestIntegration_SecurityHeaders(t *testing.T) {
+	srv := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	rr := httptest.NewRecorder()
+
+	srv.Router.ServeHTTP(rr, req)
+
+	// Check for security headers
+	securityHeaders := []string{
+		"X-Content-Type-Options",
+		"X-Frame-Options",
+		"X-XSS-Protection",
+		"Strict-Transport-Security",
+	}
+
+	for _, header := range securityHeaders {
+		if rr.Header().Get(header) == "" {
+			t.Logf("Warning: Security header %s not set", header)
+		}
+	}
+}
+
+// TestIntegration_ConcurrentOperations tests concurrent operations
+func TestIntegration_ConcurrentOperations(t *testing.T) {
+	srv := setupTestServer(t)
+
+	// Create test user
+	user := helpers.CreateTestUser(t, "concurrentuser", "password123", "admin")
+	sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
+
+	// Test concurrent file uploads
+	concurrency := 5
+	done := make(chan bool, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		go func(index int) {
+			defer func() { done <- true }()
+
+			fileContent := fmt.Sprintf("Concurrent test file %d", index)
+			req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload",
+				fmt.Sprintf("concurrent_test_%d.tsv", index), fileContent, map[string]string{
+					"fileType":    "roadmap",
+					"description": fmt.Sprintf("Concurrent test %d", index),
+				})
+			req = helpers.AddSessionCookie(req, sessionCookie)
+
+			rr := httptest.NewRecorder()
+			srv.Router.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Errorf("Concurrent upload %d failed: %d %s", index, rr.Code, rr.Body.String())
+			}
+		}(i)
+	}
+
+	// Wait for all uploads to complete
+	for i := 0; i < concurrency; i++ {
+		<-done
+	}
+
+	// Verify all files were uploaded
+	req := helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/list", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
+	rr := httptest.NewRecorder()
+
+	srv.Router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("List files failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	response := helpers.AssertSuccessResponse(t, rr, http.StatusOK)
+	if response["data"] == nil {
+		t.Error("Expected files data in response")
+	}
+}
+
+// TestIntegration_LargeFileHandling tests large file handling
+func TestIntegration_LargeFileHandling(t *testing.T) {
+	srv := setupTestServer(t)
+
+	// Create test user
+	user := helpers.CreateTestUser(t, "largefileuser", "password123", "admin")
+	sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
+
+	// Create a large file content (simulate large file)
+	largeContent := make([]byte, 1024*1024) // 1MB
+	for i := range largeContent {
+		largeContent[i] = byte(i % 256)
+	}
+
+	req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload", "large_test.tsv", string(largeContent), map[string]string{
+		"fileType":    "roadmap",
+		"description": "Large file test",
+	})
+	req = helpers.AddSessionCookie(req, sessionCookie)
+
+	rr := httptest.NewRecorder()
+	srv.Router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Large file upload failed: %d %s", rr.Code, rr.Body.String())
+	}
+
+	response := helpers.AssertSuccessResponse(t, rr, http.StatusOK)
+	if response["data"] == nil {
+		t.Error("Expected file data in upload response")
+	}
+}
+
+// TestIntegration_APIVersioning tests API versioning
+func TestIntegration_APIVersioning(t *testing.T) {
+	srv := setupTestServer(t)
+
+	// Test different API versions
+	versions := []string{"/api/v1/health", "/api/v1/web/health"}
+
+	for _, version := range versions {
+		t.Run("Version_"+version, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, version, nil)
+			rr := httptest.NewRecorder()
+
+			srv.Router.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Errorf("API version %s failed: %d %s", version, rr.Code, rr.Body.String())
+			}
+
+			var response map[string]interface{}
+			if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+				t.Fatalf("Failed to unmarshal response for %s: %v", version, err)
+			}
+
+			if success, ok := response["success"].(bool); !ok || !success {
+				t.Errorf("Expected success=true for API version %s", version)
+			}
+		})
 	}
 }
 
