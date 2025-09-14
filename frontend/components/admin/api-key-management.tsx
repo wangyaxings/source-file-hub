@@ -166,48 +166,73 @@ export function APIKeyManagement() {
       return
     }
 
-    // Fake API call - simulate creating API key
-    const fakeCreatedKey: APIKey = {
-      id: `key_${Math.random().toString(36).substring(2, 15)}`,
-      name: createForm.name,
-      description: createForm.description,
-      role: createForm.role,
-      permissions: roleToPermissions(createForm.role),
-      status: 'active',
-      expiresAt: createForm.expiresAt ? datetimeLocalToISO(createForm.expiresAt) : undefined,
-      usageCount: 0,
-      createdAt: new Date().toISOString(),
-      key: `sfh_${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`
+    try {
+      setIsLoading(true)
+
+      // Prepare request payload
+      const payload = {
+        name: createForm.name,
+        description: createForm.description,
+        role: createForm.role,
+        permissions: roleToPermissions(createForm.role),
+        expires_at: createForm.expiresAt ? datetimeLocalToISO(createForm.expiresAt) : undefined
+      }
+
+      // Call real API
+      const resp = await apiClient.request<{ api_key: APIKey; download_url: string }>(`/admin/api-keys`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      })
+
+      if (!resp.success) {
+        throw Object.assign(new Error(resp.error || 'Failed to create API key'), {
+          code: resp.code,
+          details: (resp as any).details
+        })
+      }
+
+      const createdKey = (resp.data as any)?.api_key as APIKey
+      const downloadUrl = (resp.data as any)?.download_url as string
+
+      if (!createdKey || !createdKey.key) {
+        throw new Error('Invalid response: missing API key data')
+      }
+
+      // Set the new key and selected key
+      setNewKey(createdKey.key)
+      setSelectedKey(createdKey)
+      if (downloadUrl) {
+        setDownloadUrl(downloadUrl)
+      }
+
+      // Close create dialog and reset form
+      setShowCreateDialog(false)
+      setCreateForm({
+        name: "",
+        description: "",
+        role: "",
+        permissions: [],
+        expiresAt: ""
+      })
+
+      // Show success toast
+      toast({
+        title: "Success",
+        description: "API key created successfully"
+      })
+
+      // Show the key dialog immediately
+      setShowKeyDialog(true)
+
+      // Reload API keys list
+      loadAPIKeys()
+
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ variant: "destructive", title, description })
+    } finally {
+      setIsLoading(false)
     }
-
-    const keyValue = fakeCreatedKey.key || ''
-    const downloadUrl = null
-
-    // Set the new key and selected key immediately
-    setNewKey(keyValue)
-    setSelectedKey(fakeCreatedKey)
-    if (downloadUrl) {
-      setDownloadUrl(downloadUrl)
-    }
-
-    // Close create dialog and reset form
-    setShowCreateDialog(false)
-    setCreateForm({
-      name: "",
-      description: "",
-      role: "",
-      permissions: [],
-      expiresAt: ""
-    })
-
-    // Show success toast
-    toast({
-      title: "Success",
-      description: "API key created successfully"
-    })
-
-    // Show the key dialog immediately
-    setShowKeyDialog(true)
   }
 
   // Map API role to permissions
