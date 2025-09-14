@@ -453,7 +453,7 @@ export default function HomePage() {
             </div>
 
             <div className="flex items-center gap-4">
-              {/* 闁哄牆绉存慨鐔煎闯閵娧冃﹂柟顑跨劍鐎垫氨绮?*/}
+              {/* Server Status */}
               {serverStatus && (
                 <div className="flex items-center gap-2 text-sm">
                   <Server className="h-4 w-4 text-gray-400" />
@@ -463,7 +463,7 @@ export default function HomePage() {
                 </div>
               )}
 
-              {/* 闁活潿鍔嶉崺娑欑┍閳╁啩绱?*/}
+              {/* User Menu */}
               {currentUser && (
                 <div className="relative" ref={userMenuRef}>
                   <button
@@ -529,7 +529,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* 濞戞挻妲掗々锕傚礃閸涱収鍟?*/}
+      {/* Main Content */}
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Tabs value={mainTab} onValueChange={(v:any)=>setMainTab(v)} className="space-y-6">
           <TabsList className={`grid w-full ${tabsColsClass} max-w-3xl`}>

@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
-    "secure-file-hub/internal/apikey"
-    "secure-file-hub/internal/auth"
-    "secure-file-hub/internal/authz"
-    "secure-file-hub/internal/database"
-    "secure-file-hub/internal/application/usecases"
-    repo "secure-file-hub/internal/infrastructure/repository/sqlite"
-    "secure-file-hub/internal/presentation/http/validation"
-	"secure-file-hub/internal/middleware"
+	"secure-file-hub/internal/apikey"
+	"secure-file-hub/internal/application/usecases"
+	"secure-file-hub/internal/auth"
+	"secure-file-hub/internal/authz"
+	"secure-file-hub/internal/database"
+	repo "secure-file-hub/internal/infrastructure/repository/sqlite"
 	"secure-file-hub/internal/logger"
+	"secure-file-hub/internal/middleware"
+	"secure-file-hub/internal/presentation/http/validation"
 
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
@@ -213,7 +213,7 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Prepare expiration
-    
+
     // Parse expiration date if provided
     var expiresAt *time.Time
 	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
@@ -326,7 +326,7 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		Message: "API key created successfully. Please save this key securely - it will not be shown again.",
 		Data: map[string]interface{}{
             "api_key":      responseData,
-            "download_url": fmt.Sprintf("/api/v1/admin/api-keys/%s/download", responseData.ID),
+            "download_url": fmt.Sprintf("/api/v1/web/admin/api-keys/%s/download", responseData.ID),
 		},
 	}
 
@@ -597,7 +597,7 @@ func regenerateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
         Message: "API key regenerated successfully. The old key has been disabled. Please save this new key securely - it will not be shown again.",
         Data: map[string]interface{}{
             "api_key":      database.APIKey{ID: created.ID, Name: created.Name, Description: created.Description, Key: created.Key, Role: created.Role, Permissions: created.Permissions, Status: created.Status, ExpiresAt: created.ExpiresAt, UsageCount: created.UsageCount, LastUsedAt: created.LastUsedAt, CreatedAt: created.CreatedAt, UpdatedAt: created.UpdatedAt},
-            "download_url": fmt.Sprintf("/api/v1/admin/api-keys/%s/download", created.ID),
+            "download_url": fmt.Sprintf("/api/v1/web/admin/api-keys/%s/download", created.ID),
         },
     }
     writeJSONResponse(w, http.StatusOK, response)
