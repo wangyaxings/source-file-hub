@@ -110,6 +110,9 @@ export default function HomePage() {
             setIsAuthenticated(true)
             setCurrentUser(userInfo)
 
+            // Set default tab based on user role
+            setDefaultTabByRole(userInfo)
+
             // Check if user has 2FA enabled but no TOTP secret (needs setup)
             // Backend returns: two_fa (boolean), totp_secret (boolean indicating if secret exists)
             const has2FAEnabled = userInfo.two_fa || userInfo.two_fa_enabled
@@ -140,6 +143,8 @@ export default function HomePage() {
               if (user) {
                 setIsAuthenticated(true)
                 setCurrentUser(user)
+                // Set default tab based on user role
+                setDefaultTabByRole(user)
                 setShowTwoFASetup(true)
               }
             } else {
@@ -163,6 +168,8 @@ export default function HomePage() {
         if (authenticated) {
           const user = apiClient.getCurrentUser()
           setCurrentUser(user)
+          // Set default tab based on user role
+          setDefaultTabByRole(user)
         }
       } finally {
         setIsLoading(false)
@@ -196,10 +203,28 @@ export default function HomePage() {
     }
   }, [])
 
+  // Function to set default tab based on user role
+  const setDefaultTabByRole = (user: any) => {
+    if (!user) return
+
+    // Set default tab based on user role
+    if (user.role === 'viewer') {
+      setMainTab('manage') // Files tab for viewer
+    } else if (user.role === 'administrator') {
+      setMainTab('upload') // Upload tab for administrator
+    } else {
+      // Default fallback
+      setMainTab('upload')
+    }
+  }
+
   const handleLogin = () => {
     setIsAuthenticated(true)
     const user = apiClient.getCurrentUser()
     setCurrentUser(user)
+
+    // Set default tab based on user role
+    setDefaultTabByRole(user)
 
     // Check if user needs 2FA setup
     if (user) {
@@ -230,6 +255,9 @@ export default function HomePage() {
     // Refresh user info to get updated 2FA status
     const user = apiClient.getCurrentUser()
     setCurrentUser(user)
+
+    // Set default tab based on user role after 2FA setup
+    setDefaultTabByRole(user)
 
     // Now trigger permissions load since 2FA setup is complete
     setPermissionsRefreshTrigger(prev => prev + 1)
