@@ -255,28 +255,12 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
         if (customDateEnd) params.append('endDate', customDateEnd)
       }
 
-      // Keep fetch here for binary download (blob)
-      const response = await fetch(`/api/v1/web/admin/analytics/export?${params}`, {
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include'
+      const filename = `analytics-${timeRange}-${new Date().toISOString().split('T')[0]}.json`
+      await apiClient.downloadBinary(`/admin/analytics/export?${params}`, filename)
+      toast({
+        title: "Export successful",
+        description: "Analytics data has been exported"
       })
-
-      if (response.ok) {
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `analytics-${timeRange}-${new Date().toISOString().split('T')[0]}.json`
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-        document.body.removeChild(a)
-
-        toast({
-          title: "Export successful",
-          description: "Analytics data has been exported"
-        })
-      }
     } catch (error: any) {
       const { title, description } = mapApiErrorToMessage(error)
       toast({ title: title || 'Export failed', description: description || (error?.message || 'Failed to export data'), variant: 'destructive' })

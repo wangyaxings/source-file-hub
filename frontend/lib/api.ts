@@ -390,6 +390,32 @@ class ApiClient {
     window.URL.revokeObjectURL(downloadUrl)
   }
 
+  // Generic binary download helper (uses session cookies)
+  async downloadBinary(endpoint: string, filename: string, options: RequestInit = {}): Promise<void> {
+    const url = `${this.baseUrl}${endpoint}`
+    const response = await fetch(url, {
+      ...options,
+      credentials: 'include'
+    })
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.logout()
+        throw new Error('Login expired, please login again')
+      }
+      const errorText = response.statusText || `HTTP ${response.status}`
+      throw new Error(`Download failed: ${errorText}`)
+    }
+    const blob = await response.blob()
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(downloadUrl)
+  }
+
   async deleteFile(fileId: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/files/${fileId}/delete`, {
       method: 'DELETE',

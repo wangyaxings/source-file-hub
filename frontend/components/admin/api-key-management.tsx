@@ -1,5 +1,8 @@
-﻿'use client'
 'use client'
+
+
+
+
 import { apiClient } from "@/lib/api"
 import { mapApiErrorToMessage } from "@/lib/errors"
 
@@ -12,8 +15,6 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/lib/use-toast"
-import { apiClient } from "@/lib/api"
-import { mapApiErrorToMessage } from "@/lib/errors"
 import { formatDate } from "@/lib/utils"
 import { AnalyticsCharts } from "./analytics-charts"
 import {
@@ -86,6 +87,9 @@ export function APIKeyManagement() {
     apiKey: null
   })
 
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
+
+  // Create API Key Form State (role-based API key creation)
   // Create API Key Form State (role-based API key creation)
   const [createForm, setCreateForm] = useState({
     name: "",
@@ -95,7 +99,19 @@ export function APIKeyManagement() {
     expiresAt: ""
   })
 
-  // 璋冭瘯浠ｇ爜 - 鐩戞帶鐘舵€佸彉鍖?
+  // Edit dialog state
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [editTarget, setEditTarget] = useState<APIKey | null>(null)
+  const [editForm, setEditForm] = useState({
+    name: "",
+    description: "",
+    role: "",
+    permissions: [] as string[],
+    expiresAt: ""
+  })
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+
+  // 调试代码 - 监控状态变�?
   useEffect(() => {
     console.log('showKeyDialog state changed:', showKeyDialog)
     console.log('newKey value:', newKey)
@@ -121,9 +137,8 @@ export function APIKeyManagement() {
     } finally {
       setIsLoading(false)
     }
-  }
 
-  const loadUsageLogs = async () => {\n    try {\n      const resp = await apiClient.request<{ logs: UsageLog[]; count: number }>(/admin/usage/logs?limit=100)\n      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to load usage logs'), { code: (resp as any).code, details: (resp as any).details })\n      setUsageLogs((resp.data as any)?.logs || [])\n    } catch (error: any) {\n      const { title, description } = mapApiErrorToMessage(error)\n      toast({ variant: 'destructive', title, description })\n    }\n  }\n\n  const createAPIKey = async () => {
+  const loadUsageLogs = async () => {    try {      const resp = await apiClient.request<{ logs: UsageLog[]; count: number }>(`/admin/usage/logs?limit=100`)      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to load usage logs'), { code: (resp as any).code, details: (resp as any).details })      setUsageLogs((resp.data as any)?.logs || [])    } catch (error: any) {      const { title, description } = mapApiErrorToMessage(error)      toast({ variant: 'destructive', title, description })    }  }  const createAPIKey = async () => {
     if (!createForm.name.trim() || !createForm.role) {
       toast({
         variant: "destructive",
@@ -136,10 +151,10 @@ export function APIKeyManagement() {
     try {
       const formData = {
         ...createForm,
-        permissions: roleToPermissions(createForm.role) // 鏍规嵁瑙掕壊璁剧疆鏉冮檺
+        permissions: roleToPermissions(createForm.role) // 根据角色设置权限
       }
 
-      const resp = await apiClient.request<{ api_key: APIKey }>(/admin/api-keys, { method: 'POST', body: JSON.stringify(formData) })\n      if (!resp.success) { throw Object.assign(new Error(resp.error || 'Failed to create API key'), { code: (resp as any).code, details: (resp as any).details }) }\n\n      // 检查返回的数据结构\n      const createdKey = (resp.data as any)?.api_key || resp.data
+      const resp = await apiClient.request<{ api_key: APIKey }>(`/admin/api-keys`, { method: 'POST', body: JSON.stringify(formData) })      if (!resp.success) { throw Object.assign(new Error(resp.error || 'Failed to create API key'), { code: (resp as any).code, details: (resp as any).details }) }      // ��鷵�ص����ݽṹ      const createdKey = (resp.data as any)?.api_key || resp.data
       if (!createdKey || !createdKey.key) {
         throw new Error('Invalid server response: missing api_key or key value')
       }
@@ -147,14 +162,14 @@ export function APIKeyManagement() {
       console.log('Setting new key:', createdKey.key) // Debug log
       console.log('Setting selected key:', createdKey) // Debug log
 
-      // 绔嬪嵆鍏抽棴鍒涘缓瀵硅瘽妗?
+      // 立即关闭创建对话�?
       setShowCreateDialog(false)
 
-      // 璁剧疆鏂扮殑key鏁版嵁
+      // 设置新的key数据
       setNewKey(createdKey.key || '')
       setSelectedKey(createdKey)
 
-      // 閲嶇疆鍒涘缓琛ㄥ崟
+      // 重置创建表单
       setCreateForm({
         name: "",
         description: "",
@@ -163,21 +178,20 @@ export function APIKeyManagement() {
         expiresAt: ""
       })
 
-      // 鏄剧ず鎴愬姛娑堟伅
+      // 显示成功消息
       toast({
         title: "Success",
         description: "API key created successfully"
       })
 
-      // 绔嬪嵆鏄剧ず鏂板缓鐨?API Key 寮圭獥
+      // 立即显示新建�?API Key 弹窗
       setShowKeyDialog(true)
 
-      // 寮傛鍒锋柊鍒楄〃锛屼笉闃诲寮圭獥灞曠ず
+      // 异步刷新列表，不阻塞弹窗展示
       loadAPIKeys().catch(() => {})
 
-    } catch (error: any) {\n      const { title, description } = mapApiErrorToMessage(error)\n      toast({ variant: 'destructive', title, description })\n    })
+    } catch (error: any) {      const { title, description } = mapApiErrorToMessage(error)      toast({ variant: 'destructive', title, description })    }
     }
-  }
 
   // Map API role to permissions
   const roleToPermissions = (role: string): string[] => {
@@ -195,7 +209,6 @@ export function APIKeyManagement() {
       default:
         return []
     }
-  }
 
   const updateAPIKeyStatus = async (keyId: string, status: string) => {
     try {
@@ -212,13 +225,81 @@ export function APIKeyManagement() {
     }
   }
 
+  const openEditDialog = (key: APIKey) => {
+    setEditTarget(key)
+    const toLocal = (iso?: string): string => {
+      if (!iso) return ''
+      const d = new Date(iso)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    }
+    setEditForm({
+      name: key.name || '',
+      description: key.description || '',
+      role: key.role || '',
+      permissions: Array.isArray(key.permissions) ? key.permissions.slice() : [],
+      expiresAt: toLocal(key.expiresAt)
+    })
+    setShowEditDialog(true)
+  }
+
+  const submitUpdateAPIKey = async () => {
+    if (!editTarget) return
+    try {
+      setIsSavingEdit(true)
+      const payload: any = {}
+      if (editForm.name && editForm.name !== editTarget.name) payload.name = editForm.name
+      if (editForm.description !== editTarget.description) payload.description = editForm.description || ''
+      if (editForm.permissions && editForm.permissions.length >= 0) payload.permissions = editForm.permissions
+      if (editForm.expiresAt) payload.expires_at = editForm.expiresAt
+
+      const resp = await apiClient.request<{ api_key: APIKey }>(`/admin/api-keys/${encodeURIComponent(editTarget.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      })
+      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to update API key'), { code: (resp as any).code, details: (resp as any).details })
+      const updated = ((resp.data as any)?.api_key || (resp.data as any)) as APIKey
+      if (updated && updated.id) {
+        setApiKeys(prev => prev.map(k => k.id === updated.id ? { ...k, ...updated } as any : k))
+      }
+      toast({ title: 'Saved', description: 'API key updated successfully' })
+      setShowEditDialog(false)
+      setEditTarget(null)
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ variant: 'destructive', title, description })
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
+  const regenerateAPIKey = async (key: APIKey) => {
+    try {
+      const resp = await apiClient.request<{ api_key: APIKey; download_url?: string }>(`/admin/api-keys/${encodeURIComponent(key.id)}/regenerate`, { method: 'POST' })
+      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to regenerate API key'), { code: (resp as any).code, details: (resp as any).details })
+      const created = ((resp.data as any)?.api_key || (resp.data as any)) as APIKey
+      if (created && created.key) {
+        setSelectedKey(created)
+        setNewKey(created.key)
+        setDownloadUrl(((resp.data as any)?.download_url as string) || null)
+        setShowKeyDialog(true)
+        toast({ title: 'Success', description: 'API key regenerated. Old key disabled.' })
+        loadAPIKeys().catch(() => {})
+      } else {
+        throw new Error('Invalid response: missing new key')
+      }
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ variant: 'destructive', title, description })
+    }
+  }
   const handleDeleteAPIKey = (apiKey: APIKey) => {
     setDeleteDialog({
       isOpen: true,
       apiKey: apiKey
     })
-  }
 
+  }
   const confirmDeleteAPIKey = async () => {
     if (!deleteDialog.apiKey) return
 
@@ -233,7 +314,6 @@ export function APIKeyManagement() {
     } finally {
       setDeleteDialog({ isOpen: false, apiKey: null })
     }
-  }
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -241,7 +321,6 @@ export function APIKeyManagement() {
       title: "Copied",
       description: "API key copied to clipboard"
     })
-  }
 
   // Format date for display
   const formatDisplayDate = (isoString: string) => {
@@ -255,8 +334,7 @@ export function APIKeyManagement() {
         hour: '2-digit',
         minute: '2-digit'
       })
-    } catch (error: any) {\n      const { title, description } = mapApiErrorToMessage(error)\n      toast({ variant: 'destructive', title, description })\n    }
-  }
+    } catch (error: any) {      const { title, description } = mapApiErrorToMessage(error)      toast({ variant: 'destructive', title, description })    }
 
   useEffect(() => {
     if (activeTab === "keys") {
@@ -396,12 +474,30 @@ export function APIKeyManagement() {
                             )}
                           </Button>
                           <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openEditDialog(key)}
+                          >
+                            <Edit className="h-4 w-4 mr-1" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => regenerateAPIKey(key)}
+                            disabled={isLoading}
+                          >
+                            <RefreshCw className="h-4 w-4 mr-1" />
+                            Regenerate
+                          </Button>
+                          <Button
                             variant="destructive"
                             size="sm"
                             onClick={() => handleDeleteAPIKey(key)}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
+                        </div>
                         </div>
                       </div>
                     </div>
@@ -669,6 +765,98 @@ export function APIKeyManagement() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit API Key Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={(open) => { setShowEditDialog(open); if (!open) setEditTarget(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit API Key</DialogTitle>
+            <DialogDescription>
+              Update the API key details and permissions
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="edit-name">Name</Label>
+              <Input
+                id="edit-name"
+                value={editForm.name}
+                onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-description">Description</Label>
+              <Input
+                id="edit-description"
+                value={editForm.description}
+                onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Optional description"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-role">API Role</Label>
+              <Select
+                value={editForm.role}
+                onValueChange={(value) => setEditForm(prev => ({
+                  ...prev,
+                  role: value,
+                  permissions: roleToPermissions(value)
+                }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an API role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Administrator (full access)</SelectItem>
+                  <SelectItem value="read_only">Read Only</SelectItem>
+                  <SelectItem value="download_only">Read + Download</SelectItem>
+                  <SelectItem value="upload_only">Upload Only</SelectItem>
+                  <SelectItem value="read_upload">Read + Upload</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500 mt-1">
+                Role determines permissions automatically. No manual selection needed.
+              </p>
+            </div>
+
+            <div>
+              <Label>Permissions</Label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {editForm.permissions.length === 0 ? (
+                  <span className="text-sm text-gray-500">Select a role to apply permissions</span>
+                ) : (
+                  editForm.permissions.map((perm) => (
+                    <span key={perm} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                      {perm}
+                    </span>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="edit-expiresAt">Expires At (optional)</Label>
+              <Input
+                id="edit-expiresAt"
+                type="datetime-local"
+                value={editForm.expiresAt}
+                onChange={(e) => setEditForm(prev => ({ ...prev, expiresAt: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={submitUpdateAPIKey} disabled={isSavingEdit || !editTarget}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* Show New API Key Dialog */}
       <Dialog open={showKeyDialog} onOpenChange={setShowKeyDialog}>
         <DialogContent className="max-w-lg">
@@ -721,6 +909,12 @@ export function APIKeyManagement() {
           </div>
 
           <DialogFooter>
+            {downloadUrl && (
+              <Button variant="outline" onClick={() => { window.location.href = downloadUrl! }}>
+                <Download className="h-4 w-4 mr-2" />
+                Download Key
+              </Button>
+            )}
             <Button onClick={() => setShowKeyDialog(false)}>
               Done
             </Button>
@@ -772,6 +966,11 @@ export function APIKeyManagement() {
     </div>
   )
 }
+
+
+
+
+
 
 
 
