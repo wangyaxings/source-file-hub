@@ -1,0 +1,43 @@
+---
+alwaysApply: true
+---
+
+# Secure File Hub 项目结构指南
+
+这是一个基于 Go + Next.js 的企业级安全文件管理系统，采用清洁架构设计。
+
+## 核心架构
+
+### 后端 (Go)
+- **入口点**: [cmd/server/main.go](mdc:cmd/server/main.go) - 主程序入口
+- **内部包**: [internal/](mdc:internal/) - 私有应用代码
+  - [internal/domain/](mdc:internal/domain/) - 业务领域层（实体、仓储接口）
+  - [internal/application/](mdc:internal/application/) - 应用用例层
+  - [internal/infrastructure/](mdc:internal/infrastructure/) - 基础设施层（数据库、配置）
+  - [internal/presentation/](mdc:internal/presentation/) - 表现层（HTTP处理器、中间件）
+  - [internal/handler/](mdc:internal/handler/) - HTTP处理器（统一文件下载）
+  - [internal/auth/](mdc:internal/auth/) - 用户认证模块（Authboss）
+  - [internal/middleware/](mdc:internal/middleware/) - 中间件（认证、日志、CORS）
+
+### 前端 (Next.js)
+- **应用目录**: [frontend/app/](mdc:frontend/app/) - Next.js 14 App Router
+- **组件**: [frontend/components/](mdc:frontend/components/) - React组件
+  - [frontend/components/ui/](mdc:frontend/components/ui/) - 基础UI组件（Radix UI + Tailwind）
+  - [frontend/components/auth/](mdc:frontend/components/auth/) - 认证相关组件
+  - [frontend/components/file/](mdc:frontend/components/file/) - 文件管理组件
+  - [frontend/components/admin/](mdc:frontend/components/admin/) - 管理面板组件
+- **工具库**: [frontend/lib/](mdc:frontend/lib/) - 工具函数和API客户端
+
+## 技术栈
+- **后端**: Go 1.23 + Gorilla Mux + SQLite + Casbin + Authboss
+- **前端**: Next.js 14 + React 18 + TypeScript + Tailwind CSS + Radix UI
+- **认证**: JWT + TOTP 2FA (Google Authenticator兼容)
+- **部署**: Docker + Docker Compose
+
+## 关键特性
+- HTTPS专用架构
+- 统一认证文件下载
+- 基于Casbin的RBAC权限管理
+- 文件版本控制和回收站
+- 结构化日志记录
+- 多租户支持

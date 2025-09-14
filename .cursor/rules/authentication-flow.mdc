@@ -1,0 +1,43 @@
+---
+description: 认证和授权流程指南
+---
+
+# 认证和授权流程
+
+## 认证架构
+- **认证库**: Authboss v3 (会话认证)
+- **2FA**: TOTP (Google Authenticator兼容)
+- **权限**: 基于Casbin的RBAC
+
+## 认证流程
+1. **登录**: `POST /api/v1/web/auth/ab/login`
+2. **2FA验证**: `POST /api/v1/web/auth/ab/2fa/totp/validate`
+3. **会话管理**: HttpOnly cookies
+4. **用户信息**: `GET /api/v1/web/auth/me`
+
+## 权限检查
+- 使用 `middleware.RequireAuthorization()` 包装需要认证的路由
+- 权限检查API: `POST /api/v1/web/auth/check-permission`
+- 支持多权限检查: `POST /api/v1/web/auth/check-permissions`
+
+## 2FA 设置流程
+1. **设置**: `POST /api/v1/web/auth/ab/2fa/totp/setup`
+2. **确认**: `POST /api/v1/web/auth/ab/2fa/totp/confirm`
+3. **移除**: `POST /api/v1/web/auth/ab/2fa/totp/remove`
+
+## 前端认证状态
+- 使用 [frontend/lib/api.ts](mdc:frontend/lib/api.ts) 中的 `apiClient`
+- 自动处理会话过期和重定向
+- 2FA状态通过 `/auth/me` 端点获取
+
+## 默认用户
+- **管理员**: demo/admin (admin123)
+- **普通用户**: demo/user1 (password123)
+- **测试用户**: tenant1/test (test123)
+
+## 安全特性
+- HTTPS强制
+- 密码BCrypt哈希
+- 会话超时管理
+- 路径遍历保护
+- 结构化日志记录

@@ -1,0 +1,40 @@
+---
+alwaysApply: true
+---
+
+# Cursor Rules 使用指南
+
+本项目包含以下 Cursor 规则文件，帮助 AI 助手更好地理解和协助开发：
+
+## 规则文件列表
+
+1. **[project-structure.mdc](mdc:.cursor/rules/project-structure.mdc)** - 项目结构指南（始终应用）
+2. **[go-coding-standards.mdc](mdc:.cursor/rules/go-coding-standards.mdc)** - Go 编码规范（适用于 *.go 文件）
+3. **[frontend-coding-standards.mdc](mdc:.cursor/rules/frontend-coding-standards.mdc)** - 前端编码规范（适用于 *.ts,*.tsx,*.js,*.jsx 文件）
+4. **[authentication-flow.mdc](mdc:.cursor/rules/authentication-flow.mdc)** - 认证和授权流程指南
+5. **[api-endpoints.mdc](mdc:.cursor/rules/api-endpoints.mdc)** - API端点和服务指南
+6. **[file-management.mdc](mdc:.cursor/rules/file-management.mdc)** - 文件管理和版本控制指南
+7. **[development-workflow.mdc](mdc:.cursor/rules/development-workflow.mdc)** - 开发工作流程和最佳实践
+
+## 使用说明
+
+- **始终应用**: `project-structure.mdc` 和 `README.mdc` 会在每次对话中自动加载
+- **文件类型特定**: Go 和前端规则只在编辑相应文件类型时应用
+- **手动引用**: 其他规则可以通过描述手动引用
+
+## 项目概览
+
+Secure File Hub 是一个企业级安全文件管理系统，采用 Go + Next.js 技术栈，支持：
+- HTTPS 专用架构
+- 统一认证文件下载
+- 基于 Casbin 的 RBAC 权限管理
+- 文件版本控制和回收站
+- 结构化日志记录
+- 多租户支持
+
+## 快速开始
+
+1. 使用 `startup.bat` 启动开发环境
+2. 访问 http://localhost:30000 使用 Web 界面
+3. 默认管理员账户：demo/admin (admin123)
+4. 查看 [docs/](mdc:docs/) 目录获取详细文档

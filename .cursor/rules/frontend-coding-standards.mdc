@@ -1,0 +1,63 @@
+---
+globs: *.ts,*.tsx,*.js,*.jsx
+---
+
+# 前端编码规范
+
+## 技术栈
+- **框架**: Next.js 14 (App Router)
+- **语言**: TypeScript
+- **样式**: Tailwind CSS
+- **组件库**: Radix UI + shadcn/ui
+- **状态管理**: React hooks
+- **包管理**: Yarn
+
+## 代码风格
+- 使用 TypeScript 严格模式
+- 组件使用 PascalCase 命名
+- 文件名使用 kebab-case
+- 使用 ESLint 和 Prettier 格式化
+
+## 组件结构
+```tsx
+import * as React from "react"
+import { cn } from "@/lib/utils"
+
+interface ComponentProps {
+  // 定义 props 类型
+}
+
+export const Component = React.forwardRef<HTMLElement, ComponentProps>(
+  ({ className, ...props }, ref) => {
+    return (
+      <div
+        ref={ref}
+        className={cn("base-classes", className)}
+        {...props}
+      />
+    )
+  }
+)
+Component.displayName = "Component"
+```
+
+## API 调用
+- 使用 [frontend/lib/api.ts](mdc:frontend/lib/api.ts) 中的 `apiClient`
+- 所有请求包含 `credentials: 'include'` 用于会话认证
+- 处理 401 错误时自动登出用户
+
+## 样式规范
+- 使用 Tailwind CSS 类名
+- 使用 `cn()` 函数合并类名
+- 响应式设计优先
+- 使用 Radix UI 组件作为基础
+
+## 状态管理
+- 使用 React hooks (useState, useEffect, useCallback)
+- 复杂状态使用 useReducer
+- 避免不必要的重新渲染
+
+## 错误处理
+- 使用 try-catch 处理异步操作
+- 显示用户友好的错误消息
+- 记录错误到控制台用于调试
