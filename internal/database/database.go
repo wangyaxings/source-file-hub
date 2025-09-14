@@ -1509,7 +1509,7 @@ func (d *Database) DeleteAPIKey(keyID string) error {
 }
 
 // UpdateAPIKeyFields updates selective fields of an API key
-func (d *Database) UpdateAPIKeyFields(id string, name *string, description *string, permissions *[]string, expiresAt *time.Time) error {
+func (d *Database) UpdateAPIKeyFields(id string, name *string, description *string, permissions *[]string, expiresAt *time.Time, clearExpiry bool) error {
     if id == "" { return fmt.Errorf("api key id required") }
     sets := []string{}
     args := []interface{}{}
@@ -1526,7 +1526,9 @@ func (d *Database) UpdateAPIKeyFields(id string, name *string, description *stri
         sets = append(sets, "permissions = ?")
         args = append(args, string(permJSON))
     }
-    if expiresAt != nil {
+    if clearExpiry {
+        sets = append(sets, "expires_at = NULL")
+    } else if expiresAt != nil {
         sets = append(sets, "expires_at = ?")
         args = append(args, expiresAt.Format(time.RFC3339))
     }

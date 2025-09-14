@@ -426,7 +426,11 @@ func updateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 
     // Build patch and update through usecase (handles policies if permissions changed)
     var expiresAt *time.Time
-    if req.ExpiresAt != nil && *req.ExpiresAt != "" {
+    clearExpiry := false
+    if req.ExpiresAt != nil {
+        if *req.ExpiresAt == "" {
+            clearExpiry = true
+        } else {
         formats := []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02 15:04:05", "2006-01-02 15:04"}
         var parseErr error
         for _, f := range formats {
@@ -441,12 +445,14 @@ func updateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
             _ = parseErr
             return
         }
+        }
     }
     patch := usecases.APIKeyUpdatePatch{
         Name:        req.Name,
         Description: req.Description,
         Permissions: req.Permissions,
         ExpiresAt:   expiresAt,
+        ClearExpires: clearExpiry,
     }
     if _, err := uc.Update(keyID, patch); err != nil {
         if strings.Contains(err.Error(), "invalid permissions") {
@@ -1441,5 +1447,4 @@ func getActor(r *http.Request) string {
 	}
 	return "unknown"
 }
-
 

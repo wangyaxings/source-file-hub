@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/lib/use-toast"
-import { formatDate } from "@/lib/utils"
+import { formatDate, isoToDatetimeLocal } from "@/lib/utils"
 import { AnalyticsCharts } from "./analytics-charts"
 import {
   Key,
@@ -38,6 +38,10 @@ import {
   X
 } from "lucide-react"
 
+
+
+// Feature flag: backend does not yet support clearing expiry
+const CLEAR_EXPIRY_SUPPORTED = true as const
 interface APIKey {
   id: string
   name: string
@@ -110,12 +114,10 @@ export function APIKeyManagement() {
     expiresAt: ""
   })
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [clearExpiry, setClearExpiry] = useState(false)
 
-  // 调试代码 - 监控状态变�?
+  //  - �?
   useEffect(() => {
-    console.log('showKeyDialog state changed:', showKeyDialog)
-    console.log('newKey value:', newKey)
-    console.log('selectedKey:', selectedKey)
   }, [showKeyDialog, newKey, selectedKey])
 
   const permissions = [
@@ -149,27 +151,22 @@ export function APIKeyManagement() {
     }
 
     try {
-      const formData = {
-        ...createForm,
-        permissions: roleToPermissions(createForm.role) // 根据角色设置权限
-      }
+      const formData = {\n        name: createForm.name,\n        description: createForm.description,\n        role: createForm.role,\n        permissions: roleToPermissions(createForm.role),\n        ...(createForm.expiresAt ? { expires_at: datetimeLocalToISO(createForm.expiresAt) } : {})\n      }
 
-      const resp = await apiClient.request<{ api_key: APIKey }>(`/admin/api-keys`, { method: 'POST', body: JSON.stringify(formData) })      if (!resp.success) { throw Object.assign(new Error(resp.error || 'Failed to create API key'), { code: (resp as any).code, details: (resp as any).details }) }      // ��鷵�ص����ݽṹ      const createdKey = (resp.data as any)?.api_key || resp.data
+      const resp = await apiClient.request<{ api_key: APIKey }>(`/admin/api-keys`, { method: 'POST', body: JSON.stringify(formData) })      if (!resp.success) { throw Object.assign(new Error(resp.error || 'Failed to create API key'), { code: (resp as any).code, details: (resp as any).details }) }      //       const createdKey = (resp.data as any)?.api_key || resp.data
       if (!createdKey || !createdKey.key) {
         throw new Error('Invalid server response: missing api_key or key value')
       }
 
-      console.log('Setting new key:', createdKey.key) // Debug log
-      console.log('Setting selected key:', createdKey) // Debug log
 
-      // 立即关闭创建对话�?
+      // ?
       setShowCreateDialog(false)
 
-      // 设置新的key数据
+      // key
       setNewKey(createdKey.key || '')
       setSelectedKey(createdKey)
 
-      // 重置创建表单
+      // ��
       setCreateForm({
         name: "",
         description: "",
@@ -178,16 +175,16 @@ export function APIKeyManagement() {
         expiresAt: ""
       })
 
-      // 显示成功消息
+      // 
       toast({
         title: "Success",
         description: "API key created successfully"
       })
 
-      // 立即显示新建�?API Key 弹窗
+      // ?API Key 
       setShowKeyDialog(true)
 
-      // 异步刷新列表，不阻塞弹窗展示
+      // ������
       loadAPIKeys().catch(() => {})
 
     } catch (error: any) {      const { title, description } = mapApiErrorToMessage(error)      toast({ variant: 'destructive', title, description })    }
@@ -227,19 +224,14 @@ export function APIKeyManagement() {
 
   const openEditDialog = (key: APIKey) => {
     setEditTarget(key)
-    const toLocal = (iso?: string): string => {
-      if (!iso) return ''
-      const d = new Date(iso)
-      const pad = (n: number) => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-    }
     setEditForm({
       name: key.name || '',
       description: key.description || '',
       role: key.role || '',
       permissions: Array.isArray(key.permissions) ? key.permissions.slice() : [],
-      expiresAt: toLocal(key.expiresAt)
+      expiresAt: isoToDatetimeLocal(key.expiresAt)
     })
+    setClearExpiry(false)
     setShowEditDialog(true)
   }
 
@@ -251,7 +243,7 @@ export function APIKeyManagement() {
       if (editForm.name && editForm.name !== editTarget.name) payload.name = editForm.name
       if (editForm.description !== editTarget.description) payload.description = editForm.description || ''
       if (editForm.permissions && editForm.permissions.length >= 0) payload.permissions = editForm.permissions
-      if (editForm.expiresAt) payload.expires_at = editForm.expiresAt
+      if (CLEAR_EXPIRY_SUPPORTED && clearExpiry) { payload.expires_at = "" } else if (editForm.expiresAt) { payload.expires_at = editForm.expiresAt }
 
       const resp = await apiClient.request<{ api_key: APIKey }>(`/admin/api-keys/${encodeURIComponent(editTarget.id)}`, {
         method: 'PUT',
@@ -766,7 +758,7 @@ export function APIKeyManagement() {
       </Dialog>
 
       {/* Edit API Key Dialog */}
-      <Dialog open={showEditDialog} onOpenChange={(open) => { setShowEditDialog(open); if (!open) setEditTarget(null) }}>
+      <Dialog open={showEditDialog} onOpenChange={(open) => { setShowEditDialog(open); if (!open) { setEditTarget(null); setClearExpiry(false) } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Edit API Key</DialogTitle>
@@ -840,10 +832,14 @@ export function APIKeyManagement() {
               <Label htmlFor="edit-expiresAt">Expires At (optional)</Label>
               <Input
                 id="edit-expiresAt"
-                type="datetime-local"
+                type="datetime-local" disabled={clearExpiry}
                 value={editForm.expiresAt}
                 onChange={(e) => setEditForm(prev => ({ ...prev, expiresAt: e.target.value }))}
               />
+              <div className="flex items-center gap-2 mt-2">
+                <input id="clear-expiry" type="checkbox" checked={clearExpiry} onChange={(e) => setClearExpiry(e.target.checked)} disabled={!CLEAR_EXPIRY_SUPPORTED} title={!CLEAR_EXPIRY_SUPPORTED ? "Pending backend support" : undefined} />
+                <Label htmlFor="clear-expiry">Clear expiry</Label>
+              </div>
             </div>
           </div>
 
@@ -966,6 +962,16 @@ export function APIKeyManagement() {
     </div>
   )
 }
+
+
+
+
+
+
+
+
+
+
 
 
 

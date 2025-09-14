@@ -20,4 +20,5 @@ type APIKeyUpdate struct {
     Description *string
     Permissions *[]string
     ExpiresAt   *time.Time
+    ClearExpires bool
 }

@@ -86,7 +86,7 @@ func (r *APIKeyRepo) Delete(id string) error {
 func (r *APIKeyRepo) Update(id string, upd repositories.APIKeyUpdate) error {
     db := dbpkg.GetDatabase()
     if db == nil { return ErrDBUnavailable }
-    return db.UpdateAPIKeyFields(id, upd.Name, upd.Description, upd.Permissions, upd.ExpiresAt)
+    return db.UpdateAPIKeyFields(id, upd.Name, upd.Description, upd.Permissions, upd.ExpiresAt, upd.ClearExpires)
 }
 
 func (r *APIKeyRepo) UpdateReturning(id string, upd repositories.APIKeyUpdate) (*entities.APIKey, error) {

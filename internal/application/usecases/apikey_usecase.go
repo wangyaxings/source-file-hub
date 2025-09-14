@@ -73,6 +73,7 @@ type APIKeyUpdatePatch struct {
     Description *string
     Permissions *[]string
     ExpiresAt   *time.Time
+    ClearExpires bool
 }
 
 // Update updates fields; when permissions change, Casbin policies are refreshed.
@@ -86,6 +87,7 @@ func (uc *APIKeyUseCase) Update(id string, patch APIKeyUpdatePatch) (*entities.A
         Description: patch.Description,
         Permissions: patch.Permissions,
         ExpiresAt:   patch.ExpiresAt,
+        ClearExpires: patch.ClearExpires,
     })
     if err != nil { return nil, err }
     // Refresh Casbin policies if permissions changed
