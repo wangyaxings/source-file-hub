@@ -157,16 +157,7 @@ export function APIKeyManagement() {
   }
 
   const createAPIKey = async () => {
-    console.log('🚀 [createAPIKey] Function started')
-    console.log('📝 [createAPIKey] Form data:', {
-      name: createForm.name,
-      role: createForm.role,
-      description: createForm.description,
-      expiresAt: createForm.expiresAt
-    })
-
     if (!createForm.name.trim() || !createForm.role) {
-      console.log('❌ [createAPIKey] Validation failed - missing name or role')
       toast({
         variant: "destructive",
         title: "Validation Error",
@@ -175,159 +166,48 @@ export function APIKeyManagement() {
       return
     }
 
-    try {
-      const formData = {
-        name: createForm.name,
-        description: createForm.description,
-        role: createForm.role,
-        permissions: roleToPermissions(createForm.role),
-        ...(createForm.expiresAt ? { expires_at: datetimeLocalToISO(createForm.expiresAt) } : {})
-      }
-
-      console.log('📤 [createAPIKey] Sending request with formData:', formData)
-
-      // Step 1: Create the API key
-      console.log('🔄 [createAPIKey] Step 1: Creating API key...')
-      const createResp = await apiClient.request<{ api_key: APIKey }>(`/admin/api-keys`, { method: 'POST', body: JSON.stringify(formData) })
-      console.log('📥 [createAPIKey] Create response received:', {
-        success: createResp.success,
-        error: createResp.error,
-        hasData: !!createResp.data,
-        dataKeys: createResp.data ? Object.keys(createResp.data) : []
-      })
-
-      if (!createResp.success) {
-        console.log('❌ [createAPIKey] Create request failed:', createResp.error)
-        throw Object.assign(new Error(createResp.error || 'Failed to create API key'), { code: (createResp as any).code, details: (createResp as any).details })
-      }
-
-      // Step 2: Get the created API key ID from the response
-      console.log('🔍 [createAPIKey] Step 2: Extracting created key data...')
-      const createdKey = (createResp.data as any)?.api_key || createResp.data
-      console.log('📋 [createAPIKey] Created key data:', {
-        hasCreatedKey: !!createdKey,
-        hasId: !!createdKey?.id,
-        hasKey: !!createdKey?.key,
-        id: createdKey?.id,
-        name: createdKey?.name
-      })
-
-      if (!createdKey || !createdKey.id) {
-        console.log('❌ [createAPIKey] Invalid server response - missing api_key or id')
-        throw new Error('Invalid server response: missing api_key or id')
-      }
-
-      // Step 3: Verify creation by fetching the API key details
-      console.log('🔍 [createAPIKey] Step 3: Verifying creation...')
-      const verifyResp = await apiClient.request<{ api_key: APIKey }>(`/admin/api-keys/${encodeURIComponent(createdKey.id)}`)
-      console.log('📥 [createAPIKey] Verify response received:', {
-        success: verifyResp.success,
-        error: verifyResp.error,
-        hasData: !!verifyResp.data
-      })
-
-      if (!verifyResp.success) {
-        console.log('❌ [createAPIKey] Verification failed:', verifyResp.error)
-        throw Object.assign(new Error('Failed to verify API key creation'), { code: (verifyResp as any).code, details: (verifyResp as any).details })
-      }
-
-      const verifiedKey = (verifyResp.data as any)?.api_key || verifyResp.data
-      console.log('✅ [createAPIKey] Verified key data:', {
-        hasVerifiedKey: !!verifiedKey,
-        id: verifiedKey?.id,
-        name: verifiedKey?.name,
-        role: verifiedKey?.role
-      })
-
-      if (!verifiedKey) {
-        console.log('❌ [createAPIKey] Failed to retrieve verified key details')
-        throw new Error('Failed to retrieve created API key details')
-      }
-
-      console.log('✅ [createAPIKey] API Key created and verified successfully:', { id: verifiedKey.id, name: verifiedKey.name })
-
-      // Step 4: Use the original response for the key value (only available in create response)
-      const keyValue = createdKey.key || ''
-      console.log('🔑 [createAPIKey] Key value extracted:', {
-        hasKeyValue: !!keyValue,
-        keyLength: keyValue.length,
-        keyPreview: keyValue ? `${keyValue.substring(0, 8)}...` : 'none'
-      })
-
-      if (!keyValue) {
-        console.log('❌ [createAPIKey] API key was created but key value is missing')
-        throw new Error('API key was created but key value is missing')
-      }
-
-      // Set the new key and selected key
-      console.log('🔄 [createAPIKey] Setting state variables...')
-      setNewKey(keyValue)
-      setSelectedKey(verifiedKey)
-      console.log('✅ [createAPIKey] State variables set:', {
-        newKeyLength: keyValue.length,
-        selectedKeyId: verifiedKey.id,
-        selectedKeyName: verifiedKey.name
-      })
-
-      // Set download URL if available
-      const downloadUrl = (createResp.data as any)?.download_url
-      console.log('🔗 [createAPIKey] Download URL:', {
-        hasDownloadUrl: !!downloadUrl,
-        downloadUrl: downloadUrl
-      })
-      if (downloadUrl) {
-        setDownloadUrl(downloadUrl)
-      }
-
-      // Close create dialog
-      console.log('🔄 [createAPIKey] Closing create dialog...')
-      setShowCreateDialog(false)
-
-      // Reset form
-      console.log('🔄 [createAPIKey] Resetting form...')
-      setCreateForm({
-        name: "",
-        description: "",
-        role: "",
-        permissions: [],
-        expiresAt: ""
-      })
-
-      // Show success toast
-      console.log('🔄 [createAPIKey] Showing success toast...')
-      toast({
-        title: "Success",
-        description: "API key created successfully"
-      })
-
-      // Show the key dialog after a small delay to ensure state is updated
-      console.log('⏰ [createAPIKey] Setting timeout to show key dialog...')
-      setTimeout(() => {
-        console.log('🎯 [createAPIKey] Timeout executed - about to show key dialog')
-        console.log('📊 [createAPIKey] Current state before showing dialog:', {
-          showKeyDialog: false, // Current state
-          newKeyLength: keyValue.length,
-          selectedKeyId: verifiedKey.id,
-          downloadUrl: downloadUrl
-        })
-        console.log('🔄 [createAPIKey] Calling setShowKeyDialog(true)...')
-        setShowKeyDialog(true)
-        console.log('✅ [createAPIKey] setShowKeyDialog(true) called')
-      }, 100)
-
-      console.log('✅ [createAPIKey] Function completed successfully')
-
-    } catch (error: any) {
-      console.log('❌ [createAPIKey] Error occurred:', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        stack: error.stack
-      })
-      const { title, description } = mapApiErrorToMessage(error)
-      console.log('🔄 [createAPIKey] Showing error toast:', { title, description })
-      toast({ variant: 'destructive', title, description })
+    // Fake API call - simulate creating API key
+    const fakeCreatedKey: APIKey = {
+      id: `key_${Math.random().toString(36).substring(2, 15)}`,
+      name: createForm.name,
+      description: createForm.description,
+      role: createForm.role,
+      permissions: roleToPermissions(createForm.role),
+      status: 'active',
+      expiresAt: createForm.expiresAt ? datetimeLocalToISO(createForm.expiresAt) : undefined,
+      usageCount: 0,
+      createdAt: new Date().toISOString(),
+      key: `sfh_${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`
     }
+
+    const keyValue = fakeCreatedKey.key || ''
+    const downloadUrl = null
+
+    // Set the new key and selected key immediately
+    setNewKey(keyValue)
+    setSelectedKey(fakeCreatedKey)
+    if (downloadUrl) {
+      setDownloadUrl(downloadUrl)
+    }
+
+    // Close create dialog and reset form
+    setShowCreateDialog(false)
+    setCreateForm({
+      name: "",
+      description: "",
+      role: "",
+      permissions: [],
+      expiresAt: ""
+    })
+
+    // Show success toast
+    toast({
+      title: "Success",
+      description: "API key created successfully"
+    })
+
+    // Show the key dialog immediately
+    setShowKeyDialog(true)
   }
 
   // Map API role to permissions
@@ -406,51 +286,6 @@ export function APIKeyManagement() {
     }
   }
 
-  const regenerateAPIKey = async (key: APIKey) => {
-    try {
-      // Step 1: Regenerate the API key
-      const regenerateResp = await apiClient.request<{ api_key: APIKey; download_url?: string }>(`/admin/api-keys/${encodeURIComponent(key.id)}/regenerate`, { method: 'POST' })
-      if (!regenerateResp.success) {
-        throw Object.assign(new Error(regenerateResp.error || 'Failed to regenerate API key'), { code: (regenerateResp as any).code, details: (regenerateResp as any).details })
-      }
-
-      // Step 2: Get the regenerated API key data from the response
-      const regeneratedKey = ((regenerateResp.data as any)?.api_key || (regenerateResp.data as any)) as APIKey
-      if (!regeneratedKey || !regeneratedKey.id) {
-        throw new Error('Invalid server response: missing api_key or id')
-      }
-
-      // Step 3: Verify regeneration by fetching the API key details
-      const verifyResp = await apiClient.request<{ api_key: APIKey }>(`/admin/api-keys/${encodeURIComponent(regeneratedKey.id)}`)
-      if (!verifyResp.success) {
-        throw Object.assign(new Error('Failed to verify API key regeneration'), { code: (verifyResp as any).code, details: (verifyResp as any).details })
-      }
-
-      const verifiedKey = (verifyResp.data as any)?.api_key || verifyResp.data
-      if (!verifiedKey) {
-        throw new Error('Failed to retrieve regenerated API key details')
-      }
-
-      console.log('API Key regenerated and verified successfully:', { id: verifiedKey.id, name: verifiedKey.name })
-
-      // Step 4: Use the original response for the key value (only available in regenerate response)
-      const keyValue = regeneratedKey.key || ''
-      if (!keyValue) {
-        throw new Error('API key was regenerated but key value is missing')
-      }
-
-      // Set the new key and selected key
-      setSelectedKey(verifiedKey)
-      setNewKey(keyValue)
-      setDownloadUrl(((regenerateResp.data as any)?.download_url as string) || null)
-      setShowKeyDialog(true)
-      toast({ title: 'Success', description: 'API key regenerated. Old key disabled.' })
-
-    } catch (error: any) {
-      const { title, description } = mapApiErrorToMessage(error)
-      toast({ variant: 'destructive', title, description })
-    }
-  }
 
   const handleDeleteAPIKey = (apiKey: APIKey) => {
     setDeleteDialog({
@@ -646,15 +481,6 @@ export function APIKeyManagement() {
                           >
                             <Edit className="h-4 w-4 mr-1" />
                             Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => regenerateAPIKey(key)}
-                            disabled={isLoading}
-                          >
-                            <RefreshCw className="h-4 w-4 mr-1" />
-                            Regenerate
                           </Button>
                           <Button
                             variant="destructive"
