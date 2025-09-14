@@ -1,4 +1,8 @@
-'use client'
+﻿'use client'
+
+
+import { useSearchParams, useRouter } from "next/navigation"
+import { mapApiErrorToMessage } from "@/lib/errors"
 
 import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
@@ -64,7 +68,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
   const [editTags, setEditTags] = useState<{ open: boolean; fileType: 'roadmap'|'recommendation'|null; versionId: string; text: string }>({ open: false, fileType: null, versionId: '', text: '' })
 
   const currentUser = apiClient.getCurrentUser()
-  // 使用权限系统替代硬编码的角色检查
+  // 浣跨敤鏉冮檺绯荤粺鏇夸唬纭紪鐮佺殑瑙掕壊妫€鏌?
   const { permissions } = usePermissions()
 
   const loadFiles = async () => {
@@ -190,7 +194,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
     )
   }
 
-  // 按类型分组文件，只显示最新版本
+  // 鎸夌被鍨嬪垎缁勬枃浠讹紝鍙樉绀烘渶鏂扮増鏈?
   const latestFiles = files.filter(file => file.isLatest)
   const groupedFiles = latestFiles.reduce((acc, file) => {
     if (!acc[file.fileType]) {
@@ -202,7 +206,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
 
   return (
     <div className="space-y-6">
-      {/* 头部控制 */}
+      {/* 澶撮儴鎺у埗 */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -235,9 +239,9 @@ export function FileList({ refreshTrigger }: FileListProps) {
         </CardHeader>
       </Card>
 
-      {/* 文件列表 */}
+      {/* 鏂囦欢鍒楄〃 */}
       {selectedType === "all" ? (
-        // 分组显示
+        // 鍒嗙粍鏄剧ず
         <div className="space-y-6">
           {Object.entries(groupedFiles).map(([type, typeFiles]) => {
             const Icon = (fileTypeIcons as any)[type] || FileText
@@ -267,7 +271,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
           })}
         </div>
       ) : (
-        // 单类型显示
+        // 鍗曠被鍨嬫樉绀?
         <Card>
           <CardContent className="pt-6">
             <FileTable
@@ -281,7 +285,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
         </Card>
       )}
 
-      {/* 版本历史对话框 */}
+      {/* 鐗堟湰鍘嗗彶瀵硅瘽妗?*/}
       <Dialog
         open={versionsDialog.isOpen}
         onOpenChange={(open) => setVersionsDialog(prev => ({ ...prev, isOpen: open }))}
@@ -530,4 +534,5 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
     </div>
   )
 }
+
 

@@ -76,26 +76,26 @@ type APIKeyUpdatePatch struct {
 }
 
 // Update updates fields; when permissions change, Casbin policies are refreshed.
-func (uc *APIKeyUseCase) Update(id string, patch APIKeyUpdatePatch) error {
+func (uc *APIKeyUseCase) Update(id string, patch APIKeyUpdatePatch) (*entities.APIKey, error) {
     if patch.Permissions != nil && !apikey.ValidatePermissions(*patch.Permissions) {
-        return fmt.Errorf("invalid permissions")
+        return nil, fmt.Errorf("invalid permissions")
     }
-    // Update DB fields
-    err := uc.repo.Update(id, repositories.APIKeyUpdate{
+    // Update DB fields, return updated entity
+    updated, err := uc.repo.UpdateReturning(id, repositories.APIKeyUpdate{
         Name:        patch.Name,
         Description: patch.Description,
         Permissions: patch.Permissions,
         ExpiresAt:   patch.ExpiresAt,
     })
-    if err != nil { return err }
+    if err != nil { return nil, err }
     // Refresh Casbin policies if permissions changed
     if patch.Permissions != nil {
         if err := authz.RemoveAllAPIKeyPolicies(id); err != nil {
-            return err
+            return nil, err
         }
         if err := authz.CreateAPIKeyPolicies(id, *patch.Permissions); err != nil {
-            return err
+            return nil, err
         }
     }
-    return nil
+    return updated, nil
 }

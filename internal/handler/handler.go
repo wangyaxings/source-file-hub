@@ -33,6 +33,7 @@ type Response struct {
     Data    interface{} `json:"data,omitempty"`
     Error   string      `json:"error,omitempty"`
     Code    string      `json:"code,omitempty"`
+    Details map[string]interface{} `json:"details,omitempty"`
 }
 
 // FileMetadata 鏂囦欢鍏冩暟鎹粨鏋?(deprecated, use database.FileRecord)
@@ -153,16 +154,16 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	filePath := strings.TrimPrefix(r.URL.Path, "/api/v1/web/files/")
 
 	// 楠岃瘉鍜屾竻鐞嗚矾寰?
-	if filePath == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "File path cannot be empty")
-		return
-	}
+    if filePath == "" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "File path cannot be empty", map[string]interface{}{"field": "path"})
+        return
+    }
 
 	// 闃叉璺緞閬嶅巻鏀诲嚮
-	if strings.Contains(filePath, "..") || strings.HasPrefix(filePath, "/") {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid file path")
-		return
-	}
+    if strings.Contains(filePath, "..") || strings.HasPrefix(filePath, "/") {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid file path", map[string]interface{}{"field": "path", "reason": "path traversal or absolute path"})
+        return
+    }
 
 	// 鏋勫缓瀹屾暣鐨勬枃浠惰矾寰?- 娉ㄦ剰杩欓噷涓嶅啀娣诲姞downloads鍓嶇紑锛屽洜涓轰紶鍏ョ殑璺緞宸茬粡鍖呭惈浜?
 	var fullPath string
@@ -173,34 +174,34 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 楠岃瘉鏂囦欢璺緞鏄惁鍦ㄥ厑璁哥殑鐩綍鍐?
-	if !isAllowedPath(fullPath) {
-		writeErrorResponse(w, http.StatusForbidden, "File path not allowed")
-		return
-	}
+    if !isAllowedPath(fullPath) {
+        writeErrorWithCodeDetails(w, http.StatusForbidden, "INVALID_PERMISSION", "File path not allowed", map[string]interface{}{"path": fullPath})
+        return
+    }
 
 	// 妫€鏌ユ枃浠舵槸鍚﹀瓨鍦?
-	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		log.Printf("File not found: %s", fullPath)
-		writeErrorResponse(w, http.StatusNotFound, "File not found")
-		return
-	}
+    if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+        log.Printf("File not found: %s", fullPath)
+        writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found")
+        return
+    }
 
 	// 鎵撳紑鏂囦欢
-	file, err := os.Open(fullPath)
-	if err != nil {
-		log.Printf("Error opening file %s: %v", fullPath, err)
-		writeErrorResponse(w, http.StatusInternalServerError, "Cannot open file")
-		return
-	}
+    file, err := os.Open(fullPath)
+    if err != nil {
+        log.Printf("Error opening file %s: %v", fullPath, err)
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file")
+        return
+    }
 	defer file.Close()
 
 	// 鑾峰彇鏂囦欢淇℃伅
-	fileInfo, err := file.Stat()
-	if err != nil {
-		log.Printf("Error getting file info for %s: %v", fullPath, err)
-		writeErrorResponse(w, http.StatusInternalServerError, "Cannot get file info")
-		return
-	}
+    fileInfo, err := file.Stat()
+    if err != nil {
+        log.Printf("Error getting file info for %s: %v", fullPath, err)
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot get file info")
+        return
+    }
 
 	// 鑾峰彇鏂囦欢鍚?
 	fileName := filepath.Base(filePath)
@@ -226,15 +227,19 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("File %s downloaded successfully by %s", filePath, r.RemoteAddr)
 
 	// 璁板綍缁撴瀯鍖栦笅杞芥棩蹇?
-	if l := logger.GetLogger(); l != nil {
-		var userInfo map[string]interface{}
-		if userCtx := r.Context().Value("user"); userCtx != nil {
-			if user, ok := userCtx.(map[string]interface{}); ok {
-				userInfo = user
-			}
-		}
-		l.LogFileDownload(filePath, r.RemoteAddr, fileInfo.Size(), userInfo)
-	}
+    if l := logger.GetLogger(); l != nil {
+        var userInfo map[string]interface{}
+        if userCtx := r.Context().Value("user"); userCtx != nil {
+            if user, ok := userCtx.(map[string]interface{}); ok {
+                userInfo = user
+            }
+        }
+        if rid := r.Context().Value(middleware.RequestIDKey); rid != nil {
+            if userInfo == nil { userInfo = map[string]interface{}{} }
+            userInfo["request_id"] = rid
+        }
+        l.LogFileDownload(filePath, r.RemoteAddr, fileInfo.Size(), userInfo)
+    }
 }
 
 // apiInfoHandler API淇℃伅椤甸潰澶勭悊鍣?- 绫讳技GitHub API鏍归〉闈?
@@ -358,10 +363,34 @@ func writeErrorResponse(w http.ResponseWriter, status int, message string) {
 
 // writeErrorWithCode writes a structured error including a machine-readable code
 func writeErrorWithCode(w http.ResponseWriter, status int, code, message string) {
+    // Attach request_id from header if present
+    details := map[string]interface{}{}
+    if rid := w.Header().Get("X-Request-ID"); rid != "" {
+        details["request_id"] = rid
+    }
     response := Response{
         Success: false,
         Error:   message,
         Code:    code,
+        Details: details,
+    }
+    writeJSONResponse(w, status, response)
+}
+
+// writeErrorWithCodeDetails writes a structured error with custom details map.
+func writeErrorWithCodeDetails(w http.ResponseWriter, status int, code, message string, details map[string]interface{}) {
+    if details == nil { details = map[string]interface{}{} }
+    if rid := w.Header().Get("X-Request-ID"); rid != "" {
+        // do not overwrite if caller already set one
+        if _, ok := details["request_id"]; !ok {
+            details["request_id"] = rid
+        }
+    }
+    response := Response{
+        Success: false,
+        Error:   message,
+        Code:    code,
+        Details: details,
     }
     writeJSONResponse(w, status, response)
 }
@@ -500,19 +529,26 @@ type FileInfo struct {
 // uploadFileHandler 鏂囦欢涓婁紶澶勭悊鍣?
 func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	// 瑙ｆ瀽multipart form锛堟彁楂橀檺棰濓級
-	err := r.ParseMultipartForm(128 << 20) // 128MB
-	if err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, "Failed to parse form: "+err.Error())
-		return
-	}
+    err := r.ParseMultipartForm(128 << 20) // 128MB
+    if err != nil {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to parse form", map[string]interface{}{"field": "form", "error": err.Error()})
+        return
+    }
 
 	// 鑾峰彇鏂囦欢
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, "Failed to get file: "+err.Error())
-		return
-	}
-	defer file.Close()
+    file, header, err := r.FormFile("file")
+    if err != nil {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to get file", map[string]interface{}{"field": "file", "error": err.Error()})
+        return
+    }
+    defer file.Close()
+
+    // Enforce file size limit (e.g., 128MB)
+    const maxUploadBytes = 128 << 20
+    if header.Size > maxUploadBytes {
+        writeErrorWithCodeDetails(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Uploaded file exceeds the maximum allowed size", map[string]interface{}{"field": "file", "max_bytes": maxUploadBytes, "actual_bytes": header.Size})
+        return
+    }
 
 	// 鑾峰彇涓婁紶鍙傛暟
 	fileType := r.FormValue("fileType")
@@ -535,37 +571,37 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		"roadmap":        true,
 		"recommendation": true,
 	}
-	if !allowedTypes[fileType] {
-		writeErrorResponse(w, http.StatusBadRequest, "Unsupported file type")
-		return
-	}
+    if !allowedTypes[fileType] {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_TYPE", "Unsupported file type", map[string]interface{}{"field": "fileType", "allowed": []string{"roadmap", "recommendation"}})
+        return
+    }
 
 	// 楠岃瘉鏂囦欢鎵╁睍鍚?
-	if !isValidFileExtension(header.Filename) {
-		writeErrorResponse(w, http.StatusBadRequest, "Unsupported file format")
-		return
-	}
+    if !isValidFileExtension(header.Filename) {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "Unsupported file format", map[string]interface{}{"field": "file", "filename": header.Filename})
+        return
+    }
 
 	// 杩涗竴姝ユ牎楠屾墿灞曞悕涓庣被鍨嬪尮閰嶏紙roadmap->.tsv锛宺ecommendation->.xlsx锛夊苟璁剧疆鍥哄畾鍘熷鍚?
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	var fixedOriginalName string
 	switch fileType {
 	case "roadmap":
-		if ext != ".tsv" {
-			writeErrorResponse(w, http.StatusBadRequest, "File extension does not match fileType: roadmap requires .tsv")
-			return
-		}
+        if ext != ".tsv" {
+            writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "File extension does not match fileType", map[string]interface{}{"field": "file", "expected_ext": ".tsv", "got": ext})
+            return
+        }
 		fixedOriginalName = "roadmap.tsv"
 	case "recommendation":
-		if ext != ".xlsx" {
-			writeErrorResponse(w, http.StatusBadRequest, "File extension does not match fileType: recommendation requires .xlsx")
-			return
-		}
+        if ext != ".xlsx" {
+            writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "File extension does not match fileType", map[string]interface{}{"field": "file", "expected_ext": ".xlsx", "got": ext})
+            return
+        }
 		fixedOriginalName = "recommendation.xlsx"
-	default:
-		writeErrorResponse(w, http.StatusBadRequest, "Unsupported file type")
-		return
-	}
+    default:
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_TYPE", "Unsupported file type", map[string]interface{}{"field": "fileType", "allowed": []string{"roadmap", "recommendation"}})
+        return
+    }
 
 	// 灏嗕笂浼犵殑鍘熷鏂囦欢鍚嶈褰曞湪鎻忚堪涓紝渚夸簬杩芥函
 	if header.Filename != "" {
@@ -617,10 +653,10 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 鍒涘缓鐩爣鐩綍 - 鐩存帴浣跨敤UTC鏃堕棿鏍煎紡鐨勬枃浠跺す
 	targetDir := filepath.Join("downloads", fileType+"s")
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create directory: "+err.Error())
-		return
-	}
+    if err := os.MkdirAll(targetDir, 0755); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create directory: "+err.Error())
+        return
+    }
 
 	// 鐢熸垚鏈€缁堟枃浠跺悕锛?type>_<versionID>.<ext>
 	ext = strings.ToLower(filepath.Ext(fixedOriginalName))
@@ -628,28 +664,28 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 鍒涘缓鐗堟湰鐩綍
 	versionDir := filepath.Join(targetDir, versionID)
-	if err := os.MkdirAll(versionDir, 0755); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create version directory: "+err.Error())
-		return
-	}
+    if err := os.MkdirAll(versionDir, 0755); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create version directory: "+err.Error())
+        return
+    }
 
 	// 淇濆瓨鏂囦欢鍒扮増鏈洰褰?
 	targetPath := filepath.Join(versionDir, finalFileName)
 	fileInfo.Path = targetPath
 	fileInfo.FileName = finalFileName
 
-	dst, err := os.Create(targetPath)
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create file: "+err.Error())
-		return
-	}
+    dst, err := os.Create(targetPath)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create file: "+err.Error())
+        return
+    }
 	defer dst.Close()
 
-	_, err = io.Copy(dst, file)
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to save file: "+err.Error())
-		return
-	}
+    _, err = io.Copy(dst, file)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save file: "+err.Error())
+        return
+    }
 
 	// 鏇存柊鏈€鏂扮増鏈摼鎺?
 	latestPath := filepath.Join(targetDir, fixedOriginalName)
@@ -670,11 +706,11 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create database record
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not initialized")
-		return
-	}
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+        return
+    }
 
 	record := &database.FileRecord{
 		ID:            fileInfo.ID,
@@ -692,13 +728,13 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save to database
-	if err := db.InsertFileRecord(record); err != nil {
-		// If database save fails, try to clean up the file
-		os.Remove(targetPath)
-		os.Remove(latestPath)
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to save file metadata: "+err.Error())
-		return
-	}
+    if err := db.InsertFileRecord(record); err != nil {
+        // If database save fails, try to clean up the file
+        os.Remove(targetPath)
+        os.Remove(latestPath)
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save file metadata: "+err.Error())
+        return
+    }
 
 	// Write versioning artifacts for roadmap/recommendation (manifest in the same version directory)
 	if err := writeWebVersionArtifacts(fileType, versionID, fileInfo.FileName, targetPath, checksum, versionTags); err != nil {
@@ -706,13 +742,17 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Record upload log
-	if l := logger.GetLogger(); l != nil {
-		l.LogFileUpload(fileInfo.Path, uploader, fileInfo.Size, map[string]interface{}{
-			"fileType":    fileType,
-			"version":     version,
-			"description": description,
-		})
-	}
+    if l := logger.GetLogger(); l != nil {
+        details := map[string]interface{}{
+            "fileType":    fileType,
+            "version":     version,
+            "description": description,
+        }
+        if rid := r.Context().Value(middleware.RequestIDKey); rid != nil {
+            details["request_id"] = rid
+        }
+        l.LogFileUpload(fileInfo.Path, uploader, fileInfo.Size, details)
+    }
 
 	// enrich response with versionId header + field
 	w.Header().Set("X-Version-ID", versionID)
@@ -749,7 +789,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
     }
     items, total, err := controller.ListWithPagination(fileType, page, limit)
     if err != nil {
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to get file list: "+err.Error())
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get file list: "+err.Error())
         return
     }
     // Convert to FileInfo format
@@ -791,7 +831,7 @@ func getFileVersionsHandler(w http.ResponseWriter, r *http.Request) {
     controller := fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
     items, err := controller.Versions(fileType, filename)
     if err != nil {
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to get file versions: "+err.Error())
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get file versions: "+err.Error())
         return
     }
     versions := make([]FileInfo, 0, len(items))
@@ -841,15 +881,19 @@ func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not initialized")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+        return
+    }
 
-	if err := db.SoftDeleteFile(fileID, deletedBy); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to delete file: "+err.Error())
-		return
-	}
+    if err := db.SoftDeleteFile(fileID, deletedBy); err != nil {
+        if strings.Contains(strings.ToLower(err.Error()), "not found") {
+            writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found or already deleted")
+        } else {
+            writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete file: "+err.Error())
+        }
+        return
+    }
 
 	response := Response{
 		Success: true,
@@ -877,15 +921,19 @@ func restoreFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not initialized")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+        return
+    }
 
-	if err := db.RestoreFile(fileID, restoredBy); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to restore file: "+err.Error())
-		return
-	}
+    if err := db.RestoreFile(fileID, restoredBy); err != nil {
+        if strings.Contains(strings.ToLower(err.Error()), "not found") {
+            writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found in recycle bin")
+        } else {
+            writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to restore file: "+err.Error())
+        }
+        return
+    }
 
 	response := Response{
 		Success: true,
@@ -913,15 +961,19 @@ func purgeFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not initialized")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+        return
+    }
 
-	if err := db.PermanentlyDeleteFile(fileID, purgedBy); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to purge file: "+err.Error())
-		return
-	}
+    if err := db.PermanentlyDeleteFile(fileID, purgedBy); err != nil {
+        if strings.Contains(strings.ToLower(err.Error()), "not found") {
+            writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found or already purged")
+        } else {
+            writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to purge file: "+err.Error())
+        }
+        return
+    }
 
 	response := Response{
 		Success: true,
@@ -934,16 +986,16 @@ func purgeFileHandler(w http.ResponseWriter, r *http.Request) {
 // getRecycleBinHandler 鑾峰彇鍥炴敹绔欏唴瀹?
 func getRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not initialized")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+        return
+    }
 
 	items, err := db.GetRecycleBinItems()
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to get recycle bin items: "+err.Error())
-		return
-	}
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get recycle bin items: "+err.Error())
+        return
+    }
 
 	response := Response{
 		Success: true,
@@ -972,17 +1024,17 @@ func clearRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not initialized")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+        return
+    }
 
 	// 鑾峰彇鍥炴敹绔欎腑鐨勬墍鏈夐」鐩?
-	items, err := db.GetRecycleBinItems()
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to get recycle bin items: "+err.Error())
-		return
-	}
+    items, err := db.GetRecycleBinItems()
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get recycle bin items: "+err.Error())
+        return
+    }
 
 	// 姘镐箙鍒犻櫎鎵€鏈夐」鐩?
 	purgedCount := 0
@@ -1154,14 +1206,14 @@ func webGetVersionManifestHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	ft := strings.ToLower(vars["type"])
 	vid := vars["versionId"]
-	if ft != "roadmap" && ft != "recommendation" {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid type")
-		return
-	}
-	if vid == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "versionId required")
-		return
-	}
+    if ft != "roadmap" && ft != "recommendation" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid type", map[string]interface{}{"field": "type", "allowed": []string{"roadmap", "recommendation"}})
+        return
+    }
+    if vid == "" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "versionId required", map[string]interface{}{"field": "versionId"})
+        return
+    }
 	baseDir := filepath.Join("downloads", ft+"s", vid)
 	manifestPath := filepath.Join(baseDir, "manifest.json")
 	if b, err := os.ReadFile(manifestPath); err == nil {
@@ -1170,7 +1222,7 @@ func webGetVersionManifestHandler(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(b)
 		return
 	}
-	writeErrorResponse(w, http.StatusNotFound, "Manifest not found")
+    writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "Manifest not found")
 }
 
 // webGetVersionsListHandler returns versions.json
@@ -1218,22 +1270,22 @@ func webUpdateVersionTagsHandler(w http.ResponseWriter, r *http.Request) {
 	ft := strings.ToLower(vars["type"]) // roadmap or recommendation
 	vid := vars["versionId"]
 	
-	if ft != "roadmap" && ft != "recommendation" {
-		writeErrorResponse(w, http.StatusBadRequest, "type must be 'roadmap' or 'recommendation'")
-		return
-	}
-	if vid == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "versionId required")
-		return
-	}
+    if ft != "roadmap" && ft != "recommendation" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type", "allowed": []string{"roadmap", "recommendation"}})
+        return
+    }
+    if vid == "" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "versionId required", map[string]interface{}{"field": "versionId"})
+        return
+    }
 
 	var body struct {
 		Tags []string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
+    if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+        return
+    }
 
 	// Normalize tags
 	for i := range body.Tags {

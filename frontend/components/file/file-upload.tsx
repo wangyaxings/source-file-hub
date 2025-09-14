@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { apiClient, type FileInfo } from "@/lib/api"
+import { mapApiErrorToMessage } from "@/lib/errors"
 import { formatFileSize } from "@/lib/utils"
 import { Upload, FileText, Loader2, CheckCircle, AlertCircle, X } from "lucide-react"
 
@@ -84,11 +85,9 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
       setFileType("")
       setDescription("")
       setVersionTags("")
-    } catch (error) {
-      setUploadResult({
-        success: false,
-        message: error instanceof Error ? error.message : "Upload failed"
-      })
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      setUploadResult({ success: false, message: `${title}: ${description}` })
     } finally {
       setIsUploading(false)
       setShowConfirmDialog(false)

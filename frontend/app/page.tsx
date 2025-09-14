@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,7 @@ import { LoginForm } from "@/components/auth/login-form"
 import { TwoFASetupDialog } from "@/components/auth/twofa-setup-dialog"
 import { FileUpload } from "@/components/file/file-upload"
 import { PackagesPanel } from "@/components/packages/packages-panel"
-import { FileList } from "@/components/file/file-list"
+import { FileListPaginated as FileList } from "@/components/file/file-list-paginated"
 import { RecycleBin } from "@/components/file/recycle-bin"
 import { Toaster } from "@/components/ui/toaster"
 import { apiClient, type UserInfo } from "@/lib/api"
@@ -302,11 +302,9 @@ export default function HomePage() {
     setRefreshTrigger(prev => prev + 1)
   }
 
-  // 使用权限系统替代硬编码的角色检查
-  const { permissions, loading: permissionsLoading } = usePermissions(permissionsRefreshTrigger)
+  // 浣跨敤鏉冮檺绯荤粺鏇夸唬纭紪鐮佺殑瑙掕壊妫€鏌?  const { permissions, loading: permissionsLoading } = usePermissions(permissionsRefreshTrigger)
 
-  // 计算标签页数量
-  const baseTabs = 2 // manage + recycle
+  // 璁＄畻鏍囩椤垫暟閲?  const baseTabs = 2 // manage + recycle
   const totalTabs = baseTabs +
     (permissions?.canUpload ? 1 : 0) +
     (permissions?.canAccessPackages ? 1 : 0) +
@@ -413,7 +411,7 @@ export default function HomePage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-md space-y-6">
-          {/* 鏈嶅姟鍣ㄧ姸鎬?*/}
+          {/* 閺堝秴濮熼崳銊уЦ閹?*/}
           {serverStatus && (
             <Card className={serverStatus.online ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
               <CardContent className="pt-4">
@@ -439,7 +437,7 @@ export default function HomePage() {
 
     return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* 澶撮儴瀵艰埅 */}
+      {/* 婢舵挳鍎寸€佃壈鍩?*/}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
@@ -454,7 +452,7 @@ export default function HomePage() {
             </div>
 
             <div className="flex items-center gap-4">
-              {/* 鏈嶅姟鍣ㄧ姸鎬佹寚绀?*/}
+              {/* 閺堝秴濮熼崳銊уЦ閹焦瀵氱粈?*/}
               {serverStatus && (
                 <div className="flex items-center gap-2 text-sm">
                   <Server className="h-4 w-4 text-gray-400" />
@@ -464,7 +462,7 @@ export default function HomePage() {
                 </div>
               )}
 
-              {/* 鐢ㄦ埛淇℃伅 */}
+              {/* 閻劍鍩涙穱鈩冧紖 */}
               {currentUser && (
                 <div className="relative" ref={userMenuRef}>
                   <button
@@ -530,7 +528,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* 涓昏鍐呭 */}
+      {/* 娑撴槒顩﹂崘鍛啇 */}
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Tabs value={mainTab} onValueChange={(v:any)=>setMainTab(v)} className="space-y-6">
           <TabsList className={`grid w-full ${tabsColsClass} max-w-3xl`}>
@@ -610,7 +608,7 @@ export default function HomePage() {
         </Tabs>
       </main>
 
-      {/* 椤佃剼 - 鍥哄畾鍦ㄥ簳閮?*/}
+      {/* 妞や絻鍓?- 閸ュ搫鐣鹃崷銊ョ俺闁?*/}
       <footer className="bg-white border-t border-gray-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-sm text-gray-500">
@@ -723,3 +721,4 @@ export default function HomePage() {
     </div>
   )
 }
+

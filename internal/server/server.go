@@ -16,12 +16,14 @@ type Server struct {
 
 // New creates a new server instance and attaches middlewares
 func New() *Server {
-	router := mux.NewRouter()
+    router := mux.NewRouter()
 
-	// Order matters: HTTPS redirect, CORS (preflight), Logging, then Auth
-	router.Use(middleware.HTTPSRedirectMiddleware)
-	router.Use(middleware.CorsMiddleware)
-	router.Use(middleware.LoggingMiddleware)
+    // Order matters: HTTPS redirect, CORS (preflight), Logging, then Auth
+    router.Use(middleware.HTTPSRedirectMiddleware)
+    // Attach request id early for tracing
+    router.Use(middleware.RequestIDMiddleware)
+    router.Use(middleware.CorsMiddleware)
+    router.Use(middleware.LoggingMiddleware)
 
 	// Initialize Authboss and mount routes under /api/v1/web/auth/ab to avoid collisions
     if ab, err := auth.InitAuthboss(); err == nil && ab != nil {

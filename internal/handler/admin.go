@@ -17,6 +17,7 @@ import (
     "secure-file-hub/internal/database"
     "secure-file-hub/internal/application/usecases"
     repo "secure-file-hub/internal/infrastructure/repository/sqlite"
+    "secure-file-hub/internal/presentation/http/validation"
 	"secure-file-hub/internal/middleware"
 
 	"github.com/gorilla/mux"
@@ -190,22 +191,25 @@ type UpdateAPIKeyRequest struct {
 // createAPIKeyHandler creates a new API key
 func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 	var req CreateAPIKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
-		return
-	}
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request format")
+        return
+    }
 
-	// Validate required fields
-	if req.Name == "" || req.Role == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "Name and role are required")
-		return
-	}
+    // Validate required fields
+    if req.Name == "" || req.Role == "" {
+        missing := map[string]interface{}{}
+        if req.Name == "" { missing["name"] = "required" }
+        if req.Role == "" { missing["role"] = "required" }
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Missing required fields", map[string]interface{}{"fields": missing})
+        return
+    }
 
-	// Validate permissions
-	if !apikey.ValidatePermissions(req.Permissions) {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid permissions")
-		return
-	}
+    // Validate permissions
+    if !apikey.ValidatePermissions(req.Permissions) {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_PERMISSION", "Invalid permissions", map[string]interface{}{"field": "permissions", "allowed": apikey.GetValidPermissions()})
+        return
+    }
 
     // Prepare expiration
     
@@ -231,11 +235,11 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 						expTime.Nanosecond(), time.Local)
 				}
 
-				// Validate expiration time is not in the past
-				if expTime.Before(time.Now()) {
-					writeErrorResponse(w, http.StatusBadRequest, "Expiration date cannot be in the past")
-					return
-				}
+                // Validate expiration time is not in the past
+                if expTime.Before(time.Now()) {
+                    writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Expiration date cannot be in the past", map[string]interface{}{"field": "expires_at"})
+                    return
+                }
 
 				expiresAt = &expTime
 				break
@@ -244,11 +248,12 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if expiresAt == nil {
-			writeErrorResponse(w, http.StatusBadRequest,
-				fmt.Sprintf("Invalid expiration date format. Expected formats: YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS. Error: %v", parseErr))
-			return
-		}
+        if expiresAt == nil {
+            writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR",
+                "Invalid expiration date format. Expected formats: YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS.", map[string]interface{}{"field": "expires_at"})
+            _ = parseErr
+            return
+        }
 	}
 
 	// If permissions not provided, derive from role
@@ -273,7 +278,7 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
     uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
     created, err := uc.Create(req.Name, req.Description, req.Role, req.Permissions, expiresAt)
     if err != nil {
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to create API key: "+err.Error())
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create API key: "+err.Error())
         return
     }
 
@@ -281,7 +286,7 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
     if err := authz.CreateAPIKeyPolicies(created.ID, req.Permissions); err != nil {
         // If Casbin policy creation fails, clean up the database record
         if db := database.GetDatabase(); db != nil { _ = db.DeleteAPIKey(created.ID) }
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to create API key policies: "+err.Error())
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create API key policies: "+err.Error())
         return
     }
 
@@ -324,7 +329,7 @@ func listAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
     uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
     items, err := uc.List(role)
     if err != nil {
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve API keys")
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve API keys")
         return
     }
     // Map domain entity to database.APIKey for backward-compatible response
@@ -386,18 +391,18 @@ func updateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
     keyID := vars["keyId"]
 
 	var req UpdateAPIKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
-		return
-	}
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request format")
+        return
+    }
 
     uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
     // Get current API key to verify it exists
     _, err := uc.GetByID(keyID)
-	if err != nil {
-		writeErrorResponse(w, http.StatusNotFound, "API key not found")
-		return
-	}
+    if err != nil {
+        writeErrorWithCode(w, http.StatusNotFound, "API_KEY_NOT_FOUND", "API key not found")
+        return
+    }
 
     // Build patch and update through usecase (handles policies if permissions changed)
     var expiresAt *time.Time
@@ -423,12 +428,31 @@ func updateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
         Permissions: req.Permissions,
         ExpiresAt:   expiresAt,
     }
-    if err := uc.Update(keyID, patch); err != nil {
+    if _, err := uc.Update(keyID, patch); err != nil {
         if strings.Contains(err.Error(), "invalid permissions") {
             writeErrorWithCode(w, http.StatusBadRequest, "INVALID_PERMISSION", "Invalid permissions")
             return
         }
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to update API key")
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update API key")
+        return
+    }
+    // Return updated object
+    if updated, err := uc.GetByID(keyID); err == nil && updated != nil {
+        apiKey := map[string]interface{}{
+            "id": updated.ID,
+            "name": updated.Name,
+            "description": updated.Description,
+            "key": updated.Key,
+            "role": updated.Role,
+            "permissions": updated.Permissions,
+            "status": updated.Status,
+            "expiresAt": updated.ExpiresAt,
+            "usageCount": updated.UsageCount,
+            "lastUsedAt": updated.LastUsedAt,
+            "createdAt": updated.CreatedAt,
+            "updatedAt": updated.UpdatedAt,
+        }
+        writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "API key updated successfully", Data: map[string]interface{}{"api_key": apiKey}})
         return
     }
     writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "API key updated successfully", Data: map[string]interface{}{"id": keyID}})
@@ -441,14 +465,14 @@ func deleteAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 
     // Remove all Casbin policies for this API key first (数据库适配器自动持久化)
     if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to remove API key policies: "+err.Error())
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to remove API key policies: "+err.Error())
         return
     }
 
     // Then delete from database
     uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
     if err := uc.Delete(keyID); err != nil {
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to delete API key")
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete API key")
         return
     }
 
@@ -642,16 +666,16 @@ func getUsageLogsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
 
-	logs, err := db.GetAPIUsageLogs(userID, fileID, limit, offset)
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve usage logs")
-		return
-	}
+    logs, err := db.GetAPIUsageLogs(userID, fileID, limit, offset)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve usage logs")
+        return
+    }
 
 	response := Response{
 		Success: true,
@@ -747,11 +771,11 @@ func getUsageSummaryHandler(w http.ResponseWriter, r *http.Request) {
 
 // listUsersHandler lists all users with their roles
 func listUsersHandler(w http.ResponseWriter, r *http.Request) {
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
 
 	// Query params
 	q := r.URL.Query().Get("q")
@@ -765,11 +789,11 @@ func listUsersHandler(w http.ResponseWriter, r *http.Request) {
 		limit = 20
 	}
 
-	list, err := db.ListUsers()
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to list users")
-		return
-	}
+    list, err := db.ListUsers()
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list users")
+        return
+    }
 
 	// Build response combining role status from user_roles
 	rows := make([]map[string]interface{}, 0, len(list))
@@ -845,20 +869,28 @@ func updateUserHandler(w http.ResponseWriter, r *http.Request) {
 		TwoFAEnabled *bool   `json:"twofa_enabled,omitempty"`
 		Reset2FA     *bool   `json:"reset_2fa,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
-		return
-	}
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
-	u, err := db.GetUser(userID)
-	if err != nil {
-		writeErrorResponse(w, http.StatusNotFound, "User not found")
-		return
-	}
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request format")
+        return
+    }
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
+    u, err := db.GetUser(userID)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+        return
+    }
+    // Validate role if provided
+    if req.Role != nil {
+        if !validation.ValidateUserRole(*req.Role) {
+            writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid role",
+                map[string]interface{}{"field": "role", "allowed": []string{"viewer", "administrator"}})
+            return
+        }
+    }
 	if req.Role != nil {
 		u.Role = *req.Role
 	}
@@ -872,25 +904,25 @@ func updateUserHandler(w http.ResponseWriter, r *http.Request) {
 		u.TwoFAEnabled = false
 		u.TOTPSecret = ""
 	}
-	if err := db.UpdateUser(u); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to update user")
-		return
-	}
+    if err := db.UpdateUser(u); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update user")
+        return
+    }
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User updated"})
 }
 
 func approveUserHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["userId"]
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
-	if err := db.CreateOrUpdateUserRole(&database.UserRole{UserID: userID, Status: "active"}); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to approve user")
-		return
-	}
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
+    if err := db.CreateOrUpdateUserRole(&database.UserRole{UserID: userID, Status: "active"}); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to approve user")
+        return
+    }
 	// Audit
 	actor := getActor(r)
 	_ = db.LogAdminAction(actor, userID, "approve_user", nil)
@@ -901,31 +933,36 @@ func suspendUserHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["userId"]
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
-	if err := db.CreateOrUpdateUserRole(&database.UserRole{UserID: userID, Status: "suspended"}); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to suspend user")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
+    if err := db.CreateOrUpdateUserRole(&database.UserRole{UserID: userID, Status: "suspended"}); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to suspend user")
+        return
+    }
 	actor := getActor(r)
 	_ = db.LogAdminAction(actor, userID, "suspend_user", nil)
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User suspended"})
 }
 
 func disableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	userID := vars["userId"]
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
-	if err := db.SetUser2FA(userID, false, ""); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to disable 2FA")
-		return
-	}
+    vars := mux.Vars(r)
+    userID := vars["userId"]
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
+    // Ensure user exists
+    if _, err := db.GetUser(userID); err != nil {
+        writeErrorWithCode(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+        return
+    }
+    if err := db.SetUser2FA(userID, false, ""); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to disable 2FA")
+        return
+    }
 	actor := getActor(r)
 	_ = db.LogAdminAction(actor, userID, "disable_2fa", nil)
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA disabled"})
@@ -936,17 +973,17 @@ func enableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["userId"]
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
 
 	// Get user to check current status
 	user, err := db.GetUser(userID)
-	if err != nil {
-		writeErrorResponse(w, http.StatusNotFound, "User not found")
-		return
-	}
+    if err != nil {
+        writeErrorWithCode(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+        return
+    }
 
 	// If user already has 2FA enabled and has a secret, just return success
 	if user.TwoFAEnabled && user.TOTPSecret != "" {
@@ -955,10 +992,10 @@ func enableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Enable 2FA but don't set a secret - user will need to complete setup on first login
-	if err := db.SetUser2FA(userID, true, ""); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to enable 2FA")
-		return
-	}
+    if err := db.SetUser2FA(userID, true, ""); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to enable 2FA")
+        return
+    }
 
 	// Log admin action
 	actor := getActor(r)
@@ -980,16 +1017,46 @@ func updateUserRoleHandler(w http.ResponseWriter, r *http.Request) {
 		Status       string   `json:"status,omitempty"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
-		return
-	}
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request format")
+        return
+    }
 
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
+
+    // Validation: user must exist
+    if _, err := db.GetUser(userID); err != nil {
+        writeErrorWithCode(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+        return
+    }
+    // Validation: role
+    if req.Role != "" && !validation.ValidateUserRole(req.Role) {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid role",
+            map[string]interface{}{"field": "role", "allowed": []string{"viewer", "administrator"}})
+        return
+    }
+    // Validation: permissions
+    if req.Permissions != nil && !apikey.ValidatePermissions(req.Permissions) {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_PERMISSION", "Invalid permissions",
+            map[string]interface{}{"field": "permissions", "allowed": apikey.GetValidPermissions()})
+        return
+    }
+    // Validation: quotas (allow -1 or >=0)
+    if req.QuotaDaily < -1 || req.QuotaMonthly < -1 {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid quota values",
+            map[string]interface{}{"quota_daily": "must be -1 or >= 0", "quota_monthly": "must be -1 or >= 0"})
+        return
+    }
+    // Validation: status
+    if !validation.ValidateUserStatus(req.Status) {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid status",
+            map[string]interface{}{"field": "status", "allowed": []string{"active", "suspended", "disabled", "pending"}})
+        return
+    }
 
 	userRole := &database.UserRole{
 		UserID:       userID,
@@ -1000,10 +1067,10 @@ func updateUserRoleHandler(w http.ResponseWriter, r *http.Request) {
 		Status:       req.Status,
 	}
 
-	if err := db.CreateOrUpdateUserRole(userRole); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to update user role")
-		return
-	}
+    if err := db.CreateOrUpdateUserRole(userRole); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update user role")
+        return
+    }
 	// Keep users table role in sync
 	if u, err := db.GetUser(userID); err == nil && u != nil {
 		u.Role = userRole.Role
@@ -1031,17 +1098,17 @@ func getUserAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	role := vars["userId"]
 
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
 
-	apiKeys, err := db.GetAPIKeysByRole(role)
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve API keys")
-		return
-	}
+    apiKeys, err := db.GetAPIKeysByRole(role)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve API keys")
+        return
+    }
 
 	// Mask keys in response - never show full keys after creation
 	for i := range apiKeys {
@@ -1098,14 +1165,14 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 		Role     string `json:"role,omitempty"`
 		// Note: MustReset removed - authboss handles password reset flow
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
-		return
-	}
-	if req.Username == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "username is required")
-		return
-	}
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request format")
+        return
+    }
+    if req.Username == "" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "username is required", map[string]interface{}{"field": "username"})
+        return
+    }
 	if req.Role == "" {
 		req.Role = "viewer"
 	}
@@ -1114,17 +1181,17 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	// Generate initial password
 	initialPassword := generateRandomPassword(16)
 
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
 
 	// Create user
-	if _, err := db.GetUser(req.Username); err == nil {
-		writeErrorResponse(w, http.StatusBadRequest, "user already exists")
-		return
-	}
+    if _, err := db.GetUser(req.Username); err == nil {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "user already exists", map[string]interface{}{"field": "username"})
+        return
+    }
 
 	// Hash password
 	hashed, _ := bcrypt.GenerateFromPassword([]byte(initialPassword), bcrypt.DefaultCost)
@@ -1136,10 +1203,10 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 		TwoFAEnabled: false,
 		// Note: MustReset removed - authboss handles password reset flow
 	}
-	if err := db.CreateUser(user); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to create user")
-		return
-	}
+    if err := db.CreateUser(user); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create user")
+        return
+    }
 	// Create/Update user role record as active
 	_ = db.CreateOrUpdateUserRole(&database.UserRole{UserID: req.Username, Role: req.Role, Status: "active"})
 	// Audit
@@ -1182,16 +1249,16 @@ func generateRandomPassword(length int) string {
 func getUserDetailsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["userId"]
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
-	u, err := db.GetUser(userID)
-	if err != nil || u == nil {
-		writeErrorResponse(w, http.StatusNotFound, "User not found")
-		return
-	}
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
+    u, err := db.GetUser(userID)
+    if err != nil || u == nil {
+        writeErrorWithCode(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+        return
+    }
 	ur, _ := db.GetUserRole(userID)
 	payload := map[string]interface{}{
 		"user_id": u.Username,
@@ -1254,11 +1321,11 @@ func getAdminAuditLogsHandler(w http.ResponseWriter, r *http.Request) {
 		limit = 20
 	}
 
-	logs, total, err := db.GetAdminAuditLogs(actor, target, action, since, until, page, limit)
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to get audit logs")
-		return
-	}
+    logs, total, err := db.GetAdminAuditLogs(actor, target, action, since, until, page, limit)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get audit logs")
+        return
+    }
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
 		"items": logs,
 		"count": len(logs),
@@ -1272,30 +1339,30 @@ func getAdminAuditLogsHandler(w http.ResponseWriter, r *http.Request) {
 func resetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["userId"]
-	if userID == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "userId is required")
-		return
-	}
+    if userID == "" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "userId is required", map[string]interface{}{"field": "userId"})
+        return
+    }
 
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        return
+    }
 
 	// Ensure user exists
-	if _, err := db.GetUser(userID); err != nil {
-		writeErrorResponse(w, http.StatusNotFound, "User not found")
-		return
-	}
+    if _, err := db.GetUser(userID); err != nil {
+        writeErrorWithCode(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+        return
+    }
 
 	// Generate new password and update hash
 	newPassword := generateRandomPassword(16)
 	hashed, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-	if err := db.UpdateUserPassword(userID, string(hashed)); err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to update password")
-		return
-	}
+    if err := db.UpdateUserPassword(userID, string(hashed)); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update password")
+        return
+    }
 
 	// Note: Password reset flow is now handled by authboss
 	// No need to force password reset flag

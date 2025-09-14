@@ -15,13 +15,13 @@ func ErrorHandlerMiddleware(next http.Handler) http.Handler {
             if rec := recover(); rec != nil {
                 switch v := rec.(type) {
                 case derrors.DomainError:
-                    writeJSONError(w, http.StatusBadRequest, v)
+                    writeJSONError(w, r, http.StatusBadRequest, v)
                 case error:
                     log.Printf("panic: %v", v)
-                    writeJSONError(w, http.StatusInternalServerError, derrors.ErrInternal)
+                    writeJSONError(w, r, http.StatusInternalServerError, derrors.ErrInternal)
                 default:
                     log.Printf("panic: %#v", v)
-                    writeJSONError(w, http.StatusInternalServerError, derrors.ErrInternal)
+                    writeJSONError(w, r, http.StatusInternalServerError, derrors.ErrInternal)
                 }
             }
         }()
@@ -29,9 +29,16 @@ func ErrorHandlerMiddleware(next http.Handler) http.Handler {
     })
 }
 
-func writeJSONError(w http.ResponseWriter, status int, derr derrors.DomainError) {
+func writeJSONError(w http.ResponseWriter, r *http.Request, status int, derr derrors.DomainError) {
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(status)
+    // Attach request_id if available
+    if derr.Details == nil {
+        derr.Details = map[string]interface{}{}
+    }
+    if rid := r.Context().Value(RequestIDKey); rid != nil {
+        derr.Details["request_id"] = rid
+    }
     _ = json.NewEncoder(w).Encode(map[string]interface{}{
         "success": false,
         "error":   derr.Message,
@@ -39,4 +46,3 @@ func writeJSONError(w http.ResponseWriter, status int, derr derrors.DomainError)
         "details": derr.Details,
     })
 }
-

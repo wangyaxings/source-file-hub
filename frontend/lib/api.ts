@@ -43,6 +43,8 @@ export interface ApiResponse<T = any> {
   message?: string
   data?: T
   error?: string
+  code?: string
+  details?: any
 }
 
 class ApiClient {
@@ -57,7 +59,7 @@ class ApiClient {
       : null
   }
 
-  private async request<T>(
+  public async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
@@ -98,12 +100,14 @@ class ApiClient {
           throw new Error('Unauthorized')
         }
 
-        try {
-          const errorData = await response.json()
-          throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`)
-        } catch (parseError) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-        }
+        let errorData: any = null
+        try { errorData = await response.json() } catch {}
+        const err: any = new Error(errorData?.error || errorData?.message || `HTTP ${response.status}: ${response.statusText}`)
+        err.code = errorData?.code
+        err.details = errorData?.details
+        err.request_id = response.headers.get('X-Request-ID') || errorData?.details?.request_id
+        err.status = response.status
+        throw err
       }
 
       // Check if response has content before trying to parse JSON
@@ -311,22 +315,46 @@ class ApiClient {
         this.logout()
         throw new Error('Login expired, please log in again')
       }
-      const errorData = await response.json().catch(() => ({ error: response.statusText }))
-      throw new Error(errorData.error || `Upload failed: ${response.statusText}`)
+      let errorData: any = null
+      try { errorData = await response.json() } catch {}
+      const err: any = new Error(errorData?.error || errorData?.message || `Upload failed: ${response.statusText}`)
+      err.code = errorData?.code
+      err.details = errorData?.details
+      err.request_id = response.headers.get('X-Request-ID') || errorData?.details?.request_id
+      err.status = response.status
+      throw err
     }
 
     const result = await response.json()
     if (!result.success) {
-      throw new Error(result.error || 'Upload failed')
+      const err: any = new Error(result.error || 'Upload failed')
+      err.code = result.code
+      err.details = result.details
+      throw err
     }
 
     return result.data
   }
 
+  async getFilesPaginated(params: { type?: string; page?: number; limit?: number } = {}): Promise<{ files: FileInfo[]; count: number; page: number; limit: number }> {
+    const qs = new URLSearchParams()
+    if (params.type) qs.set('type', params.type)
+    if (params.page && params.page > 0) qs.set('page', String(params.page))
+    if (params.limit && params.limit > 0) qs.set('limit', String(params.limit))
+    const query = qs.toString()
+    const response = await this.request<{ files: FileInfo[]; count: number; page: number; limit: number }>(`/files/list${query ? `?${query}` : ''}`)
+    const data: any = response.data || {}
+    return {
+      files: data.files || [],
+      count: data.count || 0,
+      page: data.page || params.page || 1,
+      limit: data.limit || params.limit || 50,
+    }
+  }
+
   async getFiles(type?: string): Promise<FileInfo[]> {
-    const query = type ? `?type=${type}` : ''
-    const response = await this.request<{ files: FileInfo[]; count: number }>(`/files/list${query}`)
-    return response.data?.files || []
+    const res = await this.getFilesPaginated({ type })
+    return res.files
   }
 
   async getFileVersions(type: string, filename: string): Promise<FileInfo[]> {

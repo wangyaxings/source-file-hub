@@ -88,3 +88,8 @@ func (r *APIKeyRepo) Update(id string, upd repositories.APIKeyUpdate) error {
     if db == nil { return ErrDBUnavailable }
     return db.UpdateAPIKeyFields(id, upd.Name, upd.Description, upd.Permissions, upd.ExpiresAt)
 }
+
+func (r *APIKeyRepo) UpdateReturning(id string, upd repositories.APIKeyUpdate) (*entities.APIKey, error) {
+    if err := r.Update(id, upd); err != nil { return nil, err }
+    return r.GetByID(id)
+}

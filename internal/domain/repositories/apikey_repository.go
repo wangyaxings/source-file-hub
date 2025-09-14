@@ -12,6 +12,7 @@ type APIKeyRepository interface {
     UpdateStatus(id, status string) error
     Delete(id string) error
     Update(id string, upd APIKeyUpdate) error
+    UpdateReturning(id string, upd APIKeyUpdate) (*entities.APIKey, error)
 }
 
 type APIKeyUpdate struct {
