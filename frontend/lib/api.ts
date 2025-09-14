@@ -81,6 +81,7 @@ class ApiClient {
 
     try {
       console.log(`Making request to: ${url}`)
+      console.log(`Request config:`, config)
       const response = await fetch(url, config)
 
       // 妫€鏌ュ搷搴旂姸鎬?
@@ -111,7 +112,7 @@ class ApiClient {
       // Check if response has content before trying to parse JSON
       const contentType = response.headers.get('content-type')
       let data: any = null
-      
+
       if (contentType && contentType.includes('application/json')) {
         try {
           data = await response.json()
@@ -148,6 +149,9 @@ class ApiClient {
       throw new Error((data as any)?.error || (data as any)?.message || 'Request failed')
     } catch (error) {
       console.error(`Request failed for ${url}:`, error)
+      console.error('Error type:', typeof error)
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
 
       if (error instanceof TypeError && error.message.includes('fetch')) {
         throw new Error('Network connection failed, please check server status')
@@ -274,9 +278,9 @@ class ApiClient {
   async logoutUser(): Promise<void> {
     try {
       // Authboss logout under /auth/ab/logout
-      await fetch(`${this.baseUrl}/auth/ab/logout`, { 
-        method: 'POST', 
-        headers: { 'Accept': 'application/json' }, 
+      await fetch(`${this.baseUrl}/auth/ab/logout`, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
         credentials: 'include' // Important: Include credentials for session cookies
       })
     } finally {
@@ -360,7 +364,7 @@ class ApiClient {
     const cleanPath = path.startsWith('downloads/') ? path.substring('downloads/'.length) : path
     const url = `${this.baseUrl}/files/${cleanPath}`
 
-    const response = await fetch(url, { 
+    const response = await fetch(url, {
       credentials: 'include' // Important: Include credentials for session cookies
     })
 
@@ -577,8 +581,8 @@ class ApiClient {
   async uploadAssetsZip(file: File): Promise<any> {
     const formData = new FormData()
     formData.append('file', file)
-    const response = await fetch(`${this.baseUrl}/packages/upload/assets-zip`, { 
-      method: 'POST', 
+    const response = await fetch(`${this.baseUrl}/packages/upload/assets-zip`, {
+      method: 'POST',
       body: formData,
       credentials: 'include' // Important: Include credentials for session cookies
     })
@@ -591,8 +595,8 @@ class ApiClient {
   async uploadOthersZip(file: File): Promise<any> {
     const formData = new FormData()
     formData.append('file', file)
-    const response = await fetch(`${this.baseUrl}/packages/upload/others-zip`, { 
-      method: 'POST', 
+    const response = await fetch(`${this.baseUrl}/packages/upload/others-zip`, {
+      method: 'POST',
       body: formData,
       credentials: 'include' // Important: Include credentials for session cookies
     })
@@ -625,7 +629,7 @@ class ApiClient {
 
   async getVersionManifestWeb(type: 'roadmap'|'recommendation', versionId: string): Promise<any> {
     const url = `${this.baseUrl}/versions/${type}/${encodeURIComponent(versionId)}/manifest`
-    const response = await fetch(url, { 
+    const response = await fetch(url, {
       credentials: 'include' // Important: Include credentials for session cookies
     })
     if (!response.ok) throw new Error(`Failed to get manifest: ${response.statusText}`)

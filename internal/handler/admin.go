@@ -71,8 +71,14 @@ func storeTempAPIKey(keyID, key, name, role string) {
 		CreatedAt: time.Now(),
 	}
 
-	// Clean up expired keys
-	cleanupExpiredTempKeys()
+	// Clean up expired keys (inline to avoid deadlock)
+	now := time.Now()
+	for keyID, tempKey := range tempAPIKeys {
+		// Remove keys older than 10 minutes
+		if now.Sub(tempKey.CreatedAt) > 10*time.Minute {
+			delete(tempAPIKeys, keyID)
+		}
+	}
 }
 
 // getTempAPIKey retrieves a temporary API key
