@@ -449,7 +449,7 @@ export function APIKeyManagement() {
                             )}
                           </div>
                           <div className="flex flex-wrap gap-1 mt-2">
-                            {key.permissions.map((perm) => (
+                            {(key.permissions || []).map((perm) => (
                               <span key={perm} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
                                 {perm}
                               </span>
@@ -910,7 +910,7 @@ export function APIKeyManagement() {
               <div className="space-y-2">
                 <p><strong>Name:</strong> {selectedKey.name}</p>
                 <p><strong>Role:</strong> {selectedKey.role}</p>
-                <p><strong>Permissions:</strong> {selectedKey.permissions.join(", ")}</p>
+                <p><strong>Permissions:</strong> {(selectedKey.permissions || []).join(", ")}</p>
               </div>
             )}
 
