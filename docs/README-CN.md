@@ -651,6 +651,21 @@ go build -o fileserver cmd/server/main.go
 go test ./...
 ```
 
+## 故障排除
+
+### API Key 管理问题
+
+如果在 API Key 管理页面遇到 "Failed to fetch" 错误，请参考：
+
+📖 **[API Key 管理页面 "Failed to fetch" 错误排查与解决](./api-key-fetch-error-troubleshooting.md)**
+
+该文档详细记录了：
+- 问题现象和错误信息
+- 逐步排查过程
+- 根本原因分析（死锁问题）
+- 完整的解决方案
+- 预防措施和最佳实践
+
 ## 许可证
 
 MIT License
