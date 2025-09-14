@@ -6,6 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/lib/use-toast"
+import { apiClient } from "@/lib/api"
+import { mapApiErrorToMessage } from "@/lib/errors"
 import {
   RefreshCw,
   Download,
@@ -114,23 +116,12 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
         if (customDateEnd) params.append('endDate', customDateEnd)
       }
 
-      const response = await fetch(`/api/v1/web/admin/analytics/data?${params}`, {
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include'
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setAnalyticsData(data.data)
-      } else {
-        throw new Error(`HTTP ${response.status}`)
-      }
-    } catch (error) {
-      toast({
-        title: "Failed to fetch analytics data",
-        description: error instanceof Error ? error.message : 'Unknown error occurred',
-        variant: "destructive"
-      })
+      const resp = await apiClient.request<AnalyticsData>(`/admin/analytics/data?${params}`)
+      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to fetch analytics data'), { code: (resp as any).code, details: (resp as any).details })
+      setAnalyticsData(resp.data as any)
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ title, description, variant: "destructive" })
       // Fallback to local processing
       setAnalyticsData(processLocalAnalyticsData())
     } finally {
@@ -264,6 +255,7 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
         if (customDateEnd) params.append('endDate', customDateEnd)
       }
 
+      // Keep fetch here for binary download (blob)
       const response = await fetch(`/api/v1/web/admin/analytics/export?${params}`, {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include'
@@ -285,11 +277,9 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
           description: "Analytics data has been exported"
         })
       }
-    } catch (error) {
-      toast({
-        title: "Export failed",
-        description: error instanceof Error ? error.message : 'Failed to export data'
-      })
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ title: title || 'Export failed', description: description || (error?.message || 'Failed to export data'), variant: 'destructive' })
     }
   }
 

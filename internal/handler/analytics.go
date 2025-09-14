@@ -1,13 +1,14 @@
 package handler
 
 import (
-	"encoding/json"
-	"net/http"
-	"strconv"
-	"time"
+    "encoding/json"
+    "net/http"
+    "strconv"
+    "time"
 
-	"secure-file-hub/internal/database"
+    "secure-file-hub/internal/database"
     "secure-file-hub/internal/middleware"
+    "secure-file-hub/internal/logger"
 
 	"github.com/gorilla/mux"
 )
@@ -41,10 +42,11 @@ func getAnalyticsDataHandler(w http.ResponseWriter, r *http.Request) {
 				startTime = t
 			} else if t, err := time.Parse("2006-01-02T15:04", customStart); err == nil {
 				startTime = t
-			} else {
-				writeErrorResponse(w, http.StatusBadRequest, "Invalid start date format")
-				return
-			}
+            } else {
+                writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid start date format", map[string]interface{}{"field": "startDate"})
+                if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "analytics_invalid_start_date", nil, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+                return
+            }
 		} else {
 			startTime = now.AddDate(0, 0, -7) // Default to 7 days
 		}
@@ -54,10 +56,11 @@ func getAnalyticsDataHandler(w http.ResponseWriter, r *http.Request) {
 				endTime = t
 			} else if t, err := time.Parse("2006-01-02T15:04", customEnd); err == nil {
 				endTime = t
-			} else {
-				writeErrorResponse(w, http.StatusBadRequest, "Invalid end date format")
-				return
-			}
+            } else {
+                writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid end date format", map[string]interface{}{"field": "endDate"})
+                if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "analytics_invalid_end_date", nil, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+                return
+            }
 		} else {
 			endTime = now
 		}
@@ -68,23 +71,26 @@ func getAnalyticsDataHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate time range
-	if endTime.Before(startTime) {
-		writeErrorResponse(w, http.StatusBadRequest, "End date must be after start date")
-		return
-	}
+    if endTime.Before(startTime) {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "End date must be after start date", map[string]interface{}{"fields": map[string]interface{}{"startDate": startTime.Format(time.RFC3339), "endDate": endTime.Format(time.RFC3339)}})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "analytics_invalid_range_order", nil, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	// Limit time range to prevent excessive queries
 	maxDuration := 90 * 24 * time.Hour // 90 days
-	if endTime.Sub(startTime) > maxDuration {
-		writeErrorResponse(w, http.StatusBadRequest, "Time range cannot exceed 90 days")
-		return
-	}
+    if endTime.Sub(startTime) > maxDuration {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Time range cannot exceed 90 days", map[string]interface{}{"max_days": 90})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "analytics_range_exceeds_limit", map[string]interface{}{"max_days": 90}, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	// Create analytics time range
 	analyticsTimeRange := database.AnalyticsTimeRange{
@@ -102,10 +108,11 @@ func getAnalyticsDataHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Get analytics data
 	analyticsData, err := db.GetAnalyticsData(analyticsTimeRange, apiKeyFilter, userFilter)
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve analytics data: "+err.Error())
-		return
-	}
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve analytics data: "+err.Error())
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_query_failed", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	response := Response{
 		Success: true,
@@ -113,16 +120,18 @@ func getAnalyticsDataHandler(w http.ResponseWriter, r *http.Request) {
 		Data:    analyticsData,
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "analytics_data_success", map[string]interface{}{"from": startTime, "to": endTime}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // getAnalyticsSummaryHandler provides quick summary statistics
 func getAnalyticsSummaryHandler(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_summary_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	now := time.Now()
 
@@ -132,35 +141,39 @@ func getAnalyticsSummaryHandler(w http.ResponseWriter, r *http.Request) {
 
 	todayRange := database.AnalyticsTimeRange{Start: todayStart, End: todayEnd}
 	todayData, err := db.GetAnalyticsData(todayRange, "", "")
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve today's data")
-		return
-	}
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve today's data")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_summary_today_failed", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	// Get this week's stats
 	weekStart := now.AddDate(0, 0, -7)
 	weekRange := database.AnalyticsTimeRange{Start: weekStart, End: now}
 	weekData, err := db.GetAnalyticsData(weekRange, "", "")
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve week's data")
-		return
-	}
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve week's data")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_summary_week_failed", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	// Get this month's stats
 	monthStart := now.AddDate(0, 0, -30)
 	monthRange := database.AnalyticsTimeRange{Start: monthStart, End: now}
 	monthData, err := db.GetAnalyticsData(monthRange, "", "")
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve month's data")
-		return
-	}
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve month's data")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_summary_month_failed", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	// Get all-time API keys count
 	apiKeys, err := db.GetAllAPIKeys()
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve API keys")
-		return
-	}
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve API keys")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_summary_apikeys_failed", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	activeKeysCount := 0
 	for _, key := range apiKeys {
@@ -201,7 +214,8 @@ func getAnalyticsSummaryHandler(w http.ResponseWriter, r *http.Request) {
 		Data:    summary,
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "analytics_summary_success", nil, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // getTopAPIKeysHandler gets top performing API keys
@@ -231,10 +245,11 @@ func getTopAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_top_keys_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	analyticsTimeRange := database.AnalyticsTimeRange{
 		Start: startTime,
@@ -242,10 +257,11 @@ func getTopAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	analyticsData, err := db.GetAnalyticsData(analyticsTimeRange, "", "")
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve analytics data")
-		return
-	}
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve analytics data")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_top_keys_query_failed", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	// Limit results
 	topAPIKeys := analyticsData.APIKeyUsage
@@ -263,7 +279,8 @@ func getTopAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "analytics_top_keys_success", map[string]interface{}{"limit": limit}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // getAnalyticsExportHandler exports analytics data
@@ -300,10 +317,11 @@ func getAnalyticsExportHandler(w http.ResponseWriter, r *http.Request) {
 				startTime = t
 			} else if t, err := time.Parse("2006-01-02T15:04", customStart); err == nil {
 				startTime = t
-			} else {
-				writeErrorResponse(w, http.StatusBadRequest, "Invalid start date format")
-				return
-			}
+            } else {
+                writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid start date format", map[string]interface{}{"field": "startDate"})
+                if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "analytics_export_invalid_start_date", nil, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+                return
+            }
 		} else {
 			startTime = now.AddDate(0, 0, -7)
 		}
@@ -313,10 +331,11 @@ func getAnalyticsExportHandler(w http.ResponseWriter, r *http.Request) {
 				endTime = t
 			} else if t, err := time.Parse("2006-01-02T15:04", customEnd); err == nil {
 				endTime = t
-			} else {
-				writeErrorResponse(w, http.StatusBadRequest, "Invalid end date format")
-				return
-			}
+            } else {
+                writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid end date format", map[string]interface{}{"field": "endDate"})
+                if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "analytics_export_invalid_end_date", nil, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+                return
+            }
 		} else {
 			endTime = now
 		}
@@ -326,10 +345,11 @@ func getAnalyticsExportHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_export_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	analyticsTimeRange := database.AnalyticsTimeRange{
 		Start: startTime,
@@ -344,10 +364,11 @@ func getAnalyticsExportHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	analyticsData, err := db.GetAnalyticsData(analyticsTimeRange, apiKeyFilter, userFilter)
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve analytics data")
-		return
-	}
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve analytics data")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_export_query_failed", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	switch format {
 	case "json":
@@ -358,14 +379,16 @@ func getAnalyticsExportHandler(w http.ResponseWriter, r *http.Request) {
 
 		encoder := json.NewEncoder(w)
 		encoder.SetIndent("", "  ")
-		if err := encoder.Encode(analyticsData); err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "Failed to encode analytics data")
-			return
-		}
+        if err := encoder.Encode(analyticsData); err != nil {
+            writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to encode analytics data")
+            if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "analytics_export_encode_failed", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+            return
+        }
 
 	default:
-		writeErrorResponse(w, http.StatusBadRequest, "Unsupported export format")
-	}
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Unsupported export format", map[string]interface{}{"field": "format", "allowed": []string{"json"}})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "analytics_export_unsupported_format", map[string]interface{}{"format": format}, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+    }
 }
 
 // RegisterAnalyticsRoutes registers analytics-specific routes

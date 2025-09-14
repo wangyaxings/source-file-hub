@@ -1,4 +1,4 @@
-package handler
+﻿package handler
 
 import (
 	crand "crypto/rand"
@@ -19,6 +19,7 @@ import (
     repo "secure-file-hub/internal/infrastructure/repository/sqlite"
     "secure-file-hub/internal/presentation/http/validation"
 	"secure-file-hub/internal/middleware"
+	"secure-file-hub/internal/logger"
 
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
@@ -279,14 +280,24 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
     created, err := uc.Create(req.Name, req.Description, req.Role, req.Permissions, expiresAt)
     if err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create API key: "+err.Error())
+        if l := logger.GetLogger(); l != nil {
+            rid := r.Context().Value(middleware.RequestIDKey)
+            actor := getActor(r)
+            l.ErrorCtx(logger.EventError, "create_api_key_failed", map[string]interface{}{"name": req.Name, "role": req.Role}, "INTERNAL_ERROR", rid, actor)
+        }
         return
     }
 
-	// Create Casbin policies for the API key (数据库适配器自动持久化)
+	// Create Casbin policies for the API key (鏁版嵁搴撻€傞厤鍣ㄨ嚜鍔ㄦ寔涔呭寲)
     if err := authz.CreateAPIKeyPolicies(created.ID, req.Permissions); err != nil {
         // If Casbin policy creation fails, clean up the database record
         if db := database.GetDatabase(); db != nil { _ = db.DeleteAPIKey(created.ID) }
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create API key policies: "+err.Error())
+        if l := logger.GetLogger(); l != nil {
+            rid := r.Context().Value(middleware.RequestIDKey)
+            actor := getActor(r)
+            l.ErrorCtx(logger.EventError, "create_api_key_policies_failed", map[string]interface{}{"api_key_id": created.ID}, "INTERNAL_ERROR", rid, actor)
+        }
         return
     }
 
@@ -319,7 +330,12 @@ func createAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	writeJSONResponse(w, http.StatusCreated, response)
+    writeJSONResponse(w, http.StatusCreated, response)
+    if l := logger.GetLogger(); l != nil {
+        rid := r.Context().Value(middleware.RequestIDKey)
+        actor := getActor(r)
+        l.InfoCtx(logger.EventAPIRequest, "api_key_created", map[string]interface{}{"api_key_id": created.ID, "role": created.Role}, "", rid, actor)
+    }
 }
 
 // listAPIKeysHandler lists all API keys
@@ -359,6 +375,10 @@ func listAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
         },
     }
     writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil {
+        rid := r.Context().Value(middleware.RequestIDKey)
+        l.InfoCtx(logger.EventAPIRequest, "list_api_keys_success", map[string]interface{}{"count": len(apiKeys)}, "", rid, getActor(r))
+    }
 }
 
 // getAPIKeyHandler gets a specific API key
@@ -463,7 +483,7 @@ func deleteAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     keyID := vars["keyId"]
 
-    // Remove all Casbin policies for this API key first (数据库适配器自动持久化)
+    // Remove all Casbin policies for this API key first (鏁版嵁搴撻€傞厤鍣ㄨ嚜鍔ㄦ寔涔呭寲)
     if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to remove API key policies: "+err.Error())
         return
@@ -493,10 +513,11 @@ func updateAPIKeyStatusHandler(w http.ResponseWriter, r *http.Request) {
 		Status string `json:"status"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid request format")
-		return
-	}
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request format")
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "update_api_key_status_invalid_request", nil, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
     if req.Status != "active" && req.Status != "disabled" {
         writeErrorWithCode(w, http.StatusBadRequest, "INVALID_STATUS", "Invalid status")
@@ -505,11 +526,12 @@ func updateAPIKeyStatusHandler(w http.ResponseWriter, r *http.Request) {
 
     uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
     if err := uc.UpdateStatus(keyID, req.Status); err != nil {
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to update API key status")
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update API key status")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "update_api_key_status_failed", map[string]interface{}{"api_key_id": keyID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
-	// If disabling the API key, remove all Casbin policies (数据库适配器自动持久化)
+	// If disabling the API key, remove all Casbin policies (鏁版嵁搴撻€傞厤鍣ㄨ嚜鍔ㄦ寔涔呭寲)
 	if req.Status == "disabled" {
 		if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
 			// Log the error but don't fail the request since the database update succeeded
@@ -517,12 +539,13 @@ func updateAPIKeyStatusHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	response := Response{
-		Success: true,
-		Message: "API key status updated successfully",
-	}
+    response := Response{
+        Success: true,
+        Message: "API key status updated successfully",
+    }
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "update_api_key_status_success", map[string]interface{}{"api_key_id": keyID, "status": req.Status}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // regenerateAPIKeyHandler regenerates an API key (creates new key, invalidates old one)
@@ -530,10 +553,11 @@ func regenerateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     keyID := vars["keyId"]
 
-	if keyID == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "API key ID is required")
-		return
-	}
+    if keyID == "" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "API key ID is required", map[string]interface{}{"field": "keyId"})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "regenerate_api_key_missing_id", nil, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
     uc := usecases.NewAPIKeyUseCase(repo.NewAPIKeyRepo())
     // Load old key
@@ -545,21 +569,22 @@ func regenerateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
     // Create new key with same metadata
     created, err := uc.Create(oldKey.Name, "Regenerated API key", oldKey.Role, oldKey.Permissions, oldKey.ExpiresAt)
     if err != nil {
-        writeErrorResponse(w, http.StatusInternalServerError, "Failed to create new API key")
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create new API key")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "regenerate_api_key_create_failed", map[string]interface{}{"api_key_id": keyID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
     // Store the new API key temporarily for download (10 minutes)
     storeTempAPIKey(created.ID, created.Key, created.Name, created.Role)
     // Disable the old key
     if err := uc.UpdateStatus(keyID, "disabled"); err != nil {
-        fmt.Printf("Warning: Failed to disable old API key %s: %v\n", keyID, err)
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "regenerate_api_key_disable_old_failed", map[string]interface{}{"api_key_id": keyID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
     }
     // Update Casbin policies
     if err := authz.RemoveAllAPIKeyPolicies(keyID); err != nil {
-        fmt.Printf("Warning: Failed to remove Casbin policies for old key %s: %v\n", keyID, err)
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "regenerate_api_key_remove_policies_failed", map[string]interface{}{"api_key_id": keyID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
     }
     if err := authz.CreateAPIKeyPolicies(created.ID, created.Permissions); err != nil {
-        fmt.Printf("Warning: Failed to create Casbin policies for new key %s: %v\n", created.ID, err)
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "regenerate_api_key_create_policies_failed", map[string]interface{}{"api_key_id": created.ID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
     }
     response := Response{
         Success: true,
@@ -570,6 +595,7 @@ func regenerateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
         },
     }
     writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "regenerate_api_key_success", map[string]interface{}{"new_api_key_id": created.ID, "old_api_key_id": keyID}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // downloadAPIKeyHandler downloads an API key as a text file
@@ -577,17 +603,19 @@ func downloadAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 
-	if keyID == "" {
-		writeErrorResponse(w, http.StatusBadRequest, "API key ID is required")
-		return
-	}
+    if keyID == "" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "API key ID is required", map[string]interface{}{"field": "keyId"})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "download_api_key_missing_id", nil, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	// Get the temporary API key
 	tempKey, exists := getTempAPIKey(keyID)
-	if !exists {
-		writeErrorResponse(w, http.StatusNotFound, "API key not found or has expired. Download is only available for 10 minutes after creation.")
-		return
-	}
+    if !exists {
+        writeErrorWithCodeDetails(w, http.StatusNotFound, "API_KEY_NOT_FOUND", "API key not found or has expired. Download is only available for 10 minutes after creation.", map[string]interface{}{"reason": "expired_or_not_found"})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "download_api_key_expired_or_not_found", map[string]interface{}{"api_key_id": keyID}, "API_KEY_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 
 	// Create the file content
 	content := fmt.Sprintf(`# API Key Information
@@ -632,10 +660,11 @@ func downloadAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(content))
 
-	// Remove the temporary key after download for security
-	tempKeysMux.Lock()
-	delete(tempAPIKeys, keyID)
-	tempKeysMux.Unlock()
+    // Remove the temporary key after download for security
+    tempKeysMux.Lock()
+    delete(tempAPIKeys, keyID)
+    tempKeysMux.Unlock()
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "download_api_key_success", map[string]interface{}{"api_key_id": keyID}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // =============================================================================
@@ -856,7 +885,11 @@ func listUsersHandler(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil {
+        rid := r.Context().Value(middleware.RequestIDKey)
+        l.InfoCtx(logger.EventAPIRequest, "list_users_success", map[string]interface{}{"count": len(paged), "total": total, "page": page, "limit": limit}, "", rid, getActor(r))
+    }
 }
 
 // updateUserHandler partially updates user fields (role, 2fa)
@@ -921,12 +954,14 @@ func approveUserHandler(w http.ResponseWriter, r *http.Request) {
     }
     if err := db.CreateOrUpdateUserRole(&database.UserRole{UserID: userID, Status: "active"}); err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to approve user")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "approve_user_failed", map[string]interface{}{"user_id": userID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 	// Audit
 	actor := getActor(r)
 	_ = db.LogAdminAction(actor, userID, "approve_user", nil)
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User approved"})
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User approved"})
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "user_approved", map[string]interface{}{"user_id": userID}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 func suspendUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -939,11 +974,13 @@ func suspendUserHandler(w http.ResponseWriter, r *http.Request) {
     }
     if err := db.CreateOrUpdateUserRole(&database.UserRole{UserID: userID, Status: "suspended"}); err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to suspend user")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "suspend_user_failed", map[string]interface{}{"user_id": userID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 	actor := getActor(r)
 	_ = db.LogAdminAction(actor, userID, "suspend_user", nil)
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User suspended"})
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "User suspended"})
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "user_suspended", map[string]interface{}{"user_id": userID}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 func disableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
@@ -957,15 +994,18 @@ func disableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
     // Ensure user exists
     if _, err := db.GetUser(userID); err != nil {
         writeErrorWithCode(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "disable_2fa_user_not_found", map[string]interface{}{"user_id": userID}, "USER_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
     if err := db.SetUser2FA(userID, false, ""); err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to disable 2FA")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "disable_2fa_failed", map[string]interface{}{"user_id": userID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 	actor := getActor(r)
 	_ = db.LogAdminAction(actor, userID, "disable_2fa", nil)
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA disabled"})
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA disabled"})
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "user_2fa_disabled", map[string]interface{}{"user_id": userID}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // enableUser2FAHandler enables 2FA for a user (admin can force enable)
@@ -982,6 +1022,7 @@ func enableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
 	user, err := db.GetUser(userID)
     if err != nil {
         writeErrorWithCode(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "enable_2fa_user_not_found", map[string]interface{}{"user_id": userID}, "USER_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -994,6 +1035,7 @@ func enableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
 	// Enable 2FA but don't set a secret - user will need to complete setup on first login
     if err := db.SetUser2FA(userID, true, ""); err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to enable 2FA")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "enable_2fa_failed", map[string]interface{}{"user_id": userID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -1001,7 +1043,8 @@ func enableUser2FAHandler(w http.ResponseWriter, r *http.Request) {
 	actor := getActor(r)
 	_ = db.LogAdminAction(actor, userID, "enable_2fa", nil)
 
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA enabled. User will be prompted to complete setup on next login."})
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "2FA enabled. User will be prompted to complete setup on next login."})
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "user_2fa_enabled", map[string]interface{}{"user_id": userID}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // updateUserRoleHandler updates a user's role
@@ -1069,6 +1112,7 @@ func updateUserRoleHandler(w http.ResponseWriter, r *http.Request) {
 
     if err := db.CreateOrUpdateUserRole(userRole); err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update user role")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "update_user_role_failed", map[string]interface{}{"user_id": userID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 	// Keep users table role in sync
@@ -1090,7 +1134,8 @@ func updateUserRoleHandler(w http.ResponseWriter, r *http.Request) {
 		Message: "User role updated successfully",
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "user_role_updated", map[string]interface{}{"user_id": userID, "role": userRole.Role}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // getUserAPIKeysHandler gets API keys for a specific user
@@ -1301,11 +1346,12 @@ func getUserDetailsHandler(w http.ResponseWriter, r *http.Request) {
 
 // getAdminAuditLogsHandler lists admin audit logs with filters
 func getAdminAuditLogsHandler(w http.ResponseWriter, r *http.Request) {
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Database not available")
-		return
-	}
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "get_admin_audit_logs_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
+        return
+    }
 	q := r.URL.Query()
 	actor := q.Get("actor")
 	target := q.Get("target")
@@ -1324,15 +1370,17 @@ func getAdminAuditLogsHandler(w http.ResponseWriter, r *http.Request) {
     logs, total, err := db.GetAdminAuditLogs(actor, target, action, since, until, page, limit)
     if err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get audit logs")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "get_admin_audit_logs_failed", map[string]interface{}{"actor": actor}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
-		"items": logs,
-		"count": len(logs),
-		"total": total,
-		"page":  page,
-		"limit": limit,
-	}})
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+        "items": logs,
+        "count": len(logs),
+        "total": total,
+        "page":  page,
+        "limit": limit,
+    }})
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "get_admin_audit_logs_success", map[string]interface{}{"count": len(logs), "total": total, "page": page, "limit": limit}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // resetUserPasswordHandler regenerates a user's password and forces reset on next login
@@ -1341,18 +1389,21 @@ func resetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	userID := vars["userId"]
     if userID == "" {
         writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "userId is required", map[string]interface{}{"field": "userId"})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "reset_password_missing_userId", nil, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
 	db := database.GetDatabase()
     if db == nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not available")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "reset_password_db_unavailable", map[string]interface{}{"user_id": userID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
 	// Ensure user exists
     if _, err := db.GetUser(userID); err != nil {
         writeErrorWithCode(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "reset_password_user_not_found", map[string]interface{}{"user_id": userID}, "USER_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -1361,6 +1412,7 @@ func resetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	hashed, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
     if err := db.UpdateUserPassword(userID, string(hashed)); err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update password")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "reset_password_update_failed", map[string]interface{}{"user_id": userID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -1389,4 +1441,5 @@ func getActor(r *http.Request) string {
 	}
 	return "unknown"
 }
+
 

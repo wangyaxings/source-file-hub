@@ -84,6 +84,31 @@ func GetLogger() *Logger {
     return defaultLogger
 }
 
+// WithStandardFields merges details and attaches common fields
+// such as code, request_id, and actor if provided.
+func WithStandardFields(details map[string]interface{}, code string, requestID interface{}, actor string) map[string]interface{} {
+    if details == nil { details = make(map[string]interface{}) }
+    if code != "" { details["code"] = code }
+    if requestID != nil { details["request_id"] = requestID }
+    if actor != "" { details["actor"] = actor }
+    return details
+}
+
+// InfoCtx logs an INFO event with standard fields attached.
+func (l *Logger) InfoCtx(eventCode EventCode, message string, details map[string]interface{}, code string, requestID interface{}, actor string) {
+    l.log(LogLevelINFO, eventCode, message, WithStandardFields(details, code, requestID, actor))
+}
+
+// WarnCtx logs a WARN event with standard fields attached.
+func (l *Logger) WarnCtx(eventCode EventCode, message string, details map[string]interface{}, code string, requestID interface{}, actor string) {
+    l.log(LogLevelWARN, eventCode, message, WithStandardFields(details, code, requestID, actor))
+}
+
+// ErrorCtx logs an ERROR event with standard fields attached.
+func (l *Logger) ErrorCtx(eventCode EventCode, message string, details map[string]interface{}, code string, requestID interface{}, actor string) {
+    l.log(LogLevelERROR, eventCode, message, WithStandardFields(details, code, requestID, actor))
+}
+
 // LogAPIRequest records an API request event
 func (l *Logger) LogAPIRequest(method, path, userAgent, remoteAddr string, userInfo map[string]interface{}) {
     details := map[string]interface{}{

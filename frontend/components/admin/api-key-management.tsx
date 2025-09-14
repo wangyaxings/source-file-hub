@@ -1,4 +1,7 @@
+﻿'use client'
 'use client'
+import { apiClient } from "@/lib/api"
+import { mapApiErrorToMessage } from "@/lib/errors"
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
@@ -9,6 +12,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/lib/use-toast"
+import { apiClient } from "@/lib/api"
+import { mapApiErrorToMessage } from "@/lib/errors"
 import { formatDate } from "@/lib/utils"
 import { AnalyticsCharts } from "./analytics-charts"
 import {
@@ -90,7 +95,7 @@ export function APIKeyManagement() {
     expiresAt: ""
   })
 
-  // 调试代码 - 监控状态变化
+  // 璋冭瘯浠ｇ爜 - 鐩戞帶鐘舵€佸彉鍖?
   useEffect(() => {
     console.log('showKeyDialog state changed:', showKeyDialog)
     console.log('newKey value:', newKey)
@@ -107,45 +112,18 @@ export function APIKeyManagement() {
   const loadAPIKeys = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/v1/web/admin/api-keys', {
-        credentials: 'include'
-      })
-
-      if (!response.ok) throw new Error('Failed to load API keys')
-
-      const result = await response.json()
-      setApiKeys(result.data?.keys || [])
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to load API keys'
-      })
+      const resp = await apiClient.request<{ keys: APIKey[]; count: number }>(`/admin/api-keys`)
+      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to load API keys'), { code: resp.code, details: (resp as any).details })
+      setApiKeys(resp.data?.keys || [])
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ variant: "destructive", title, description })
     } finally {
       setIsLoading(false)
     }
   }
 
-  const loadUsageLogs = async () => {
-    try {
-      const response = await fetch('/api/v1/web/admin/usage/logs?limit=100', {
-        credentials: 'include'
-      })
-
-      if (!response.ok) throw new Error('Failed to load usage logs')
-
-      const result = await response.json()
-      setUsageLogs(result.data?.logs || [])
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to load usage logs'
-      })
-    }
-  }
-
-  const createAPIKey = async () => {
+  const loadUsageLogs = async () => {\n    try {\n      const resp = await apiClient.request<{ logs: UsageLog[]; count: number }>(/admin/usage/logs?limit=100)\n      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to load usage logs'), { code: (resp as any).code, details: (resp as any).details })\n      setUsageLogs((resp.data as any)?.logs || [])\n    } catch (error: any) {\n      const { title, description } = mapApiErrorToMessage(error)\n      toast({ variant: 'destructive', title, description })\n    }\n  }\n\n  const createAPIKey = async () => {
     if (!createForm.name.trim() || !createForm.role) {
       toast({
         variant: "destructive",
@@ -158,33 +136,10 @@ export function APIKeyManagement() {
     try {
       const formData = {
         ...createForm,
-        permissions: roleToPermissions(createForm.role) // 根据角色设置权限
+        permissions: roleToPermissions(createForm.role) // 鏍规嵁瑙掕壊璁剧疆鏉冮檺
       }
 
-      const response = await fetch('/api/v1/web/admin/api-keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(formData)
-      })
-
-      if (!response.ok) {
-        let errorMessage = `Failed to create API key (${response.status})`
-        try {
-          const errorData = await response.json()
-          errorMessage = errorData.error || errorData.message || errorMessage
-        } catch (e) {
-          // If response body is not JSON, use status text
-          errorMessage = response.statusText || errorMessage
-        }
-        throw new Error(errorMessage)
-      }
-
-      const result = await response.json()
-      console.log('API Key creation response:', result) // Debug log
-
-      // 检查返回的数据结构
-      const createdKey = result?.data?.api_key || result?.data
+      const resp = await apiClient.request<{ api_key: APIKey }>(/admin/api-keys, { method: 'POST', body: JSON.stringify(formData) })\n      if (!resp.success) { throw Object.assign(new Error(resp.error || 'Failed to create API key'), { code: (resp as any).code, details: (resp as any).details }) }\n\n      // 检查返回的数据结构\n      const createdKey = (resp.data as any)?.api_key || resp.data
       if (!createdKey || !createdKey.key) {
         throw new Error('Invalid server response: missing api_key or key value')
       }
@@ -192,14 +147,14 @@ export function APIKeyManagement() {
       console.log('Setting new key:', createdKey.key) // Debug log
       console.log('Setting selected key:', createdKey) // Debug log
 
-      // 立即关闭创建对话框
+      // 绔嬪嵆鍏抽棴鍒涘缓瀵硅瘽妗?
       setShowCreateDialog(false)
 
-      // 设置新的key数据
+      // 璁剧疆鏂扮殑key鏁版嵁
       setNewKey(createdKey.key || '')
       setSelectedKey(createdKey)
 
-      // 重置创建表单
+      // 閲嶇疆鍒涘缓琛ㄥ崟
       setCreateForm({
         name: "",
         description: "",
@@ -208,25 +163,19 @@ export function APIKeyManagement() {
         expiresAt: ""
       })
 
-      // 显示成功消息
+      // 鏄剧ず鎴愬姛娑堟伅
       toast({
         title: "Success",
         description: "API key created successfully"
       })
 
-      // 立即显示新建的 API Key 弹窗
+      // 绔嬪嵆鏄剧ず鏂板缓鐨?API Key 寮圭獥
       setShowKeyDialog(true)
 
-      // 异步刷新列表，不阻塞弹窗展示
+      // 寮傛鍒锋柊鍒楄〃锛屼笉闃诲寮圭獥灞曠ず
       loadAPIKeys().catch(() => {})
 
-    } catch (error) {
-      console.error('API key creation error:', error) // Debug log
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to create API key'
-      })
+    } catch (error: any) {\n      const { title, description } = mapApiErrorToMessage(error)\n      toast({ variant: 'destructive', title, description })\n    })
     }
   }
 
@@ -250,27 +199,16 @@ export function APIKeyManagement() {
 
   const updateAPIKeyStatus = async (keyId: string, status: string) => {
     try {
-      const response = await fetch(`/api/v1/web/admin/api-keys/${keyId}/status`, {
+      const resp = await apiClient.request(`/admin/api-keys/${encodeURIComponent(keyId)}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ status })
       })
-
-      if (!response.ok) throw new Error('Failed to update API key status')
-
+      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to update API key status'), { code: (resp as any).code, details: (resp as any).details })
       loadAPIKeys()
-
-      toast({
-        title: "Success",
-        description: `API key ${status === 'active' ? 'enabled' : 'disabled'} successfully`
-      })
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to update API key status'
-      })
+      toast({ title: "Success", description: `API key ${status === 'active' ? 'enabled' : 'disabled'} successfully` })
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ variant: 'destructive', title, description })
     }
   }
 
@@ -285,25 +223,13 @@ export function APIKeyManagement() {
     if (!deleteDialog.apiKey) return
 
     try {
-      const response = await fetch(`/api/v1/web/admin/api-keys/${deleteDialog.apiKey.id}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      })
-
-      if (!response.ok) throw new Error('Failed to delete API key')
-
+      const resp = await apiClient.request(`/admin/api-keys/${encodeURIComponent(deleteDialog.apiKey.id)}`, { method: 'DELETE' })
+      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to delete API key'), { code: (resp as any).code, details: (resp as any).details })
       loadAPIKeys()
-
-      toast({
-        title: "Success",
-        description: "API key deleted successfully"
-      })
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to delete API key'
-      })
+      toast({ title: 'Success', description: 'API key deleted successfully' })
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ variant: 'destructive', title, description })
     } finally {
       setDeleteDialog({ isOpen: false, apiKey: null })
     }
@@ -329,9 +255,7 @@ export function APIKeyManagement() {
         hour: '2-digit',
         minute: '2-digit'
       })
-    } catch (error) {
-      return isoString
-    }
+    } catch (error: any) {\n      const { title, description } = mapApiErrorToMessage(error)\n      toast({ variant: 'destructive', title, description })\n    }
   }
 
   useEffect(() => {
@@ -848,3 +772,6 @@ export function APIKeyManagement() {
     </div>
   )
 }
+
+
+

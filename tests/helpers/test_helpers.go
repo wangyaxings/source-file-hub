@@ -88,6 +88,9 @@ func CreateTestUser(t *testing.T, username, password, role string) *database.App
 		t.Fatalf("Failed to create test user: %v", err)
 	}
 
+	// Ensure user_roles has an active record for permissions
+	_ = db.CreateOrUpdateUserRole(&database.UserRole{UserID: username, Role: role, Status: "active"})
+
 	return user
 }
 

@@ -1,4 +1,4 @@
-package integration
+﻿package integration
 
 import (
 	"net/http"
@@ -11,8 +11,9 @@ import (
 	"secure-file-hub/internal/handler"
 	"secure-file-hub/internal/server"
 	"secure-file-hub/tests/helpers"
-)
-
+ )
+// legacy helper user for tests that still reference authUser variable
+var authUser = &auth.User{Username: "testuser", Role: "viewer"}
 // setupTestServer creates a test server with proper configuration
 func setupTestServer(t *testing.T) *server.Server {
 	// Disable HTTPS redirect for tests
@@ -43,10 +44,10 @@ func setupTestServer(t *testing.T) *server.Server {
 func TestIntegration_UserRegistrationAndLogin(t *testing.T) {
 	srv := setupTestServer(t)
 
-	// 创建测试用户
+	// 鍒涘缓娴嬭瘯鐢ㄦ埛
 	user := helpers.CreateTestUser(t, "testuser", "TestPassword123!", "viewer")
 
-	// 使用Authboss登录API
+	// 浣跨敤Authboss鐧诲綍API
 	loginData := map[string]string{
 		"username": user.Username,
 		"password": "TestPassword123!",
@@ -56,21 +57,21 @@ func TestIntegration_UserRegistrationAndLogin(t *testing.T) {
 	rr := httptest.NewRecorder()
 	srv.Router.ServeHTTP(rr, req)
 
-	// 调试信息
+	// 璋冭瘯淇℃伅
 	t.Logf("Response status: %d", rr.Code)
 	t.Logf("Response body: %s", rr.Body.String())
 	t.Logf("Response headers: %+v", rr.Header())
 
-	// 检查所有cookies
+	// 妫€鏌ユ墍鏈塩ookies
 	cookies := rr.Result().Cookies()
 	t.Logf("Cookies received: %d", len(cookies))
 	for i, cookie := range cookies {
 		t.Logf("Cookie %d: Name=%s, Value=%s", i, cookie.Name, cookie.Value)
 	}
 
-	// Authboss登录可能返回重定向或JSON响应
+	// Authboss鐧诲綍鍙兘杩斿洖閲嶅畾鍚戞垨JSON鍝嶅簲
 	var sessionCookie *http.Cookie
-	// 检查session cookie是否设置（无论响应状态如何）
+	// 妫€鏌ession cookie鏄惁璁剧疆锛堟棤璁哄搷搴旂姸鎬佸浣曪級
 	for _, cookie := range cookies {
 		if cookie.Name == "ab_session" {
 			sessionCookie = cookie
@@ -85,14 +86,14 @@ func TestIntegration_UserRegistrationAndLogin(t *testing.T) {
 
 	t.Logf("Session cookie found: %s", sessionCookie.Value)
 
-	// 测试认证后的请求 - 直接使用session验证
+	// 娴嬭瘯璁よ瘉鍚庣殑璇锋眰 - 鐩存帴浣跨敤session楠岃瘉
 	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/auth/me", nil, nil)
 	req.AddCookie(sessionCookie)
 
 	rr = httptest.NewRecorder()
 	srv.Router.ServeHTTP(rr, req)
 
-	// 检查响应
+	// 妫€鏌ュ搷搴?
 	t.Logf("Auth check response status: %d", rr.Code)
 	t.Logf("Auth check response body: %s", rr.Body.String())
 
@@ -335,23 +336,9 @@ func TestIntegration_FileManagement(t *testing.T) {
 		t.Error("Expected files data in listing response")
 	}
 
-	// Test file info
-	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/"+fileID, nil, nil)
-	req = helpers.AddAuthContext(req, authUser)
-	rr = httptest.NewRecorder()
-
-	srv.Router.ServeHTTP(rr, req)
-
-	// Verify file info response
-	response = helpers.AssertSuccessResponse(t, rr, http.StatusOK)
-
-	if response["data"] == nil {
-		t.Error("Expected file data in info response")
-	}
-
-	// Test file deletion
-	req = helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/files/"+fileID+"/delete", nil, nil)
-	req = helpers.AddAuthContext(req, authUser)
+	// Test file deletion (DELETE)
+	req = helpers.CreateTestRequest(t, http.MethodDelete, "/api/v1/web/files/"+fileID+"/delete", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
 	rr = httptest.NewRecorder()
 
 	srv.Router.ServeHTTP(rr, req)
@@ -601,3 +588,4 @@ func TestIntegration_DataConsistency(t *testing.T) {
 		t.Error("Expected description to match in info response")
 	}
 }
+

@@ -26,6 +26,9 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// Global upload size limit (bytes)
+const maxUploadBytes = 128 << 20 // 128MB
+
 // Response 閫氱敤鍝嶅簲缁撴瀯
 type Response struct {
     Success bool        `json:"success"`
@@ -320,6 +323,9 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
 				"ssl_enabled":    true,
 				"golang_version": "go1.19+",
 			},
+			"upload_limits": map[string]interface{}{
+				"max_upload_bytes": maxUploadBytes,
+			},
 		},
 	}
 
@@ -353,12 +359,12 @@ func writeJSONResponse(w http.ResponseWriter, status int, data interface{}) {
 
 // writeErrorResponse 鍐欏叆閿欒鍝嶅簲
 func writeErrorResponse(w http.ResponseWriter, status int, message string) {
-    response := Response{
-        Success: false,
-        Error:   message,
-    }
-
-    writeJSONResponse(w, status, response)
+    // Legacy shim: prefer writeErrorWithCode; map common statuses
+    code := "INTERNAL_ERROR"
+    if status == http.StatusBadRequest { code = "VALIDATION_ERROR" }
+    if status == http.StatusUnauthorized { code = "UNAUTHORIZED" }
+    if status == http.StatusNotFound { code = "NOT_FOUND" }
+    writeErrorWithCode(w, status, code, message)
 }
 
 // writeErrorWithCode writes a structured error including a machine-readable code
@@ -402,12 +408,12 @@ func writeErrorWithCodeDetails(w http.ResponseWriter, status int, code, message 
 func meHandler(w http.ResponseWriter, r *http.Request) {
     userCtx := r.Context().Value("user")
     if userCtx == nil {
-        writeErrorResponse(w, http.StatusUnauthorized, "Authentication required")
+        writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
         return
     }
     u, ok := userCtx.(*auth.User)
     if !ok {
-        writeErrorResponse(w, http.StatusUnauthorized, "Invalid user context")
+        writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid user context")
         return
     }
     payload := usecases.NewUserUseCase().BuildMePayload(u.Username, u.Role, u.TwoFAEnabled)
@@ -478,17 +484,17 @@ func getAccessLogsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 浠庢暟鎹簱鏌ヨ鏃ュ織
-	l := logger.GetLogger()
-	if l == nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "鏃ュ織绯荤粺鏈垵濮嬪寲")
-		return
-	}
+    l := logger.GetLogger()
+    if l == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Logging system not initialized")
+        return
+    }
 
-	logs, err := l.GetAccessLogs(limit, offset)
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "鏌ヨ鏃ュ織澶辫触")
-		return
-	}
+    logs, err := l.GetAccessLogs(limit, offset)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query logs")
+        return
+    }
 
 	response := Response{
 		Success: true,
@@ -532,6 +538,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
     err := r.ParseMultipartForm(128 << 20) // 128MB
     if err != nil {
         writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to parse form", map[string]interface{}{"field": "form", "error": err.Error()})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "upload_parse_form_failed", map[string]interface{}{"error": err.Error()}, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -539,14 +546,15 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
     file, header, err := r.FormFile("file")
     if err != nil {
         writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to get file", map[string]interface{}{"field": "file", "error": err.Error()})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "upload_missing_file", map[string]interface{}{"error": err.Error()}, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
     defer file.Close()
 
     // Enforce file size limit (e.g., 128MB)
-    const maxUploadBytes = 128 << 20
     if header.Size > maxUploadBytes {
         writeErrorWithCodeDetails(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Uploaded file exceeds the maximum allowed size", map[string]interface{}{"field": "file", "max_bytes": maxUploadBytes, "actual_bytes": header.Size})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "upload_too_large", map[string]interface{}{"actual_bytes": header.Size, "max_bytes": maxUploadBytes}, "PAYLOAD_TOO_LARGE", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -573,12 +581,14 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
     if !allowedTypes[fileType] {
         writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_TYPE", "Unsupported file type", map[string]interface{}{"field": "fileType", "allowed": []string{"roadmap", "recommendation"}})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "upload_invalid_file_type", map[string]interface{}{"fileType": fileType}, "INVALID_FILE_TYPE", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
 	// 楠岃瘉鏂囦欢鎵╁睍鍚?
     if !isValidFileExtension(header.Filename) {
         writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "Unsupported file format", map[string]interface{}{"field": "file", "filename": header.Filename})
+        if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "upload_invalid_ext", map[string]interface{}{"filename": header.Filename}, "INVALID_FILE_FORMAT", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -589,12 +599,14 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	case "roadmap":
         if ext != ".tsv" {
             writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "File extension does not match fileType", map[string]interface{}{"field": "file", "expected_ext": ".tsv", "got": ext})
+            if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "upload_ext_mismatch", map[string]interface{}{"expected": ".tsv", "got": ext}, "INVALID_FILE_FORMAT", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
             return
         }
 		fixedOriginalName = "roadmap.tsv"
 	case "recommendation":
         if ext != ".xlsx" {
             writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "File extension does not match fileType", map[string]interface{}{"field": "file", "expected_ext": ".xlsx", "got": ext})
+            if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "upload_ext_mismatch", map[string]interface{}{"expected": ".xlsx", "got": ext}, "INVALID_FILE_FORMAT", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
             return
         }
 		fixedOriginalName = "recommendation.xlsx"
@@ -637,11 +649,11 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 鐢熸垚鐗堟湰鍖栫殑鏂囦欢鍚嶅拰璺緞
-	versionedFileName, version, err := generateVersionedFileName(fileType, fixedOriginalName)
-	if err != nil {
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to generate filename: "+err.Error())
-		return
-	}
+    versionedFileName, version, err := generateVersionedFileName(fileType, fixedOriginalName)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to generate filename: "+err.Error())
+        return
+    }
 
 	fileInfo.FileName = versionedFileName
 	fileInfo.Version = version
@@ -655,6 +667,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	targetDir := filepath.Join("downloads", fileType+"s")
     if err := os.MkdirAll(targetDir, 0755); err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create directory: "+err.Error())
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "upload_mkdir_failed", map[string]interface{}{"error": err.Error(), "dir": targetDir}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -666,6 +679,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	versionDir := filepath.Join(targetDir, versionID)
     if err := os.MkdirAll(versionDir, 0755); err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create version directory: "+err.Error())
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "upload_mkdir_version_failed", map[string]interface{}{"error": err.Error(), "dir": versionDir}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -677,6 +691,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
     dst, err := os.Create(targetPath)
     if err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create file: "+err.Error())
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "upload_create_file_failed", map[string]interface{}{"error": err.Error(), "path": targetPath}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 	defer dst.Close()
@@ -684,6 +699,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
     _, err = io.Copy(dst, file)
     if err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save file: "+err.Error())
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "upload_write_failed", map[string]interface{}{"error": err.Error(), "path": targetPath}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -709,6 +725,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
     db := database.GetDatabase()
     if db == nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "upload_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -733,6 +750,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
         os.Remove(targetPath)
         os.Remove(latestPath)
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save file metadata: "+err.Error())
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "upload_db_insert_failed", map[string]interface{}{"error": err.Error()}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -790,6 +808,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
     items, total, err := controller.ListWithPagination(fileType, page, limit)
     if err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get file list: "+err.Error())
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "list_files_failed", map[string]interface{}{"type": fileType, "page": page, "limit": limit}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
     // Convert to FileInfo format
@@ -820,6 +839,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
         },
     }
     writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "list_files_success", map[string]interface{}{"type": fileType, "count": len(files), "total": total, "page": page, "limit": limit}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // getFileVersionsHandler 鑾峰彇鏂囦欢鐗堟湰澶勭悊鍣?
@@ -832,6 +852,7 @@ func getFileVersionsHandler(w http.ResponseWriter, r *http.Request) {
     items, err := controller.Versions(fileType, filename)
     if err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get file versions: "+err.Error())
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "get_versions_failed", map[string]interface{}{"type": fileType, "filename": filename}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
     versions := make([]FileInfo, 0, len(items))
@@ -861,6 +882,7 @@ func getFileVersionsHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "get_versions_success", map[string]interface{}{"type": fileType, "filename": filename, "count": len(versions)}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // deleteFileHandler 鍒犻櫎鏂囦欢锛堢Щ鍔ㄥ埌鍥炴敹绔欙級
@@ -883,14 +905,17 @@ func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
     if db == nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "recyclebin_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
     if err := db.SoftDeleteFile(fileID, deletedBy); err != nil {
         if strings.Contains(strings.ToLower(err.Error()), "not found") {
             writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found or already deleted")
+            if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "soft_delete_not_found", map[string]interface{}{"file_id": fileID}, "FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         } else {
             writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete file: "+err.Error())
+            if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "soft_delete_failed", map[string]interface{}{"file_id": fileID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         }
         return
     }
@@ -900,7 +925,8 @@ func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
 		Message: "File moved to recycle bin successfully",
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "soft_delete_success", map[string]interface{}{"file_id": fileID, "by": deletedBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // restoreFileHandler 浠庡洖鏀剁珯鎭㈠鏂囦欢
@@ -923,14 +949,17 @@ func restoreFileHandler(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
     if db == nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "clear_recyclebin_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
     if err := db.RestoreFile(fileID, restoredBy); err != nil {
         if strings.Contains(strings.ToLower(err.Error()), "not found") {
             writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found in recycle bin")
+            if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "restore_not_found", map[string]interface{}{"file_id": fileID}, "FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         } else {
             writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to restore file: "+err.Error())
+            if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "restore_failed", map[string]interface{}{"file_id": fileID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         }
         return
     }
@@ -940,7 +969,8 @@ func restoreFileHandler(w http.ResponseWriter, r *http.Request) {
 		Message: "File restored successfully",
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "restore_success", map[string]interface{}{"file_id": fileID, "by": restoredBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // purgeFileHandler 姘镐箙鍒犻櫎鏂囦欢
@@ -969,8 +999,10 @@ func purgeFileHandler(w http.ResponseWriter, r *http.Request) {
     if err := db.PermanentlyDeleteFile(fileID, purgedBy); err != nil {
         if strings.Contains(strings.ToLower(err.Error()), "not found") {
             writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found or already purged")
+            if l := logger.GetLogger(); l != nil { l.WarnCtx(logger.EventError, "purge_not_found", map[string]interface{}{"file_id": fileID}, "FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         } else {
             writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to purge file: "+err.Error())
+            if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "purge_failed", map[string]interface{}{"file_id": fileID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         }
         return
     }
@@ -980,7 +1012,8 @@ func purgeFileHandler(w http.ResponseWriter, r *http.Request) {
 		Message: "File permanently deleted",
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "purge_success", map[string]interface{}{"file_id": fileID, "by": purgedBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // getRecycleBinHandler 鑾峰彇鍥炴敹绔欏唴瀹?
@@ -994,6 +1027,7 @@ func getRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 	items, err := db.GetRecycleBinItems()
     if err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get recycle bin items: "+err.Error())
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "recyclebin_query_failed", map[string]interface{}{"error": err.Error()}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -1006,7 +1040,8 @@ func getRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "recyclebin_success", map[string]interface{}{"count": len(items)}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // clearRecycleBinHandler 娓呯┖鍥炴敹绔?
@@ -1033,6 +1068,7 @@ func clearRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
     items, err := db.GetRecycleBinItems()
     if err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get recycle bin items: "+err.Error())
+        if l := logger.GetLogger(); l != nil { l.ErrorCtx(logger.EventError, "clear_recyclebin_query_failed", map[string]interface{}{"error": err.Error()}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
         return
     }
 
@@ -1054,7 +1090,8 @@ func clearRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+    writeJSONResponse(w, http.StatusOK, response)
+    if l := logger.GetLogger(); l != nil { l.InfoCtx(logger.EventAPIRequest, "clear_recyclebin_success", map[string]interface{}{"purged_count": purgedCount, "by": purgedBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r)) }
 }
 
 // 杈呭姪鍑芥暟
@@ -1227,12 +1264,12 @@ func webGetVersionManifestHandler(w http.ResponseWriter, r *http.Request) {
 
 // webGetVersionsListHandler returns versions.json
 func webGetVersionsListHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	ft := strings.ToLower(vars["type"])
-	if ft != "roadmap" && ft != "recommendation" {
-		writeErrorResponse(w, http.StatusBadRequest, "Invalid type")
-		return
-	}
+    vars := mux.Vars(r)
+    ft := strings.ToLower(vars["type"])
+    if ft != "roadmap" && ft != "recommendation" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid type", map[string]interface{}{"field": "type", "allowed": []string{"roadmap", "recommendation"}})
+        return
+    }
 	baseDir := filepath.Join("downloads", ft+"s")
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {

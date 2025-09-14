@@ -1,4 +1,4 @@
-package middleware
+﻿package middleware
 
 import (
 	"net/http"
@@ -133,7 +133,7 @@ func TestAuthMiddleware_Unauthorized(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_Authorized(t *testing.T) {
+func TestAuthMiddleware_Authorized_FullStack(t *testing.T) {
 	helpers.SetupTestEnvironment(t)
 	// Build full server to include Authboss and middleware chain
 	srv := server.New()
@@ -471,6 +471,8 @@ func TestMiddlewareChain(t *testing.T) {
 		t.Error("expected CORS headers")
 	}
 }
+
+
 
 
 

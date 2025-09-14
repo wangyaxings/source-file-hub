@@ -2,9 +2,11 @@
 
 import React, { useEffect, useState } from 'react'
 import { apiClient } from '@/lib/api'
+import { mapApiErrorToMessage } from '@/lib/errors'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useToast } from '@/lib/use-toast'
 
 export function AuditLogsPanel() {
   const [mounted, setMounted] = useState(false)
@@ -16,6 +18,7 @@ export function AuditLogsPanel() {
   const [limit, setLimit] = useState(20)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
+  const { toast } = useToast()
 
   const load = async () => {
     setLoading(true)
@@ -26,11 +29,13 @@ export function AuditLogsPanel() {
       if (action) qs.set('action', action)
       qs.set('page', String(page))
       qs.set('limit', String(limit))
-      const resp = await fetch(`/api/v1/web/admin/audit-logs?${qs.toString()}`, { headers: { 'Accept': 'application/json' } })
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-      const data = await resp.json()
-      setItems(data?.data?.items || [])
-      setTotal(data?.data?.total || 0)
+      const resp = await apiClient.request<{ items: any[]; total: number }>(`/admin/audit-logs?${qs.toString()}`)
+      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to load audit logs'), { code: (resp as any).code, details: (resp as any).details })
+      setItems((resp.data as any)?.items || [])
+      setTotal((resp.data as any)?.total || 0)
+    } catch (err: any) {
+      const { title, description } = mapApiErrorToMessage(err)
+      toast({ title, description, variant: 'destructive' })
     } finally {
       setLoading(false)
     }

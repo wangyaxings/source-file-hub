@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { apiClient } from "@/lib/api"
+import { mapApiErrorToMessage } from "@/lib/errors"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
@@ -39,7 +40,8 @@ export default function UserManagement() {
       setUsers((resp as any).users as UserRow[])
       setTotal((resp as any).total || (resp as any).count || 0)
     } catch (err: any) {
-      toast({ title: 'Failed to load users', description: err?.message || String(err), variant: 'destructive' })
+      const { title, description } = mapApiErrorToMessage(err)
+      toast({ title, description, variant: 'destructive' })
     } finally {
       setLoading(false)
     }
@@ -56,7 +58,8 @@ export default function UserManagement() {
       toast({ title: 'Role updated', description: `${u.user_id} → ${role}` })
       load()
     } catch (err: any) {
-      toast({ title: 'Failed to update role', description: err?.message || String(err), variant: 'destructive' })
+      const { title, description } = mapApiErrorToMessage(err)
+      toast({ title, description, variant: 'destructive' })
     }
   }
 
@@ -66,7 +69,8 @@ export default function UserManagement() {
       toast({ title: 'User approved', description: u.user_id })
       load()
     } catch (err: any) {
-      toast({ title: 'Failed to approve', description: err?.message || String(err), variant: 'destructive' })
+      const { title, description } = mapApiErrorToMessage(err)
+      toast({ title, description, variant: 'destructive' })
     }
   }
 
@@ -76,7 +80,8 @@ export default function UserManagement() {
       toast({ title: 'User suspended', description: u.user_id })
       load()
     } catch (err: any) {
-      toast({ title: 'Failed to suspend', description: err?.message || String(err), variant: 'destructive' })
+      const { title, description } = mapApiErrorToMessage(err)
+      toast({ title, description, variant: 'destructive' })
     }
   }
 
@@ -98,11 +103,8 @@ export default function UserManagement() {
         load() // 重新加载用户列表
       }
     } catch (err: any) {
-      toast({
-        title: 'Failed to update 2FA',
-        description: err?.message || String(err),
-        variant: 'destructive'
-      })
+      const { title, description } = mapApiErrorToMessage(err)
+      toast({ title, description, variant: 'destructive' })
     }
   }
 
@@ -271,7 +273,8 @@ function EditRoleButton({ user, onSaved }: { user: UserRow; onSaved: () => void 
           setQuotaD((details?.quota_daily ?? '') === '' ? '' : String(details?.quota_daily))
           setQuotaM((details?.quota_monthly ?? '') === '' ? '' : String(details?.quota_monthly))
         } catch (e:any) {
-          toast({ title: 'Load details failed', description: e?.message || String(e), variant: 'destructive' })
+          const { title, description } = mapApiErrorToMessage(e)
+          toast({ title, description, variant: 'destructive' })
         }
       }
     }}>
@@ -359,7 +362,8 @@ function CreateUserModal({ onCreated }: { onCreated: (username: string, password
       setMustReset(true)
       setOpen(false)
     } catch (err: any) {
-      toast({ title: 'Create failed', description: err?.message || String(err), variant: 'destructive' })
+      const { title, description } = mapApiErrorToMessage(err)
+      toast({ title, description, variant: 'destructive' })
     } finally {
       setBusy(false)
     }
@@ -418,7 +422,8 @@ function ResetPasswordButton({ user, onDone }: { user: UserRow; onDone: (passwor
       toast({ title: 'Password reset', description: user.user_id })
       setConfirmOpen(false)
     } catch (err: any) {
-      toast({ title: 'Reset failed', description: err?.message || String(err), variant: 'destructive' })
+      const { title, description } = mapApiErrorToMessage(err)
+      toast({ title, description, variant: 'destructive' })
     } finally {
       setBusy(false)
     }

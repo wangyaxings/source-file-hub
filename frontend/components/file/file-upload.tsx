@@ -41,10 +41,25 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
     message: string
     file?: FileInfo
   } | null>(null)
+  const [maxBytes, setMaxBytes] = useState(128 * 1024 * 1024)
+  // Optionally fetch from backend API info
+  useEffect(() => {
+    (async () => {
+      try {
+        const info = await apiClient.getApiInfo()
+        const b = (info?.upload_limits?.max_upload_bytes as number) || 0
+        if (b > 0) setMaxBytes(b)
+      } catch { /* ignore */ }
+    })()
+  }, [])
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (file) {
+      if (file.size > maxBytes) {
+        setUploadResult({ success: false, message: `File is too large. Max ${(maxBytes/(1024*1024)).toFixed(0)} MB` })
+        return
+      }
       setSelectedFile(file)
       // 根据文件扩展名自动选择类型
       const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
@@ -69,6 +84,10 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
 
   const handleUpload = async () => {
     if (!selectedFile || !fileType) return
+    if (selectedFile.size > maxBytes) {
+      setUploadResult({ success: false, message: `File is too large. Max ${(maxBytes/(1024*1024)).toFixed(0)} MB` })
+      return
+    }
 
     setIsUploading(true)
     try {
