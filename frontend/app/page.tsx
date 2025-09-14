@@ -164,9 +164,9 @@ export default function HomePage() {
           const user = apiClient.getCurrentUser()
           setCurrentUser(user)
         }
+      } finally {
+        setIsLoading(false)
       }
-
-      setIsLoading(false)
 
       // Check server status
       try {
@@ -302,9 +302,10 @@ export default function HomePage() {
     setRefreshTrigger(prev => prev + 1)
   }
 
-  // 浣跨敤鏉冮檺绯荤粺鏇夸唬纭紪鐮佺殑瑙掕壊妫€鏌?  const { permissions, loading: permissionsLoading } = usePermissions(permissionsRefreshTrigger)
 
-  // 璁＄畻鏍囩椤垫暟閲?  const baseTabs = 2 // manage + recycle
+  const { permissions, loading: permissionsLoading } = usePermissions(permissionsRefreshTrigger)
+
+  const baseTabs = 2 // manage + recycle
   const totalTabs = baseTabs +
     (permissions?.canUpload ? 1 : 0) +
     (permissions?.canAccessPackages ? 1 : 0) +
@@ -411,7 +412,7 @@ export default function HomePage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-md space-y-6">
-          {/* 閺堝秴濮熼崳銊уЦ閹?*/}
+          {/* Server Status */}
           {serverStatus && (
             <Card className={serverStatus.online ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
               <CardContent className="pt-4">
@@ -437,7 +438,7 @@ export default function HomePage() {
 
     return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* 婢舵挳鍎寸€佃壈鍩?*/}
+      {/* Header */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
@@ -452,7 +453,7 @@ export default function HomePage() {
             </div>
 
             <div className="flex items-center gap-4">
-              {/* 閺堝秴濮熼崳銊уЦ閹焦瀵氱粈?*/}
+              {/* 闁哄牆绉存慨鐔煎闯閵娧冃﹂柟顑跨劍鐎垫氨绮?*/}
               {serverStatus && (
                 <div className="flex items-center gap-2 text-sm">
                   <Server className="h-4 w-4 text-gray-400" />
@@ -462,7 +463,7 @@ export default function HomePage() {
                 </div>
               )}
 
-              {/* 閻劍鍩涙穱鈩冧紖 */}
+              {/* 闁活潿鍔嶉崺娑欑┍閳╁啩绱?*/}
               {currentUser && (
                 <div className="relative" ref={userMenuRef}>
                   <button
@@ -528,7 +529,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* 娑撴槒顩﹂崘鍛啇 */}
+      {/* 濞戞挻妲掗々锕傚礃閸涱収鍟?*/}
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Tabs value={mainTab} onValueChange={(v:any)=>setMainTab(v)} className="space-y-6">
           <TabsList className={`grid w-full ${tabsColsClass} max-w-3xl`}>
@@ -608,7 +609,7 @@ export default function HomePage() {
         </Tabs>
       </main>
 
-      {/* 妞や絻鍓?- 閸ュ搫鐣鹃崷銊ョ俺闁?*/}
+      {/* 濡炪倓绲婚崜?- 闁搞儱鎼悾楣冨捶閵娿儳淇洪梺?*/}
       <footer className="bg-white border-t border-gray-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-sm text-gray-500">

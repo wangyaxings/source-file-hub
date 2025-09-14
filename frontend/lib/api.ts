@@ -52,11 +52,9 @@ class ApiClient {
   private currentUser: UserInfo | null = null
 
   constructor() {
-    // Check if we're running in the browser (client-side)
-    // Note: No longer using localStorage for token - authboss handles session via cookies
-    this.currentUser = typeof window !== 'undefined'
-      ? JSON.parse(localStorage.getItem('currentUser') || 'null')
-      : null
+    // The user is initialized as null. The actual user state will be determined
+    // by the /auth/me endpoint when the application loads.
+    this.currentUser = null
   }
 
   public async request<T>(
@@ -159,13 +157,11 @@ class ApiClient {
     }
   }
 
-  // Note: setToken method removed - authboss handles authentication via session cookies
+  // Authentication handled via Authboss session cookies
 
   setUser(user: UserInfo) {
     this.currentUser = user
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('currentUser', JSON.stringify(user))
-    }
+    // No longer storing user info in localStorage
   }
 
   getCurrentUser(): UserInfo | null {
@@ -179,10 +175,7 @@ class ApiClient {
   logout() {
     // Clear local user state - session cookie will be cleared by authboss
     this.currentUser = null
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('currentUser')
-      // Note: No longer managing token in localStorage
-    }
+    // No longer removing user info from localStorage
   }
 
   // 统一使用Authboss登录
@@ -716,10 +709,6 @@ class ApiClient {
     if (me.success && me.data) this.setUser((me.data as any).user)
   }
 
-  // Backward-compatible aliases (to be removed later)
-  async startTOTP(): Promise<{ secret: string; otpauth_url: string }> { return this.setupTOTP() }
-  async enableTOTP(code: string): Promise<void> { return this.confirmTOTP(code) }
-  async disableTOTP(): Promise<void> { return this.removeTOTP() }
 }
 
 export const apiClient = new ApiClient()

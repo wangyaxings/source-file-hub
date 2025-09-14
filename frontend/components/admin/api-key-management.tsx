@@ -1,11 +1,7 @@
-'use client'
-
-
-
+ï»¿'use client'
 
 import { apiClient } from "@/lib/api"
 import { mapApiErrorToMessage } from "@/lib/errors"
-
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/lib/use-toast"
-import { formatDate, isoToDatetimeLocal } from "@/lib/utils"
+import { formatDate, isoToDatetimeLocal, datetimeLocalToISO } from "@/lib/utils"
 import { AnalyticsCharts } from "./analytics-charts"
 import {
   Key,
@@ -38,10 +34,9 @@ import {
   X
 } from "lucide-react"
 
-
-
 // Feature flag: backend does not yet support clearing expiry
 const CLEAR_EXPIRY_SUPPORTED = true as const
+
 interface APIKey {
   id: string
   name: string
@@ -94,7 +89,6 @@ export function APIKeyManagement() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
 
   // Create API Key Form State (role-based API key creation)
-  // Create API Key Form State (role-based API key creation)
   const [createForm, setCreateForm] = useState({
     name: "",
     description: "",
@@ -116,7 +110,6 @@ export function APIKeyManagement() {
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [clearExpiry, setClearExpiry] = useState(false)
 
-  //  - €?
   useEffect(() => {
   }, [showKeyDialog, newKey, selectedKey])
 
@@ -139,8 +132,20 @@ export function APIKeyManagement() {
     } finally {
       setIsLoading(false)
     }
+  }
 
-  const loadUsageLogs = async () => {    try {      const resp = await apiClient.request<{ logs: UsageLog[]; count: number }>(`/admin/usage/logs?limit=100`)      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to load usage logs'), { code: (resp as any).code, details: (resp as any).details })      setUsageLogs((resp.data as any)?.logs || [])    } catch (error: any) {      const { title, description } = mapApiErrorToMessage(error)      toast({ variant: 'destructive', title, description })    }  }  const createAPIKey = async () => {
+  const loadUsageLogs = async () => {
+    try {
+      const resp = await apiClient.request<{ logs: UsageLog[]; count: number }>(`/admin/usage/logs?limit=100`)
+      if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to load usage logs'), { code: (resp as any).code, details: (resp as any).details })
+      setUsageLogs((resp.data as any)?.logs || [])
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ variant: 'destructive', title, description })
+    }
+  }
+
+  const createAPIKey = async () => {
     if (!createForm.name.trim() || !createForm.role) {
       toast({
         variant: "destructive",
@@ -151,22 +156,27 @@ export function APIKeyManagement() {
     }
 
     try {
-      const formData = {\n        name: createForm.name,\n        description: createForm.description,\n        role: createForm.role,\n        permissions: roleToPermissions(createForm.role),\n        ...(createForm.expiresAt ? { expires_at: datetimeLocalToISO(createForm.expiresAt) } : {})\n      }
+      const formData = {
+        name: createForm.name,
+        description: createForm.description,
+        role: createForm.role,
+        permissions: roleToPermissions(createForm.role),
+        ...(createForm.expiresAt ? { expires_at: datetimeLocalToISO(createForm.expiresAt) } : {})
+      }
 
-      const resp = await apiClient.request<{ api_key: APIKey }>(`/admin/api-keys`, { method: 'POST', body: JSON.stringify(formData) })      if (!resp.success) { throw Object.assign(new Error(resp.error || 'Failed to create API key'), { code: (resp as any).code, details: (resp as any).details }) }      //       const createdKey = (resp.data as any)?.api_key || resp.data
+      const resp = await apiClient.request<{ api_key: APIKey }>(`/admin/api-keys`, { method: 'POST', body: JSON.stringify(formData) })
+      if (!resp.success) {
+        throw Object.assign(new Error(resp.error || 'Failed to create API key'), { code: (resp as any).code, details: (resp as any).details })
+      }
+      const createdKey = (resp.data as any)?.api_key || resp.data
       if (!createdKey || !createdKey.key) {
         throw new Error('Invalid server response: missing api_key or key value')
       }
 
-
-      // ?
       setShowCreateDialog(false)
-
-      // key
       setNewKey(createdKey.key || '')
       setSelectedKey(createdKey)
 
-      // ¨å
       setCreateForm({
         name: "",
         description: "",
@@ -175,20 +185,19 @@ export function APIKeyManagement() {
         expiresAt: ""
       })
 
-      // 
       toast({
         title: "Success",
         description: "API key created successfully"
       })
 
-      // ?API Key 
       setShowKeyDialog(true)
-
-      // ­¥¡¨¡ž
       loadAPIKeys().catch(() => {})
 
-    } catch (error: any) {      const { title, description } = mapApiErrorToMessage(error)      toast({ variant: 'destructive', title, description })    }
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ variant: 'destructive', title, description })
     }
+  }
 
   // Map API role to permissions
   const roleToPermissions = (role: string): string[] => {
@@ -206,6 +215,7 @@ export function APIKeyManagement() {
       default:
         return []
     }
+  }
 
   const updateAPIKeyStatus = async (keyId: string, status: string) => {
     try {
@@ -285,13 +295,14 @@ export function APIKeyManagement() {
       toast({ variant: 'destructive', title, description })
     }
   }
+
   const handleDeleteAPIKey = (apiKey: APIKey) => {
     setDeleteDialog({
       isOpen: true,
       apiKey: apiKey
     })
-
   }
+
   const confirmDeleteAPIKey = async () => {
     if (!deleteDialog.apiKey) return
 
@@ -306,6 +317,7 @@ export function APIKeyManagement() {
     } finally {
       setDeleteDialog({ isOpen: false, apiKey: null })
     }
+  }
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -313,6 +325,7 @@ export function APIKeyManagement() {
       title: "Copied",
       description: "API key copied to clipboard"
     })
+  }
 
   // Format date for display
   const formatDisplayDate = (isoString: string) => {
@@ -326,7 +339,12 @@ export function APIKeyManagement() {
         hour: '2-digit',
         minute: '2-digit'
       })
-    } catch (error: any) {      const { title, description } = mapApiErrorToMessage(error)      toast({ variant: 'destructive', title, description })    }
+    } catch (error: any) {
+      const { title, description } = mapApiErrorToMessage(error)
+      toast({ variant: 'destructive', title, description })
+      return ""
+    }
+  }
 
   useEffect(() => {
     if (activeTab === "keys") {
@@ -489,7 +507,6 @@ export function APIKeyManagement() {
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
-                        </div>
                         </div>
                       </div>
                     </div>
@@ -660,7 +677,7 @@ export function APIKeyManagement() {
                 <div className="flex items-center gap-2">
                   <Input
                     id="expiresAt"
-                    value={createForm.expiresAt ? formatDisplayDate(createForm.expiresAt) : "No expiration"}
+                    value={createForm.expiresAt ? formatDisplayDate(createForm.expiresAt) || "No expiration" : "No expiration"}
                     readOnly
                     placeholder="Click to set expiration date"
                     className="cursor-pointer"
@@ -853,6 +870,7 @@ export function APIKeyManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
       {/* Show New API Key Dialog */}
       <Dialog open={showKeyDialog} onOpenChange={setShowKeyDialog}>
         <DialogContent className="max-w-lg">
@@ -962,21 +980,3 @@ export function APIKeyManagement() {
     </div>
   )
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

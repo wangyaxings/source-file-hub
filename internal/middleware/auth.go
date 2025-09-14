@@ -65,6 +65,7 @@ func isPublicEndpoint(path string) bool {
 		"/api/v1/health", "/api/v1/healthz",
 		"/api/v1/web/health", "/api/v1/web/healthz",
 		"/api/v1/web/auth/users", // 默认用户列表
+		"/api/v1/web/auth/me",    // 用户信息端点 - 需要特殊处理
 	}
 
 	for _, publicPath := range publicPaths {

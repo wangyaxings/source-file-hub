@@ -34,7 +34,7 @@ type UserInfo struct {
 // Deprecated in-memory store retained for fallback during transition
 var userStore = map[string]*User{}
 
-// TokenInfo and tokenStore removed - authentication now handled by Authboss
+// Authentication now handled by Authboss session system
 
 func hashPassword(password string) string {
 	bytes, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -116,7 +116,7 @@ func SeedAdmin(password string) {
 	}
 }
 
-// generateToken removed - authentication now handled by Authboss
+// Token generation now handled by Authboss
 
 // getUserKey computes the key for the in-memory store
 func getUserKey(username string) string {
@@ -125,7 +125,7 @@ func getUserKey(username string) string {
 
 // Authenticate removed - authentication now handled by Authboss
 
-// ValidateToken and Logout removed - authentication now handled by Authboss
+// Token validation and logout now handled by Authboss
 
 // AddUser adds a new user (admin functionality)
 func AddUser(username, password string) error {

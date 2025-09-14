@@ -24,6 +24,7 @@ import (
 	"secure-file-hub/internal/middleware"
 
 	"github.com/gorilla/mux"
+	ab "github.com/aarondl/authboss/v3"
 )
 
 // Global upload size limit (bytes)
@@ -406,20 +407,87 @@ func writeErrorWithCodeDetails(w http.ResponseWriter, status int, code, message 
 
 // meHandler returns current user info from session (Authboss)
 func meHandler(w http.ResponseWriter, r *http.Request) {
-    userCtx := r.Context().Value("user")
-    if userCtx == nil {
-        writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+    // Check if user is authenticated via Authboss session
+    if username, ok := ab.GetSession(r, ab.SessionKey); ok && username != "" {
+        // Load user from database
+        user, err := loadUserFromDatabase(username)
+        if err != nil {
+            writeErrorWithCode(w, http.StatusUnauthorized, "USER_NOT_FOUND", "User not found in database")
+            return
+        }
+        
+        // Check user status
+        if err := checkUserStatus(user.Username); err != nil {
+            writeErrorWithCode(w, http.StatusUnauthorized, "ACCOUNT_SUSPENDED", err.Error())
+            return
+        }
+        
+        // Build user payload
+        payload := usecases.NewUserUseCase().BuildMePayload(user.Username, user.Role, user.TwoFAEnabled)
+        writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+            "user": payload,
+        }})
         return
     }
-    u, ok := userCtx.(*auth.User)
-    if !ok {
-        writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid user context")
-        return
-    }
-    payload := usecases.NewUserUseCase().BuildMePayload(u.Username, u.Role, u.TwoFAEnabled)
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
-        "user": payload,
-    }})
+    
+    // Not authenticated
+    writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+}
+
+// 从数据库加载用户
+func loadUserFromDatabase(username string) (*auth.User, error) {
+	db := database.GetDatabase()
+	if db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
+
+	appUser, err := db.GetUser(username)
+	if err != nil {
+		return nil, err
+	}
+
+	return &auth.User{
+		Username:     appUser.Username,
+		Role:         appUser.Role,
+		Email:        appUser.Email,
+		TwoFAEnabled: appUser.TwoFAEnabled,
+	}, nil
+}
+
+// 检查用户状态
+func checkUserStatus(username string) error {
+	db := database.GetDatabase()
+	if db == nil {
+		return fmt.Errorf("database not available")
+	}
+
+	userRole, err := db.GetUserRole(username)
+	if err != nil {
+		// 为没有角色记录的用户创建默认记录
+		defaultRole := &database.UserRole{
+			UserID: username,
+			Role:   "viewer",
+			Status: "active",
+		}
+		if err := db.CreateOrUpdateUserRole(defaultRole); err != nil {
+			log.Printf("Warning: Failed to create default role for %s: %v", username, err)
+		}
+		return nil
+	}
+
+	if userRole.Status == "suspended" {
+		return fmt.Errorf("ACCOUNT_SUSPENDED")
+	}
+
+	// 自动激活pending状态的用户
+	if userRole.Status == "pending" {
+		userRole.Status = "active"
+		if err := db.CreateOrUpdateUserRole(userRole); err != nil {
+			log.Printf("Warning: Failed to activate user %s: %v", username, err)
+		}
+	}
+
+	return nil
 }
 
 // Note: Password change is now handled by authboss under /api/v1/web/auth/ab/
