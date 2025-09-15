@@ -99,79 +99,49 @@ func getTempAPIKey(keyID string) (*TempAPIKey, bool) {
 	return tempKey, true
 }
 
-// RegisterAdminRoutes registers admin routes
-func RegisterAdminRoutes(router *mux.Router) {
-	// Admin API routes (require admin authentication)
-	admin := router.PathPrefix("/api/v1/admin").Subrouter()
-
-	// API Key Management
-	admin.HandleFunc("/api-keys", middleware.RequireAuthorization(listAPIKeysHandler)).Methods("GET")
-	admin.HandleFunc("/api-keys", middleware.RequireAuthorization(createAPIKeyHandler)).Methods("POST")
-	admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(getAPIKeyHandler)).Methods("GET")
-	admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(updateAPIKeyHandler)).Methods("PUT")
-	admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(deleteAPIKeyHandler)).Methods("DELETE")
-	admin.HandleFunc("/api-keys/{keyId}/status", middleware.RequireAuthorization(updateAPIKeyStatusHandler)).Methods("PATCH")
-	admin.HandleFunc("/api-keys/{keyId}/regenerate", middleware.RequireAuthorization(regenerateAPIKeyHandler)).Methods("POST")
-	admin.HandleFunc("/api-keys/{keyId}/download", middleware.RequireAuthorization(downloadAPIKeyHandler)).Methods("GET")
-
-	// Usage Analytics
-	admin.HandleFunc("/usage/logs", middleware.RequireAuthorization(getUsageLogsHandler)).Methods("GET")
-	admin.HandleFunc("/usage/stats", middleware.RequireAuthorization(getUsageStatsHandler)).Methods("GET")
-	admin.HandleFunc("/usage/summary", middleware.RequireAuthorization(getUsageSummaryHandler)).Methods("GET")
-
-	// User Management
-	admin.HandleFunc("/users", middleware.RequireAuthorization(createUserHandler)).Methods("POST")
-	admin.HandleFunc("/users", middleware.RequireAuthorization(listUsersHandler)).Methods("GET")
-	admin.HandleFunc("/users/{userId}", middleware.RequireAuthorization(updateUserHandler)).Methods("PATCH")
-	admin.HandleFunc("/users/{userId}/approve", middleware.RequireAuthorization(approveUserHandler)).Methods("POST")
-	admin.HandleFunc("/users/{userId}/suspend", middleware.RequireAuthorization(suspendUserHandler)).Methods("POST")
-	admin.HandleFunc("/users/{userId}/2fa/disable", middleware.RequireAuthorization(disableUser2FAHandler)).Methods("POST")
-	admin.HandleFunc("/users/{userId}/2fa/enable", middleware.RequireAuthorization(enableUser2FAHandler)).Methods("POST")
-	admin.HandleFunc("/users/{userId}/reset-password", middleware.RequireAuthorization(resetUserPasswordHandler)).Methods("POST")
-	admin.HandleFunc("/users/{userId}/role", middleware.RequireAuthorization(updateUserRoleHandler)).Methods("PUT")
-	admin.HandleFunc("/users/{userId}/api-keys", middleware.RequireAuthorization(getUserAPIKeysHandler)).Methods("GET")
-	admin.HandleFunc("/users/{userId}/usage", middleware.RequireAuthorization(getUserUsageHandler)).Methods("GET")
-	admin.HandleFunc("/users/{userId}", middleware.RequireAuthorization(getUserDetailsHandler)).Methods("GET")
-	admin.HandleFunc("/audit-logs", middleware.RequireAuthorization(getAdminAuditLogsHandler)).Methods("GET")
-}
+// RegisterAdminRoutes has been removed - admin routes are now consolidated under /api/v1/web/admin
+// This eliminates the duplicate route issue mentioned in the refactor document
 
 // RegisterWebAdminRoutes registers admin routes under web API
 func RegisterWebAdminRoutes(router *mux.Router) {
 	// Admin API routes (require web authentication + admin role)
 	admin := router.PathPrefix("/admin").Subrouter()
+	
+	// Apply admin authorization middleware to all admin routes
+	admin.Use(middleware.RequireAdminAuth)
 
-	// API Key Management
-	admin.HandleFunc("/api-keys", middleware.RequireAuthorization(listAPIKeysHandler)).Methods("GET")
-	admin.HandleFunc("/api-keys", middleware.RequireAuthorization(createAPIKeyHandler)).Methods("POST")
-	admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(getAPIKeyHandler)).Methods("GET")
-	admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(updateAPIKeyHandler)).Methods("PUT")
-	admin.HandleFunc("/api-keys/{keyId}", middleware.RequireAuthorization(deleteAPIKeyHandler)).Methods("DELETE")
-	admin.HandleFunc("/api-keys/{keyId}/status", middleware.RequireAuthorization(updateAPIKeyStatusHandler)).Methods("PATCH")
-	admin.HandleFunc("/api-keys/{keyId}/regenerate", middleware.RequireAuthorization(regenerateAPIKeyHandler)).Methods("POST")
-	admin.HandleFunc("/api-keys/{keyId}/download", middleware.RequireAuthorization(downloadAPIKeyHandler)).Methods("GET")
+	// API Key Management - no additional authorization needed since admin middleware is applied at router level
+	admin.HandleFunc("/api-keys", listAPIKeysHandler).Methods("GET")
+	admin.HandleFunc("/api-keys", createAPIKeyHandler).Methods("POST")
+	admin.HandleFunc("/api-keys/{keyId}", getAPIKeyHandler).Methods("GET")
+	admin.HandleFunc("/api-keys/{keyId}", updateAPIKeyHandler).Methods("PUT")
+	admin.HandleFunc("/api-keys/{keyId}", deleteAPIKeyHandler).Methods("DELETE")
+	admin.HandleFunc("/api-keys/{keyId}/status", updateAPIKeyStatusHandler).Methods("PATCH")
+	admin.HandleFunc("/api-keys/{keyId}/regenerate", regenerateAPIKeyHandler).Methods("POST")
+	admin.HandleFunc("/api-keys/{keyId}/download", downloadAPIKeyHandler).Methods("GET")
 
-	// Usage Analytics
-	admin.HandleFunc("/usage/logs", middleware.RequireAuthorization(getUsageLogsHandler)).Methods("GET")
-	admin.HandleFunc("/usage/stats", middleware.RequireAuthorization(getUsageStatsHandler)).Methods("GET")
-	admin.HandleFunc("/usage/summary", middleware.RequireAuthorization(getUsageSummaryHandler)).Methods("GET")
+	// Usage Analytics - no additional authorization needed since admin middleware is applied at router level
+	admin.HandleFunc("/usage/logs", getUsageLogsHandler).Methods("GET")
+	admin.HandleFunc("/usage/stats", getUsageStatsHandler).Methods("GET")
+	admin.HandleFunc("/usage/summary", getUsageSummaryHandler).Methods("GET")
 
 	// Enhanced Analytics
 	RegisterAnalyticsRoutes(admin)
 
-	// User Management
-	admin.HandleFunc("/users", middleware.RequireAuthorization(createUserHandler)).Methods("POST")
-	admin.HandleFunc("/users", middleware.RequireAuthorization(listUsersHandler)).Methods("GET")
-	admin.HandleFunc("/users/{userId}", middleware.RequireAuthorization(updateUserHandler)).Methods("PATCH")
-	admin.HandleFunc("/users/{userId}/approve", middleware.RequireAuthorization(approveUserHandler)).Methods("POST")
-	admin.HandleFunc("/users/{userId}/suspend", middleware.RequireAuthorization(suspendUserHandler)).Methods("POST")
-	admin.HandleFunc("/users/{userId}/2fa/disable", middleware.RequireAuthorization(disableUser2FAHandler)).Methods("POST")
-	admin.HandleFunc("/users/{userId}/2fa/enable", middleware.RequireAuthorization(enableUser2FAHandler)).Methods("POST")
-	admin.HandleFunc("/users/{userId}/reset-password", middleware.RequireAuthorization(resetUserPasswordHandler)).Methods("POST")
-	admin.HandleFunc("/users/{userId}/role", middleware.RequireAuthorization(updateUserRoleHandler)).Methods("PUT")
-	admin.HandleFunc("/users/{userId}/api-keys", middleware.RequireAuthorization(getUserAPIKeysHandler)).Methods("GET")
-	admin.HandleFunc("/users/{userId}/usage", middleware.RequireAuthorization(getUserUsageHandler)).Methods("GET")
-	admin.HandleFunc("/users/{userId}", middleware.RequireAuthorization(getUserDetailsHandler)).Methods("GET")
-	admin.HandleFunc("/audit-logs", middleware.RequireAuthorization(getAdminAuditLogsHandler)).Methods("GET")
+	// User Management - no additional authorization needed since admin middleware is applied at router level
+	admin.HandleFunc("/users", createUserHandler).Methods("POST")
+	admin.HandleFunc("/users", listUsersHandler).Methods("GET")
+	admin.HandleFunc("/users/{userId}", updateUserHandler).Methods("PATCH")
+	admin.HandleFunc("/users/{userId}/approve", approveUserHandler).Methods("POST")
+	admin.HandleFunc("/users/{userId}/suspend", suspendUserHandler).Methods("POST")
+	admin.HandleFunc("/users/{userId}/2fa/disable", disableUser2FAHandler).Methods("POST")
+	admin.HandleFunc("/users/{userId}/2fa/enable", enableUser2FAHandler).Methods("POST")
+	admin.HandleFunc("/users/{userId}/reset-password", resetUserPasswordHandler).Methods("POST")
+	admin.HandleFunc("/users/{userId}/role", updateUserRoleHandler).Methods("PUT")
+	admin.HandleFunc("/users/{userId}/api-keys", getUserAPIKeysHandler).Methods("GET")
+	admin.HandleFunc("/users/{userId}/usage", getUserUsageHandler).Methods("GET")
+	admin.HandleFunc("/users/{userId}", getUserDetailsHandler).Methods("GET")
+	admin.HandleFunc("/audit-logs", getAdminAuditLogsHandler).Methods("GET")
 }
 
 // =============================================================================

@@ -1,9 +1,12 @@
 package auth
 
 import (
-    "errors"
-    "secure-file-hub/internal/database"
-    "golang.org/x/crypto/bcrypt"
+	"errors"
+	"log"
+	"os"
+	"secure-file-hub/internal/database"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // User represents an application user
@@ -22,17 +25,11 @@ type LoginRequest struct {
 	OTP      string `json:"otp,omitempty"`
 }
 
-// LoginResponse removed - login now handled by Authboss
-
 // UserInfo is user information returned to clients
 type UserInfo struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
 }
-
-// In-memory user store (for demo; production should use DB)
-// Deprecated in-memory store retained for fallback during transition
-var userStore = map[string]*User{}
 
 // Authentication now handled by Authboss session system
 
@@ -78,81 +75,147 @@ func ChangePassword(username, oldPassword, newPassword string) error {
 }
 
 // SeedAdmin ensures an administrator account exists with the given password
+// This replaces any static user storage with database-backed persistent user management
 func SeedAdmin(password string) {
 	if password == "" {
 		password = "admin123"
 	}
 	db := database.GetDatabase()
 	if db == nil {
+		log.Printf("Warning: Database not available for user seeding")
 		return
 	}
-	// Create admin if not exists
+
+	// Create admin if not exists (always ensure admin exists)
 	if _, err := db.GetUser("admin"); err != nil {
-		_ = db.CreateUser(&database.AppUser{
+		if createErr := db.CreateUser(&database.AppUser{
 			Username:     "admin",
-			Email:        "",
+			Email:        "admin@localhost",
 			PasswordHash: hashPassword(password),
 			Role:         "administrator",
 			TwoFAEnabled: false,
+		}); createErr != nil {
+			log.Printf("Error creating admin user: %v", createErr)
+			return
+		}
+		log.Printf("Created admin user with password: %s", password)
+		
+		// Create admin role record
+		_ = db.CreateOrUpdateUserRole(&database.UserRole{
+			UserID:       "admin",
+			Role:         "administrator",
+			Permissions:  []string{"read", "write", "delete", "admin", "upload", "download"},
+			QuotaDaily:   -1,
+			QuotaMonthly: -1,
+			Status:       "active",
 		})
 	} else {
-		_ = db.UpdateUserPassword("admin", hashPassword(password))
+		// Update password if admin already exists
+		if updateErr := db.UpdateUserPassword("admin", hashPassword(password)); updateErr != nil {
+			log.Printf("Warning: Failed to update admin password: %v", updateErr)
+		}
 	}
 
-	// Seed demo users for quick start (viewer role)
-	if _, err := db.GetUser("user1"); err != nil {
-		_ = db.CreateUser(&database.AppUser{
-			Username:     "user1",
-			PasswordHash: hashPassword("password123"),
-			Role:         "viewer",
-		})
-	}
-	if _, err := db.GetUser("test"); err != nil {
-		_ = db.CreateUser(&database.AppUser{
-			Username:     "test",
-			PasswordHash: hashPassword("test123"),
-			Role:         "viewer",
-		})
+	// Seed demo users for development/testing only
+	// In production, users should be created through registration or admin interface
+	if isDevelopmentMode() {
+		seedDemoUsers(db)
 	}
 }
 
-// Token generation now handled by Authboss
+// seedDemoUsers creates demo users for development/testing purposes
+func seedDemoUsers(db *database.Database) {
+	demoUsers := []struct {
+		username, password, email string
+	}{
+		{"user1", "password123", "user1@localhost"},
+		{"test", "test123", "test@localhost"},
+	}
 
-// getUserKey computes the key for the in-memory store
-func getUserKey(username string) string {
-	return username
+	for _, user := range demoUsers {
+		if _, err := db.GetUser(user.username); err != nil {
+			if createErr := db.CreateUser(&database.AppUser{
+				Username:     user.username,
+				Email:        user.email,
+				PasswordHash: hashPassword(user.password),
+				Role:         "viewer",
+				TwoFAEnabled: false,
+			}); createErr != nil {
+				log.Printf("Warning: Failed to create demo user %s: %v", user.username, createErr)
+				continue
+			}
+			
+			// Create user role record
+			_ = db.CreateOrUpdateUserRole(&database.UserRole{
+				UserID:       user.username,
+				Role:         "viewer",
+				Permissions:  []string{"read", "download"},
+				QuotaDaily:   -1,
+				QuotaMonthly: -1,
+				Status:       "active",
+			})
+			
+			log.Printf("Created demo user: %s", user.username)
+		}
+	}
 }
 
-// Authenticate removed - authentication now handled by Authboss
-
-// Token validation and logout now handled by Authboss
-
-// AddUser adds a new user (admin functionality)
-func AddUser(username, password string) error {
-	if username == "" || password == "" {
-		return errors.New("username and password are required")
-	}
-	db := database.GetDatabase()
-	if db == nil {
-		return errors.New("database not available")
-	}
-	if _, err := db.GetUser(username); err == nil {
-		return errors.New("user already exists")
-	}
-	return db.CreateUser(&database.AppUser{
-		Username:     username,
-		PasswordHash: hashPassword(password),
-		Role:         "viewer",
-	})
+// isDevelopmentMode checks if we're running in development mode
+func isDevelopmentMode() bool {
+	// Check environment variables or other indicators
+	return os.Getenv("ENVIRONMENT") != "production" && os.Getenv("ENV") != "production"
 }
+
+// AddUser has been removed - use Register() for new users or admin interface for user management
+// This function was redundant with Register() and not properly used in the codebase
 
 // GetDefaultUsers returns demo users for quick start/testing
+// Note: This function is deprecated and should only be used for development/testing
+// In production, users should be created through proper registration or admin interface
 func GetDefaultUsers() []map[string]string {
-	return []map[string]string{
-		{"username": "admin", "password": "admin123", "role": "administrator", "desc": "Administrator account"},
-		{"username": "user1", "password": "password123", "role": "viewer", "desc": "Viewer account"},
-		{"username": "test", "password": "test123", "role": "viewer", "desc": "Viewer account"},
+	db := database.GetDatabase()
+	if db == nil {
+		// Fallback to static list if database unavailable (development only)
+		return []map[string]string{
+			{"username": "admin", "password": "admin123", "role": "administrator", "desc": "Administrator account"},
+			{"username": "user1", "password": "password123", "role": "viewer", "desc": "Viewer account"},
+			{"username": "test", "password": "test123", "role": "viewer", "desc": "Viewer account"},
+		}
 	}
+
+	// Return users from database
+	users := []map[string]string{}
+	
+	// Get admin user
+	if adminUser, err := db.GetUser("admin"); err == nil {
+		users = append(users, map[string]string{
+			"username": adminUser.Username,
+			"password": "***", // Never expose actual passwords
+			"role":     adminUser.Role,
+			"desc":     "Administrator account",
+		})
+	}
+	
+	// Get demo users
+	for _, username := range []string{"user1", "test"} {
+		if user, err := db.GetUser(username); err == nil {
+			users = append(users, map[string]string{
+				"username": user.Username,
+				"password": "***", // Never expose actual passwords
+				"role":     user.Role,
+				"desc":     "Demo viewer account",
+			})
+		}
+	}
+	
+	// If no users found in database, return empty list
+	if len(users) == 0 {
+		return []map[string]string{
+			{"username": "admin", "password": "admin123", "role": "administrator", "desc": "Default admin (create via database)"},
+		}
+	}
+	
+	return users
 }
 
 // Register creates a new end-user with viewer role by default
@@ -186,5 +249,3 @@ func Register(username, password, email string) error {
 	})
 	return nil
 }
-
-// 2FA TOTP functions removed. Authboss manages TOTP setup/verification/removal.

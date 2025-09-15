@@ -504,6 +504,7 @@ func (d *Database) initializeCasbinPolicies() error {
 		// 缁狅紕鎮婇崨妯绘綀閿?- 鐎瑰苯鍙忕拋鍧楁６
 		{"p", "administrator", "/api/v1/web/*", "(GET|POST|PUT|PATCH|DELETE)"},
 		{"p", "administrator", "/api/v1/admin/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		{"p", "administrator", "admin", "access"}, // Admin access permission
 
 		// 閺屻儳婀呴懓鍛綀閿?- 閸欘亣顕扮拋鍧楁６
 		{"p", "viewer", "/api/v1/web/health*", "GET"},
@@ -544,13 +545,13 @@ func (d *Database) initializeCasbinPolicies() error {
 
 // Casbin policy section
 func (d *Database) updateCasbinPolicies() error {
-	// Check if TOTP policies already exist
+	// Check if admin access policy already exists
 	var c int
-	if err := d.db.QueryRow("SELECT COUNT(*) FROM casbin_policies WHERE v1 LIKE '%2fa/totp%'").Scan(&c); err != nil {
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM casbin_policies WHERE v0 = 'administrator' AND v1 = 'admin' AND v2 = 'access'").Scan(&c); err != nil {
 		return err
 	}
 
-	// If TOTP policies exist, skip update
+	// If admin access policy exists, skip update
 	if c > 0 {
 		return nil
 	}
@@ -566,6 +567,7 @@ func (d *Database) updateCasbinPolicies() error {
 		{"p", "viewer", "/api/v1/web/auth/me", "GET"},
 		{"p", "administrator", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
 		{"p", "viewer", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		{"p", "administrator", "admin", "access"}, // Admin access permission
 	}
 
 	stmt, err := d.db.Prepare("INSERT INTO casbin_policies (ptype, v0, v1, v2) VALUES (?, ?, ?, ?)")

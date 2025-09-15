@@ -61,6 +61,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 
 // 检查是否为公开端点
 func isPublicEndpoint(path string) bool {
+	// 精确匹配的公开路径
 	publicPaths := []string{
 		"/api/v1/health", "/api/v1/healthz",
 		"/api/v1/web/health", "/api/v1/web/healthz",

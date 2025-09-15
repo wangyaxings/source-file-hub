@@ -41,17 +41,8 @@ type Response struct {
     Details map[string]interface{} `json:"details,omitempty"`
 }
 
-// FileMetadata 鏂囦欢鍏冩暟鎹粨鏋?(deprecated, use database.FileRecord)
-type FileMetadata struct {
-	ID            string    `json:"id"`
-	OriginalName  string    `json:"originalName"`
-	FileType      string    `json:"fileType"`
-	Description   string    `json:"description"`
-	Uploader      string    `json:"uploader"`
-	UploadTime    time.Time `json:"uploadTime"`
-	Version       int       `json:"version"`
-	VersionedName string    `json:"versionedName"`
-}
+// FileMetadata has been removed - use database.FileRecord instead
+// This legacy structure was used for JSON-based metadata storage
 
 // Database helper functions
 
@@ -164,7 +155,7 @@ func RegisterRoutes(router *mux.Router) {
 	// 其他业务路由...
 	RegisterWebAdminRoutes(webAPI)
 	RegisterAPIRoutes(router)
-	RegisterAdminRoutes(router)
+	// RegisterAdminRoutes removed - consolidated into RegisterWebAdminRoutes to avoid duplication
 
 	// 静态文件
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
@@ -252,8 +243,11 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
     if l := logger.GetLogger(); l != nil {
         var userInfo map[string]interface{}
         if userCtx := r.Context().Value("user"); userCtx != nil {
-            if user, ok := userCtx.(map[string]interface{}); ok {
-                userInfo = user
+            if user, ok := userCtx.(*auth.User); ok {
+                userInfo = map[string]interface{}{
+                    "username": user.Username,
+                    "role":     user.Role,
+                }
             }
         }
         if rid := r.Context().Value(middleware.RequestIDKey); rid != nil {
@@ -297,6 +291,7 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
                 "logout":        baseURL + "/web/auth/ab/logout",
                 "current_user":  baseURL + "/web/auth/me",
                 "default_users": baseURL + "/web/auth/users",
+                "note":          "Web authentication uses Authboss session-based auth",
             },
 				"file_downloads": map[string]interface{}{
 					"unified_download": baseURL + "/files/{path}",
@@ -318,12 +313,15 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
 				"/logs/*",
 			},
             "features": []string{
-                "Session Authentication",
+                "Authboss Session Authentication",
+                "Casbin Authorization",
+				"API Key Authentication for Public API",
 				"Multi-tenant Support",
 				"HTTPS Only",
 				"Path Traversal Protection",
 				"Structured Logging",
 				"SQLite Log Storage",
+				"2FA Support via TOTP",
 			},
 			"supported_file_types": []string{
 				"application/json",
