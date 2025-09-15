@@ -21,6 +21,7 @@ type Container struct {
     // Usecases
     FileUC   *usecases.FileUseCase
     APIKeyUC *usecases.APIKeyUseCase
+    UserUC   *usecases.UserUseCase
 
     // Controllers
     FileController *fc.FileController
@@ -36,6 +37,7 @@ func New(db *sql.DB) *Container {
     // Build usecases
     c.FileUC = usecases.NewFileUseCase(c.Files)
     c.APIKeyUC = usecases.NewAPIKeyUseCase(c.APIKeys)
+    c.UserUC = usecases.NewUserUseCase()
     // Build controllers
     c.FileController = fc.NewFileController(c.FileUC)
     return c

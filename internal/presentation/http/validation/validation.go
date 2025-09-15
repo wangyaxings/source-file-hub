@@ -2,7 +2,9 @@ package validation
 
 import (
     "net/url"
+    "path/filepath"
     "strconv"
+    "strings"
 )
 
 // Pagination holds parsed pagination params.
@@ -63,5 +65,36 @@ func ValidateUserStatus(status string) bool {
     default:
         return false
     }
+}
+
+// FileTypeExtensionMap defines allowed extensions for each file type
+var FileTypeExtensionMap = map[string][]string{
+    "roadmap":        {".tsv"},
+    "recommendation": {".xlsx"},
+    "config":         {".json", ".yaml", ".yml"},
+    "certificate":    {".crt", ".pem", ".key"},
+    "docs":           {".txt", ".md", ".pdf"},
+}
+
+// ValidateFileTypeExtension checks if the file extension is allowed for the given file type
+func ValidateFileTypeExtension(fileType, filename string) bool {
+    if allowedExts, exists := FileTypeExtensionMap[fileType]; exists {
+        ext := strings.ToLower(filepath.Ext(filename))
+        for _, allowedExt := range allowedExts {
+            if ext == allowedExt {
+                return true
+            }
+        }
+        return false
+    }
+    return false
+}
+
+// GetAllowedExtensions returns the allowed extensions for a file type
+func GetAllowedExtensions(fileType string) []string {
+    if exts, exists := FileTypeExtensionMap[fileType]; exists {
+        return exts
+    }
+    return []string{}
 }
 

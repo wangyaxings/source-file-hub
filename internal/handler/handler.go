@@ -887,6 +887,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
     if appContainer != nil && appContainer.FileController != nil {
         controller = appContainer.FileController
     } else {
+        // Fallback: create controller on demand (not recommended for production)
         controller = fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
     }
     items, total, err := controller.ListWithPagination(fileType, page, limit)
@@ -920,7 +921,14 @@ func getFileVersionsHandler(w http.ResponseWriter, r *http.Request) {
     fileType := vars["type"]
     filename := vars["filename"]
 
-    controller := fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
+    // Use DI controller if available
+    var controller *fc.FileController
+    if appContainer != nil && appContainer.FileController != nil {
+        controller = appContainer.FileController
+    } else {
+        // Fallback: create controller on demand (not recommended for production)
+        controller = fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
+    }
     items, err := controller.Versions(fileType, filename)
     if err != nil {
         writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get file versions: "+err.Error())

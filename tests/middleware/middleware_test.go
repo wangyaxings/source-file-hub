@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"secure-file-hub/internal/auth"
@@ -17,14 +18,19 @@ func TestCORS_Preflight(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/web/health", nil)
+	req.Header.Set("Origin", "https://localhost:3000")
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for OPTIONS, got %d", rr.Code)
+		t.Fatalf("expected 200 for OPTIONS preflight, got %d", rr.Code)
 	}
+	// Check for specific CORS headers that should be present
 	if got := rr.Header().Get("Access-Control-Allow-Origin"); got == "" {
-		t.Fatalf("expected CORS headers, got none")
+		t.Fatalf("expected Access-Control-Allow-Origin header, got none")
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Methods"); got == "" {
+		t.Fatalf("expected Access-Control-Allow-Methods header, got none")
 	}
 }
 
@@ -37,11 +43,12 @@ func TestHTTPSRedirect_Redirects(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 
+	// HTTPS redirect should return 301, not 401
 	if rr.Code != http.StatusMovedPermanently {
-		t.Fatalf("expected 301 redirect, got %d", rr.Code)
+		t.Fatalf("expected 301 redirect for HTTPS redirect, got %d", rr.Code)
 	}
 	loc := rr.Header().Get("Location")
-	if loc == "" || loc[:5] != "https" {
+	if loc == "" || !strings.HasPrefix(loc, "https") {
 		t.Fatalf("expected https Location, got %q", loc)
 	}
 }
@@ -78,7 +85,7 @@ func TestCORS_AllowedOrigins(t *testing.T) {
 
 	// Check CORS headers
 	if got := rr.Header().Get("Access-Control-Allow-Origin"); got == "" {
-		t.Fatalf("expected CORS headers, got none")
+		t.Fatalf("expected Access-Control-Allow-Origin header, got none")
 	}
 }
 
@@ -467,9 +474,9 @@ func TestMiddlewareChain(t *testing.T) {
 		t.Fatalf("expected 'chained response', got '%s'", rr.Body.String())
 	}
 
-	// Check that CORS headers are present
+	// Check that CORS headers are present in middleware chain
 	if got := rr.Header().Get("Access-Control-Allow-Origin"); got == "" {
-		t.Error("expected CORS headers")
+		t.Error("expected Access-Control-Allow-Origin header in middleware chain")
 	}
 }
 

@@ -4,7 +4,9 @@ import (
 	"log"
 	"net/http"
 	"secure-file-hub/internal/auth"
+	"secure-file-hub/internal/handler"
 	"secure-file-hub/internal/middleware"
+	di "secure-file-hub/internal/infrastructure/di"
 
 	"github.com/gorilla/mux"
 )
@@ -16,6 +18,15 @@ type Server struct {
 
 // New creates a new server instance and attaches middlewares
 func New() *Server {
+    return NewWithContainer(nil)
+}
+
+// NewWithContainer creates a new server instance with DI container
+func NewWithContainer(container *di.Container) *Server {
+    // Set the DI container for handlers to use
+    if container != nil {
+        handler.SetContainer(container)
+    }
     router := mux.NewRouter()
 
     // Order matters: HTTPS redirect, CORS (preflight), Logging, then Auth
