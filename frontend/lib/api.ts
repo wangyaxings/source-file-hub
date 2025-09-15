@@ -150,11 +150,17 @@ class ApiClient {
     } catch (error) {
       console.error(`Request failed for ${url}:`, error)
       console.error('Error type:', typeof error)
-      console.error('Error message:', error.message)
-      console.error('Error stack:', error.stack)
 
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error('Network connection failed, please check server status')
+      // Type-safe error handling
+      if (error instanceof Error) {
+        console.error('Error message:', error.message)
+        console.error('Error stack:', error.stack)
+
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+          throw new Error('Network connection failed, please check server status')
+        }
+      } else {
+        console.error('Unknown error type:', error)
       }
 
       throw error
