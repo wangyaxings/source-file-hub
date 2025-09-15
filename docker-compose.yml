@@ -1,37 +1,89 @@
+version: '3.8'
+
 services:
-  # FileServer - Combined Frontend + Backend
+  # Secure File Hub - Optimized Single Container
   fileserver:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: fileserver-app
+      target: runtime
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: secure-file-hub
+    image: secure-file-hub:latest
+
+    # 端口映射
     ports:
       - "30000:30000"   # Frontend port
-      - "8443:8443"   # Backend HTTPS port
+      - "8443:8443"     # Backend HTTPS port
+
+    # 持久化卷
     volumes:
-      # Persistent data
-      - ./data:/app/data
-      - ./downloads:/app/downloads
-      - ./logs:/app/logs
-      # Configuration files (read-only)
+      # 应用数据
+      - fileserver_data:/app/data
+      - fileserver_downloads:/app/downloads
+      - fileserver_logs:/app/logs
+
+      # 配置文件（只读）
       - ./configs:/app/configs:ro
       - ./certs:/app/certs:ro
+
+    # 环境变量
     environment:
       - NODE_ENV=production
       - GO_ENV=production
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - DISABLE_HTTPS_REDIRECT=true
+
+      # 数据库配置
       - DB_PATH=/app/data/fileserver.db
+
+      # 前端配置
+      - PORT=30000
+      - HOSTNAME=0.0.0.0
       - NEXT_PUBLIC_API_URL=https://localhost:8443
+
+      # 后端配置
       - BACKEND_URL=https://localhost:8443
+
+    # 重启策略
     restart: unless-stopped
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+
+    # 健康检查
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-check-certificate --quiet --tries=1 --spider https://localhost:8443/api/v1/health && wget --no-check-certificate --quiet --tries=1 --spider https://localhost:30000"]
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:8443/api/v1/health", "&&", "curl", "-f", "http://localhost:30000"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
+
+    # 网络配置
     networks:
       - fileserver-network
 
+# 持久化卷
+volumes:
+  fileserver_data:
+    driver: local
+  fileserver_downloads:
+    driver: local
+  fileserver_logs:
+    driver: local
+
+# 网络配置
 networks:
   fileserver-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
