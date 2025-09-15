@@ -65,7 +65,7 @@ RUN yarn build
 # 创建生产依赖目录（优化镜像大小）
 RUN mkdir -p /tmp/prod-deps && \
     cd /tmp/prod-deps && \
-    cp ../package*.json ../yarn.lock . && \
+    cp /build/package*.json /build/yarn.lock . && \
     yarn install --production --frozen-lockfile --prefer-offline
 
 # ================================
@@ -88,6 +88,9 @@ RUN apk add --no-cache \
     wget \
     dumb-init \
     libgcc \
+    sqlite \
+    nodejs \
+    npm \
     && rm -rf /var/cache/apk/*
 
 # 创建专用用户和组（安全最佳实践）
@@ -96,19 +99,24 @@ RUN addgroup -g 1001 -S appgroup && \
 
 # 创建应用目录结构
 RUN mkdir -p \
-    data \
-    downloads \
-    configs \
-    certs \
-    logs \
-    frontend \
+    /app/data \
+    /app/downloads \
+    /app/logs \
+    /app/frontend \
+    /app/configs \
+    /app/certs \
     && chown -R appuser:appgroup /app && \
     chmod 755 /app && \
-    chmod 755 data downloads configs certs logs frontend
+    chmod 755 /app/data /app/downloads /app/logs /app/frontend /app/configs /app/certs
 
 # 复制后端二进制文件
 COPY --from=backend-builder --chown=appuser:appgroup /build/fileserver /app/fileserver
 RUN chmod +x /app/fileserver
+
+# 复制数据库初始化脚本
+COPY --chown=appuser:appgroup scripts/init-clean-db.sql /app/scripts/
+COPY --chown=appuser:appgroup scripts/init-database.sh /app/scripts/
+RUN chmod +x /app/scripts/init-database.sh
 
 # 复制前端应用
 COPY --from=frontend-builder --chown=appuser:appgroup /build/.next/standalone /app/frontend/
@@ -119,161 +127,8 @@ COPY --from=frontend-builder --chown=appuser:appgroup /build/package.json /app/f
 # 复制生产依赖
 COPY --from=frontend-builder --chown=appuser:appgroup /tmp/prod-deps/node_modules /app/frontend/node_modules/
 
-# 创建优化的启动脚本
-COPY --chown=appuser:appgroup <<EOF /app/start.sh
-#!/bin/sh
-set -e
-
-# 颜色输出
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log_info() {
-    echo -e "\${BLUE}[INFO]\${NC} \$(date '+%Y-%m-%d %H:%M:%S') - \$1"
-}
-
-log_error() {
-    echo -e "\${RED}[ERROR]\${NC} \$(date '+%Y-%m-%d %H:%M:%S') - \$1" >&2
-}
-
-log_success() {
-    echo -e "\${GREEN}[SUCCESS]\${NC} \$(date '+%Y-%m-%d %H:%M:%S') - \$1"
-}
-
-# 优雅关闭处理
-cleanup() {
-    log_info "Received shutdown signal, stopping services..."
-    if [ ! -z "\$BACKEND_PID" ]; then
-        kill -TERM \$BACKEND_PID 2>/dev/null || true
-    fi
-    if [ ! -z "\$FRONTEND_PID" ]; then
-        kill -TERM \$FRONTEND_PID 2>/dev/null || true
-    fi
-    log_info "Services stopped"
-    exit 0
-}
-
-# 设置信号处理器
-trap cleanup TERM INT
-
-# 验证环境
-check_environment() {
-    log_info "Validating environment..."
-
-    # 检查必要目录
-    for dir in data downloads configs certs logs; do
-        if [ ! -d "\$dir" ]; then
-            mkdir -p "\$dir"
-            log_info "Created directory: \$dir"
-        fi
-    done
-
-    # 检查二进制文件
-    if [ ! -x "./fileserver" ]; then
-        log_error "Backend binary not found or not executable"
-        exit 1
-    fi
-
-    # 检查前端文件
-    if [ ! -f "./frontend/server.js" ]; then
-        log_error "Frontend server.js not found"
-        exit 1
-    fi
-
-    log_success "Environment validation complete"
-}
-
-# 启动后端服务
-start_backend() {
-    log_info "Starting backend service..."
-
-    # 设置后端环境变量
-    export GO_ENV=production
-    export DISABLE_HTTPS_REDIRECT=true
-
-    # 启动后端服务
-    ./fileserver &
-    BACKEND_PID=\$!
-
-    log_success "Backend started with PID: \$BACKEND_PID"
-
-    # 等待后端健康检查
-    log_info "Waiting for backend to be ready..."
-    for i in \$(seq 1 30); do
-        if curl -f -k https://localhost:8443/api/v1/health >/dev/null 2>&1; then
-            log_success "Backend is ready"
-            return 0
-        fi
-        sleep 2
-    done
-
-    log_error "Backend failed to start within 60 seconds"
-    return 1
-}
-
-# 启动前端服务
-start_frontend() {
-    log_info "Starting frontend service..."
-
-    # 设置前端环境变量
-    export NODE_ENV=production
-    export NODE_TLS_REJECT_UNAUTHORIZED=0
-    export PORT=30000
-    export HOSTNAME=0.0.0.0
-
-    # 切换到前端目录
-    cd frontend
-
-    # 启动前端服务
-    node server.js &
-    FRONTEND_PID=\$!
-
-    cd ..
-    log_success "Frontend started with PID: \$FRONTEND_PID"
-
-    # 等待前端健康检查
-    log_info "Waiting for frontend to be ready..."
-    for i in \$(seq 1 30); do
-        if curl -f http://localhost:30000 >/dev/null 2>&1; then
-            log_success "Frontend is ready"
-            return 0
-        fi
-        sleep 2
-    done
-
-    log_error "Frontend failed to start within 60 seconds"
-    return 1
-}
-
-# 主函数
-main() {
-    log_info "======================================="
-    log_info "Starting Secure File Hub"
-    log_info "======================================="
-
-    check_environment
-
-    # 启动服务
-    start_backend || exit 1
-    start_frontend || exit 1
-
-    log_success "All services started successfully!"
-    log_info "======================================="
-    log_info "Secure File Hub is running:"
-    log_info "  Frontend: http://localhost:30000"
-    log_info "  Backend:  https://localhost:8443"
-    log_info "======================================="
-
-    # 等待进程结束
-    wait \$BACKEND_PID \$FRONTEND_PID
-}
-
-# 执行主函数
-main "\$@"
-EOF
+# 复制启动脚本
+COPY --chown=appuser:appgroup scripts/start.sh /app/start.sh
 
 # 设置脚本权限
 RUN chmod +x /app/start.sh

@@ -1,11 +1,11 @@
 version: '3.8'
 
 services:
-  # Secure File Hub - Optimized Single Container
+  # Secure File Hub - Clean Production Container
   fileserver:
     # 使用预构建的镜像（从 GitHub Container Registry 拉取）
     image: ghcr.io/${GITHUB_REPOSITORY:-your-username/secure-file-hub}:latest
-    container_name: secure-file-hub
+    container_name: secure-file-hub-clean
 
     # 本地构建配置（开发环境使用）
     # build:
@@ -48,6 +48,9 @@ services:
 
       # 后端配置
       - BACKEND_URL=https://localhost:8443
+
+      # 管理员密码（可选，默认为 admin123）
+      - ADMIN_PASSWORD=admin123
 
     # 重启策略
     restart: unless-stopped
