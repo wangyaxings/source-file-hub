@@ -1,4 +1,4 @@
-﻿package database
+package database
 
 import (
 	"database/sql"
@@ -726,6 +726,67 @@ func (d *Database) GetFileVersions(fileType, originalName string) ([]FileRecord,
 	defer rows.Close()
 
 	return d.scanFileRecords(rows)
+}
+
+// GetFileVersionsWithPagination returns versions of a file with pagination and total count
+func (d *Database) GetFileVersionsWithPagination(fileType, originalName string, offset, limit int) ([]FileRecord, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Get total count of versions for this file
+	countQuery := `SELECT COUNT(*) FROM files WHERE file_type = ? AND original_name = ? AND status = 'active'`
+	var total int
+	if err := d.db.QueryRow(countQuery, fileType, originalName).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count file versions failed: %v", err)
+	}
+
+	// Get paginated versions
+	query := `
+	SELECT id, original_name, versioned_name, file_type, file_path, size,
+		   description, uploader, upload_time, version, is_latest, status,
+		   deleted_at, deleted_by, file_exists, checksum, created_at, updated_at
+	FROM files
+	WHERE file_type = ? AND original_name = ? AND status = 'active'
+	ORDER BY version DESC
+	LIMIT ? OFFSET ?
+	`
+
+	rows, err := d.db.Query(query, fileType, originalName, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	records, err := d.scanFileRecords(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return records, total, nil
+}
+
+// GetFileVersionsByIDWithPagination returns versions of a file by file ID with pagination
+func (d *Database) GetFileVersionsByIDWithPagination(fileID string, offset, limit int) ([]FileRecord, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// First get the file type and original name from the given file ID
+	var fileType, originalName string
+	err := d.db.QueryRow("SELECT file_type, original_name FROM files WHERE id = ?", fileID).Scan(&fileType, &originalName)
+	if err != nil {
+		return nil, 0, fmt.Errorf("file not found: %v", err)
+	}
+
+	// Use the existing pagination method
+	return d.GetFileVersionsWithPagination(fileType, originalName, offset, limit)
 }
 
 // SoftDeleteFile moves a file to recycle bin

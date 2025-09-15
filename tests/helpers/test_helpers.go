@@ -3,6 +3,7 @@ package helpers
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -115,12 +116,18 @@ func CreateTestAPIKey(t *testing.T, userID, name string, permissions []string) *
 	}
 
 	keyID := GenerateRandomID(16)
-	keyValue := GenerateRandomID(32)
-
-	hashedKey, err := bcrypt.GenerateFromPassword([]byte(keyValue), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("Failed to hash API key: %v", err)
+	// Generate a proper API key format: prefix_64hexchars
+	// GenerateRandomID creates alphanumeric, but we need hex, so use crypto/rand
+	hexBytes := make([]byte, 32) // 32 bytes = 64 hex chars
+	if _, err := rand.Read(hexBytes); err != nil {
+		t.Fatalf("Failed to generate random bytes: %v", err)
 	}
+	keyValue := fmt.Sprintf("test_%s", hex.EncodeToString(hexBytes))
+
+	// Use SHA256 instead of bcrypt for API key hashing (to match the middleware)
+	hash := sha256.New()
+	hash.Write([]byte(keyValue))
+	hashedKey := hex.EncodeToString(hash.Sum(nil))
 
 	apiKey := &database.APIKey{
 		ID:          keyID,

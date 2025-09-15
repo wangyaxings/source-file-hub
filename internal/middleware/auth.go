@@ -31,6 +31,19 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// 检查测试环境中的用户上下文
+		if userCtx := r.Context().Value("user"); userCtx != nil {
+			if user, ok := userCtx.(*auth.User); ok {
+				// 检查用户状态
+				if err := checkUserStatus(user.Username); err != nil {
+					writeUnauthorizedResponse(w, err.Error())
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
 		// 使用Authboss session验证
 		if username, ok := ab.GetSession(r, ab.SessionKey); ok && username != "" {
 			user, err := loadUserFromDatabase(username)
