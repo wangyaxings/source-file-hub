@@ -1,4 +1,4 @@
-﻿package middleware
+package middleware
 
 import (
 	"net/http"
@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"secure-file-hub/internal/auth"
+	"secure-file-hub/internal/authz"
 	"secure-file-hub/internal/middleware"
 	"secure-file-hub/internal/server"
 	"secure-file-hub/tests/helpers"
@@ -143,6 +144,8 @@ func TestAuthMiddleware_Unauthorized(t *testing.T) {
 
 func TestAuthMiddleware_Authorized_FullStack(t *testing.T) {
 	helpers.SetupTestEnvironment(t)
+	// Disable HTTPS redirect for this test
+	t.Setenv("DISABLE_HTTPS_REDIRECT", "true")
 	// Build full server to include Authboss and middleware chain
 	srv := server.New()
 	// Register a simple route
@@ -270,8 +273,8 @@ func TestAPIKeyAuthMiddleware_ValidKey(t *testing.T) {
 	apiKey := helpers.CreateTestAPIKey(t, user.Username, "test_key", []string{"read"})
 
 	h := middleware.APIKeyAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if API key is in context
-		ctxKey := r.Context().Value("api_key")
+		// Check if API key context is set
+		ctxKey := r.Context().Value(middleware.APIAuthContextKey)
 		if ctxKey == nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -280,12 +283,12 @@ func TestAPIKeyAuthMiddleware_ValidKey(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/public/files", nil)
-	req.Header.Set("X-API-Key", apiKey.KeyHash) // Use the original key value
+	req.Header.Set("X-API-Key", apiKey.Key) // Use the original key value
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
+		t.Fatalf("expected 200, got %d. Body: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -355,6 +358,12 @@ func TestRequireAuthorization(t *testing.T) {
 	user := helpers.CreateTestUser(t, "testuser", "password123", "viewer")
 	_ = user
 
+	// Add Casbin policy for viewer role to access files
+	e := authz.GetEnforcer()
+	if e != nil {
+		e.AddPolicy("viewer", "/api/v1/web/files", "GET")
+	}
+
 	// Create auth user for context
 	authUser := &auth.User{
 		Username: "testuser",
@@ -365,7 +374,7 @@ func TestRequireAuthorization(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/web/protected", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/web/files", nil) // Use a path that viewer should have access to
 	req = helpers.AddAuthContext(req, authUser)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
