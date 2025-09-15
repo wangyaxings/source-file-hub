@@ -1,4 +1,4 @@
-﻿package integration
+package integration
 
 import (
 	"encoding/json"
@@ -17,6 +17,7 @@ import (
 
 // legacy helper user for tests that still reference authUser variable
 var authUser = &auth.User{Username: "testuser", Role: "viewer"}
+
 // setupTestServer creates a test server with proper configuration
 func setupTestServer(t *testing.T) *server.Server {
 	// Disable HTTPS redirect for tests
@@ -107,19 +108,19 @@ func TestIntegration_UserRegistrationAndLogin(t *testing.T) {
 
 // TestIntegration_FileUploadAndDownload tests complete file upload and download flow
 func TestIntegration_FileUploadAndDownload(t *testing.T) {
-    srv := setupTestServer(t)
+	srv := setupTestServer(t)
 
-    // Create test user
-    user := helpers.CreateTestUser(t, "fileuser", "password123", "admin")
-    // Login to get session cookie
-    sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
+	// Create test user
+	user := helpers.CreateTestUser(t, "fileuser", "password123", "admin")
+	// Login to get session cookie
+	sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
 
 	// Test file upload
 	fileContent := "This is a test file for integration testing"
-    req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload", "integration_test.txt", fileContent, map[string]string{
-        "description": "Integration test file",
-    })
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload", "integration_test.txt", fileContent, map[string]string{
+		"description": "Integration test file",
+	})
+	req = helpers.AddSessionCookie(req, sessionCookie)
 
 	rr := httptest.NewRecorder()
 	srv.Router.ServeHTTP(rr, req)
@@ -143,8 +144,8 @@ func TestIntegration_FileUploadAndDownload(t *testing.T) {
 	}
 
 	// Test file download
-    req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/"+fileID+"/download", nil, nil)
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/"+fileID+"/download", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
 	rr = httptest.NewRecorder()
 
 	srv.Router.ServeHTTP(rr, req)
@@ -163,11 +164,11 @@ func TestIntegration_FileUploadAndDownload(t *testing.T) {
 
 // TestIntegration_APIKeyManagement tests complete API key management flow
 func TestIntegration_APIKeyManagement(t *testing.T) {
-    srv := setupTestServer(t)
+	srv := setupTestServer(t)
 
-    // Create test user
-    user := helpers.CreateTestUser(t, "apikeyuser", "password123", "admin")
-    sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
+	// Create test user
+	user := helpers.CreateTestUser(t, "apikeyuser", "password123", "admin")
+	sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
 
 	// Test API key creation
 	apiKeyData := map[string]interface{}{
@@ -176,8 +177,8 @@ func TestIntegration_APIKeyManagement(t *testing.T) {
 		"expires_at":  time.Now().Add(24 * time.Hour).Format(time.RFC3339),
 	}
 
-    req := helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/admin/api-keys", apiKeyData, nil)
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req := helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/admin/api-keys", apiKeyData, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
 	rr := httptest.NewRecorder()
 
 	srv.Router.ServeHTTP(rr, req)
@@ -216,8 +217,8 @@ func TestIntegration_APIKeyManagement(t *testing.T) {
 	}
 
 	// Test API key listing
-    req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/admin/api-keys", nil, nil)
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/admin/api-keys", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
 	rr = httptest.NewRecorder()
 
 	srv.Router.ServeHTTP(rr, req)
@@ -232,19 +233,19 @@ func TestIntegration_APIKeyManagement(t *testing.T) {
 
 // TestIntegration_UserManagement tests complete user management flow
 func TestIntegration_UserManagement(t *testing.T) {
-    srv := setupTestServer(t)
+	srv := setupTestServer(t)
 
-    // Create admin user
-    adminUser := helpers.CreateTestUser(t, "adminuser", "password123", "admin")
-    sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, adminUser.Username, "password123")
+	// Create admin user
+	adminUser := helpers.CreateTestUser(t, "adminuser", "password123", "admin")
+	sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, adminUser.Username, "password123")
 
 	// Create regular user
 	regularUser := helpers.CreateTestUser(t, "regularuser", "password123", "viewer")
 	_ = regularUser
 
 	// Test user listing
-    req := helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/admin/users", nil, nil)
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req := helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/admin/users", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
 	rr := httptest.NewRecorder()
 
 	srv.Router.ServeHTTP(rr, req)
@@ -261,8 +262,8 @@ func TestIntegration_UserManagement(t *testing.T) {
 		"role": "admin",
 	}
 
-    req = helpers.CreateTestRequest(t, http.MethodPatch, "/api/v1/web/admin/users/regularuser", updateData, nil)
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req = helpers.CreateTestRequest(t, http.MethodPatch, "/api/v1/web/admin/users/regularuser", updateData, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
 	rr = httptest.NewRecorder()
 
 	srv.Router.ServeHTTP(rr, req)
@@ -275,8 +276,8 @@ func TestIntegration_UserManagement(t *testing.T) {
 	}
 
 	// Test user suspension
-    req = helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/admin/users/regularuser/suspend", nil, nil)
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req = helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/admin/users/regularuser/suspend", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
 	rr = httptest.NewRecorder()
 
 	srv.Router.ServeHTTP(rr, req)
@@ -291,18 +292,18 @@ func TestIntegration_UserManagement(t *testing.T) {
 
 // TestIntegration_FileManagement tests complete file management flow
 func TestIntegration_FileManagement(t *testing.T) {
-    srv := setupTestServer(t)
+	srv := setupTestServer(t)
 
-    // Create test user
-    user := helpers.CreateTestUser(t, "filemanager", "password123", "admin")
-    sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
+	// Create test user
+	user := helpers.CreateTestUser(t, "filemanager", "password123", "admin")
+	sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
 
 	// Test file upload
 	fileContent := "This is a test file for file management"
-    req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload", "management_test.txt", fileContent, map[string]string{
-        "description": "File management test file",
-    })
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload", "management_test.txt", fileContent, map[string]string{
+		"description": "File management test file",
+	})
+	req = helpers.AddSessionCookie(req, sessionCookie)
 
 	rr := httptest.NewRecorder()
 	srv.Router.ServeHTTP(rr, req)
@@ -326,8 +327,8 @@ func TestIntegration_FileManagement(t *testing.T) {
 	}
 
 	// Test file listing
-    req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/list", nil, nil)
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/list", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
 	rr = httptest.NewRecorder()
 
 	srv.Router.ServeHTTP(rr, req)
@@ -488,18 +489,18 @@ func TestIntegration_Performance(t *testing.T) {
 
 // TestIntegration_DataConsistency tests data consistency across operations
 func TestIntegration_DataConsistency(t *testing.T) {
-    srv := setupTestServer(t)
+	srv := setupTestServer(t)
 
-    // Create test user
-    user := helpers.CreateTestUser(t, "consistencyuser", "password123", "admin")
-    sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
+	// Create test user
+	user := helpers.CreateTestUser(t, "consistencyuser", "password123", "admin")
+	sessionCookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "password123")
 
 	// Test file upload
 	fileContent := "This is a test file for data consistency"
-    req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload", "consistency_test.txt", fileContent, map[string]string{
-        "description": "Data consistency test file",
-    })
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload", "consistency_test.txt", fileContent, map[string]string{
+		"description": "Data consistency test file",
+	})
+	req = helpers.AddSessionCookie(req, sessionCookie)
 
 	rr := httptest.NewRecorder()
 	srv.Router.ServeHTTP(rr, req)
@@ -523,8 +524,8 @@ func TestIntegration_DataConsistency(t *testing.T) {
 	}
 
 	// Test file listing consistency
-    req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/list", nil, nil)
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/list", nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
 	rr = httptest.NewRecorder()
 
 	srv.Router.ServeHTTP(rr, req)
@@ -560,8 +561,8 @@ func TestIntegration_DataConsistency(t *testing.T) {
 	}
 
 	// Test file info consistency
-    req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/"+fileID, nil, nil)
-    req = helpers.AddSessionCookie(req, sessionCookie)
+	req = helpers.CreateTestRequest(t, http.MethodGet, "/api/v1/web/files/"+fileID, nil, nil)
+	req = helpers.AddSessionCookie(req, sessionCookie)
 	rr = httptest.NewRecorder()
 
 	srv.Router.ServeHTTP(rr, req)
@@ -970,4 +971,3 @@ func TestIntegration_APIVersioning(t *testing.T) {
 		})
 	}
 }
-

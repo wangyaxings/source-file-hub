@@ -1,4 +1,4 @@
-﻿# Secure File Hub 部署指南
+# Secure File Hub 部署指南
 
 ## 📋 概述
 
