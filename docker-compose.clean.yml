@@ -4,7 +4,7 @@ services:
   # Secure File Hub - Clean Production Container
   fileserver:
     # 使用预构建的镜像（从 GitHub Container Registry 拉取）
-    image: ghcr.io/${GITHUB_REPOSITORY:-your-username/secure-file-hub}:latest
+    image: ghcr.io/${GITHUB_REPOSITORY:-wangyaxings/source-file-hub}:latest
     container_name: secure-file-hub-clean
 
     # 本地构建配置（开发环境使用）

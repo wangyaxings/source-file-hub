@@ -33,7 +33,7 @@ log_error() {
 # 配置变量
 PROJECT_NAME="secure-file-hub"
 DEPLOY_DIR="$HOME/$PROJECT_NAME"
-IMAGE_TAG="${IMAGE_TAG:-ghcr.io/$(whoami)/$PROJECT_NAME:latest}"
+IMAGE_TAG="${IMAGE_TAG:-ghcr.io/wangyaxings/source-file-hub:latest}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 
 # 显示帮助信息

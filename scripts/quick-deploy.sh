@@ -32,9 +32,9 @@ log_error() {
 
 # 配置变量
 PROJECT_NAME="secure-file-hub"
-REPO_URL="${REPO_URL:-https://github.com/your-username/secure-file-hub.git}"
+REPO_URL="${REPO_URL:-https://github.com/wangyaxings/source-file-hub.git}"
 DEPLOY_DIR="$HOME/$PROJECT_NAME"
-IMAGE_TAG="${IMAGE_TAG:-ghcr.io/your-username/secure-file-hub:latest}"
+IMAGE_TAG="${IMAGE_TAG:-ghcr.io/wangyaxings/source-file-hub:latest}"
 
 # 显示横幅
 show_banner() {

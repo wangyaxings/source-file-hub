@@ -2,10 +2,10 @@ name: Docker Build and Deploy
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ 0912, main, master, develop ]
     tags: [ 'v*' ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ 0912, main, master ]
 
 env:
   REGISTRY: ghcr.io
@@ -77,7 +77,7 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+    if: github.ref == 'refs/heads/0912' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
 
     steps:
     - name: Checkout repository
