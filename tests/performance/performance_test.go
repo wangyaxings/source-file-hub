@@ -4,447 +4,432 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"runtime"
 	"sync"
 	"testing"
 	"time"
 
-	"secure-file-hub/internal/server"
+	"secure-file-hub/internal/database"
 	"secure-file-hub/tests/helpers"
 )
 
-// setupPerformanceTestServer creates a test server for performance testing
-func setupPerformanceTestServer(t testing.TB) *server.Server {
-	// Disable HTTPS redirect for tests
-	oldHTTPSRedirect := os.Getenv("DISABLE_HTTPS_REDIRECT")
-	os.Setenv("DISABLE_HTTPS_REDIRECT", "true")
-	t.Cleanup(func() {
-		if oldHTTPSRedirect == "" {
-			os.Unsetenv("DISABLE_HTTPS_REDIRECT")
-		} else {
-			os.Setenv("DISABLE_HTTPS_REDIRECT", oldHTTPSRedirect)
-		}
-	})
-
-	helpers.SetupTestEnvironment(t)
-
-	// Create server
-	srv := server.New()
-	if srv == nil {
-		t.Fatal("Failed to create server")
-	}
-
-	return srv
-}
-
-// BenchmarkHealthCheck benchmarks the health check endpoint
-func BenchmarkHealthCheck(b *testing.B) {
-	srv := setupPerformanceTestServer(b)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		rr := httptest.NewRecorder()
-		srv.Router.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			b.Fatalf("Health check failed: %d", rr.Code)
-		}
-	}
-}
-
-// BenchmarkFileUpload benchmarks file upload performance
-func BenchmarkFileUpload(b *testing.B) {
-	srv := setupPerformanceTestServer(b)
-
-	// Create test user
-	user := helpers.CreateTestUser(b, "perfuser", "PerfUser123!", "admin")
-	cookie := helpers.LoginAndGetSessionCookie(b, srv.Router, user.Username, "PerfUser123!")
-
-	// Create test file content
-	fileContent := "Performance test file content"
-	req := helpers.CreateMultipartRequest(b, "/api/v1/web/upload", "perf_test.tsv", fileContent, map[string]string{
-		"fileType":    "roadmap",
-		"description": "Performance test",
-	})
-	req.AddCookie(cookie)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		rr := httptest.NewRecorder()
-		srv.Router.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			b.Fatalf("File upload failed: %d", rr.Code)
-		}
-	}
-}
-
-// BenchmarkFileList benchmarks file listing performance
-func BenchmarkFileList(b *testing.B) {
-	srv := setupPerformanceTestServer(b)
-
-	// Create test user
-	user := helpers.CreateTestUser(b, "listuser", "ListUser123!", "viewer")
-	cookie := helpers.LoginAndGetSessionCookie(b, srv.Router, user.Username, "ListUser123!")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/web/files/list", nil)
-	req.AddCookie(cookie)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		rr := httptest.NewRecorder()
-		srv.Router.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			b.Fatalf("File list failed: %d", rr.Code)
-		}
-	}
-}
-
-// BenchmarkAuthentication benchmarks authentication performance
-func BenchmarkAuthentication(b *testing.B) {
-	srv := setupPerformanceTestServer(b)
-
-	// Create test user
-	user := helpers.CreateTestUser(b, "authuser", "AuthUser123!", "viewer")
-
-	loginData := map[string]string{
-		"username": user.Username,
-		"password": "AuthUser123!",
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		req := helpers.CreateTestRequest(b, http.MethodPost, "/api/v1/web/auth/ab/login", loginData, nil)
-		rr := httptest.NewRecorder()
-		srv.Router.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK && rr.Code != http.StatusFound && rr.Code != http.StatusTemporaryRedirect {
-			b.Fatalf("Authentication failed: %d", rr.Code)
-		}
-	}
-}
-
-// BenchmarkConcurrentRequests benchmarks concurrent request handling
-func BenchmarkConcurrentRequests(b *testing.B) {
-	srv := setupPerformanceTestServer(b)
-
-	// Create test user
-	user := helpers.CreateTestUser(b, "concurrentuser", "ConcurrentUser123!", "viewer")
-	_ = helpers.LoginAndGetSessionCookie(b, srv.Router, user.Username, "ConcurrentUser123!")
-
-	concurrency := 10
-	_ = b.N / concurrency
+// BenchmarkHealthHandler benchmarks the health check endpoint
+func BenchmarkHealthHandler(b *testing.B) {
+	srv := helpers.CreateTestServer(&testing.T{})
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 		for pb.Next() {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 			rr := httptest.NewRecorder()
 			srv.Router.ServeHTTP(rr, req)
+
 			if rr.Code != http.StatusOK {
-				b.Fatalf("Concurrent request failed: %d", rr.Code)
+				b.Errorf("Expected status 200, got %d", rr.Code)
 			}
 		}
 	})
 }
 
-// BenchmarkMemoryUsage benchmarks memory usage during operations
-func BenchmarkMemoryUsage(b *testing.B) {
-	srv := setupPerformanceTestServer(b)
+// BenchmarkPermissionCheck benchmarks permission check operations
+func BenchmarkPermissionCheck(b *testing.B) {
+	srv := helpers.CreateTestServer(&testing.T{})
 
 	// Create test user
-	user := helpers.CreateTestUser(b, "memuser", "MemUser123!", "admin")
-	cookie := helpers.LoginAndGetSessionCookie(b, srv.Router, user.Username, "MemUser123!")
+	user := helpers.CreateTestUser(&testing.T{}, "benchuser", "BenchPassword123!", "viewer")
+	cookie := helpers.LoginAndGetSessionCookie(&testing.T{}, srv.Router, user.Username, "BenchPassword123!")
 
-	var m1, m2 runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&m1)
+	permissionData := map[string]string{
+		"resource": "files",
+		"action":   "read",
+	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		// Perform file upload
-		fileContent := fmt.Sprintf("Memory test file %d", i)
-		req := helpers.CreateMultipartRequest(b, "/api/v1/web/upload", fmt.Sprintf("mem_test_%d.tsv", i), fileContent, map[string]string{
-			"fileType":    "roadmap",
-			"description": fmt.Sprintf("Memory test %d", i),
-		})
-		req.AddCookie(cookie)
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			req := helpers.CreateTestRequest(&testing.T{}, http.MethodPost, "/api/v1/web/auth/check-permission", permissionData, nil)
+			req.AddCookie(cookie)
+			rr := httptest.NewRecorder()
+			srv.Router.ServeHTTP(rr, req)
 
-		rr := httptest.NewRecorder()
-		srv.Router.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			b.Fatalf("Memory test upload failed: %d", rr.Code)
+			if rr.Code != http.StatusOK {
+				b.Errorf("Expected status 200, got %d", rr.Code)
+			}
 		}
-	}
-
-	runtime.GC()
-	runtime.ReadMemStats(&m2)
-
-	b.ReportMetric(float64(m2.Alloc-m1.Alloc), "bytes/op")
-	b.ReportMetric(float64(m2.Mallocs-m1.Mallocs), "mallocs/op")
+	})
 }
 
-// TestPerformance_LoadTest performs a load test with multiple concurrent users
-func TestPerformance_LoadTest(t *testing.T) {
-	srv := setupPerformanceTestServer(t)
+// BenchmarkFileUpload benchmarks file upload operations
+func BenchmarkFileUpload(b *testing.B) {
+	srv := helpers.CreateTestServer(&testing.T{})
+
+	// Create test user
+	user := helpers.CreateTestUser(&testing.T{}, "uploadbenchuser", "UploadBench123!", "admin")
+	cookie := helpers.LoginAndGetSessionCookie(&testing.T{}, srv.Router, user.Username, "UploadBench123!")
+
+	fileContent := "This is a benchmark test file"
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			filename := fmt.Sprintf("benchmark_%d.tsv", time.Now().UnixNano())
+			req := helpers.CreateMultipartRequest(&testing.T{}, "/api/v1/web/upload", filename, fileContent, map[string]string{
+				"fileType":    "roadmap",
+				"description": "Benchmark test file",
+			})
+			req.AddCookie(cookie)
+			rr := httptest.NewRecorder()
+			srv.Router.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				b.Errorf("Expected status 200, got %d", rr.Code)
+			}
+		}
+	})
+}
+
+// BenchmarkFileList benchmarks file list operations
+func BenchmarkFileList(b *testing.B) {
+	srv := helpers.CreateTestServer(&testing.T{})
+
+	// Create test user
+	user := helpers.CreateTestUser(&testing.T{}, "listbenchuser", "ListBench123!", "viewer")
+	cookie := helpers.LoginAndGetSessionCookie(&testing.T{}, srv.Router, user.Username, "ListBench123!")
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/web/files/list", nil)
+			req.AddCookie(cookie)
+			rr := httptest.NewRecorder()
+			srv.Router.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				b.Errorf("Expected status 200, got %d", rr.Code)
+			}
+		}
+	})
+}
+
+// TestConcurrentUsers tests concurrent user operations
+func TestConcurrentUsers(t *testing.T) {
+	srv := helpers.CreateTestServer(t)
 
 	// Create multiple test users
+	userCount := 50
 	users := make([]struct {
-		username string
-		password string
-		cookie   *http.Cookie
-	}, 10)
+		user   *database.AppUser
+		cookie *http.Cookie
+	}, userCount)
 
-	for i := 0; i < 10; i++ {
-		username := fmt.Sprintf("loaduser%d", i)
-		password := "LoadUser123!"
-		helpers.CreateTestUser(t, username, password, "viewer")
+	for i := 0; i < userCount; i++ {
+		username := fmt.Sprintf("concurrentuser%d", i)
+		password := "Concurrent123!"
+		user := helpers.CreateTestUser(t, username, password, "viewer")
 		cookie := helpers.LoginAndGetSessionCookie(t, srv.Router, username, password)
 		users[i] = struct {
-			username string
-			password string
-			cookie   *http.Cookie
-		}{username, password, cookie}
+			user   *database.AppUser
+			cookie *http.Cookie
+		}{user, cookie}
 	}
 
-	// Load test parameters
-	concurrency := 50
-	requestsPerUser := 20
-	totalRequests := concurrency * requestsPerUser
-
-	start := time.Now()
+	// Test concurrent operations
 	var wg sync.WaitGroup
-	successCount := 0
-	var mu sync.Mutex
+	concurrency := 10
 
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go func(userIndex int) {
+		go func(workerID int) {
 			defer wg.Done()
 
-			user := users[userIndex%len(users)]
-			for j := 0; j < requestsPerUser; j++ {
-				req := httptest.NewRequest(http.MethodGet, "/api/v1/web/auth/me", nil)
+			// Each worker performs multiple operations
+			for j := 0; j < 10; j++ {
+				userIndex := (workerID*10 + j) % userCount
+				user := users[userIndex]
+
+				// Test permission check
+				permissionData := map[string]string{
+					"resource": "files",
+					"action":   "read",
+				}
+
+				req := helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/check-permission", permissionData, nil)
 				req.AddCookie(user.cookie)
 				rr := httptest.NewRecorder()
-
 				srv.Router.ServeHTTP(rr, req)
 
-				mu.Lock()
-				if rr.Code == http.StatusOK {
-					successCount++
+				if rr.Code != http.StatusOK {
+					t.Errorf("Worker %d, operation %d: Expected status 200, got %d", workerID, j, rr.Code)
 				}
-				mu.Unlock()
+
+				// Test file list
+				req = httptest.NewRequest(http.MethodGet, "/api/v1/web/files/list", nil)
+				req.AddCookie(user.cookie)
+				rr = httptest.NewRecorder()
+				srv.Router.ServeHTTP(rr, req)
+
+				if rr.Code != http.StatusOK {
+					t.Errorf("Worker %d, operation %d: Expected status 200 for file list, got %d", workerID, j, rr.Code)
+				}
 			}
 		}(i)
 	}
 
 	wg.Wait()
-	elapsed := time.Since(start)
+}
 
-	// Calculate metrics
-	rps := float64(totalRequests) / elapsed.Seconds()
-	successRate := float64(successCount) / float64(totalRequests) * 100
+// TestMemoryUsage tests memory usage under load
+func TestMemoryUsage(t *testing.T) {
+	srv := helpers.CreateTestServer(t)
 
-	t.Logf("Load Test Results:")
-	t.Logf("  Total Requests: %d", totalRequests)
-	t.Logf("  Successful Requests: %d", successCount)
-	t.Logf("  Success Rate: %.2f%%", successRate)
-	t.Logf("  Requests per Second: %.2f", rps)
-	t.Logf("  Total Time: %v", elapsed)
-	t.Logf("  Average Response Time: %v", elapsed/time.Duration(totalRequests))
+	// Get initial memory stats
+	var m1, m2 runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m1)
 
-	// Performance assertions
-	if successRate < 95 {
-		t.Errorf("Success rate too low: %.2f%%", successRate)
+	// Create test user
+	user := helpers.CreateTestUser(t, "memoryuser", "Memory123!", "admin")
+	cookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "Memory123!")
+
+	// Perform many operations
+	operations := 1000
+	for i := 0; i < operations; i++ {
+		// Test permission check
+		permissionData := map[string]string{
+			"resource": "files",
+			"action":   "read",
+		}
+
+		req := helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/check-permission", permissionData, nil)
+		req.AddCookie(cookie)
+		rr := httptest.NewRecorder()
+		srv.Router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("Operation %d: Expected status 200, got %d", i, rr.Code)
+		}
+
+		// Force garbage collection every 100 operations
+		if i%100 == 0 {
+			runtime.GC()
+		}
 	}
-	if rps < 100 {
-		t.Errorf("Requests per second too low: %.2f", rps)
+
+	// Get final memory stats
+	runtime.GC()
+	runtime.ReadMemStats(&m2)
+
+	// Calculate memory usage
+	memoryUsed := m2.Alloc - m1.Alloc
+	memoryPerOperation := memoryUsed / uint64(operations)
+
+	t.Logf("Memory usage: %d bytes total, %d bytes per operation", memoryUsed, memoryPerOperation)
+
+	// Memory usage should be reasonable (less than 1KB per operation)
+	if memoryPerOperation > 1024 {
+		t.Errorf("Memory usage per operation (%d bytes) is too high", memoryPerOperation)
 	}
 }
 
-// TestPerformance_StressTest performs a stress test with high load
-func TestPerformance_StressTest(t *testing.T) {
-	srv := setupPerformanceTestServer(t)
+// TestResponseTime tests response times under load
+func TestResponseTime(t *testing.T) {
+	srv := helpers.CreateTestServer(t)
 
 	// Create test user
-	user := helpers.CreateTestUser(t, "stressuser", "StressUser123!", "admin")
-	_ = helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "StressUser123!")
+	user := helpers.CreateTestUser(t, "responsetimeuser", "ResponseTime123!", "viewer")
+	cookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "ResponseTime123!")
 
-	// Stress test parameters
-	concurrency := 100
-	duration := 30 * time.Second
+	// Test different endpoints
+	endpoints := []struct {
+		name   string
+		url    string
+		method string
+		body   interface{}
+	}{
+		{"Health", "/api/v1/health", http.MethodGet, nil},
+		{"PermissionCheck", "/api/v1/web/auth/check-permission", http.MethodPost, map[string]string{
+			"resource": "files",
+			"action":   "read",
+		}},
+		{"FileList", "/api/v1/web/files/list", http.MethodGet, nil},
+	}
 
-	start := time.Now()
-	var wg sync.WaitGroup
-	requestCount := 0
-	errorCount := 0
-	var mu sync.Mutex
+	for _, endpoint := range endpoints {
+		t.Run(endpoint.name, func(t *testing.T) {
+			var totalTime time.Duration
+			iterations := 100
 
-	// Start stress test
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				start := time.Now()
 
-			for time.Since(start) < duration {
-				req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+				var req *http.Request
+				if endpoint.body != nil {
+					req = helpers.CreateTestRequest(t, endpoint.method, endpoint.url, endpoint.body, nil)
+					req.AddCookie(cookie)
+				} else {
+					req = httptest.NewRequest(endpoint.method, endpoint.url, nil)
+					if endpoint.name != "Health" {
+						req.AddCookie(cookie)
+					}
+				}
+
 				rr := httptest.NewRecorder()
-
 				srv.Router.ServeHTTP(rr, req)
 
-				mu.Lock()
-				requestCount++
+				elapsed := time.Since(start)
+				totalTime += elapsed
+
 				if rr.Code != http.StatusOK {
-					errorCount++
+					t.Errorf("Expected status 200, got %d", rr.Code)
 				}
-				mu.Unlock()
 			}
-		}()
-	}
 
-	wg.Wait()
-	elapsed := time.Since(start)
+			avgTime := totalTime / time.Duration(iterations)
+			t.Logf("Average response time for %s: %v", endpoint.name, avgTime)
 
-	// Calculate metrics
-	rps := float64(requestCount) / elapsed.Seconds()
-	errorRate := float64(errorCount) / float64(requestCount) * 100
-
-	t.Logf("Stress Test Results:")
-	t.Logf("  Total Requests: %d", requestCount)
-	t.Logf("  Errors: %d", errorCount)
-	t.Logf("  Error Rate: %.2f%%", errorRate)
-	t.Logf("  Requests per Second: %.2f", rps)
-	t.Logf("  Duration: %v", elapsed)
-
-	// Stress test assertions
-	if errorRate > 5 {
-		t.Errorf("Error rate too high: %.2f%%", errorRate)
-	}
-	if rps < 50 {
-		t.Errorf("Requests per second too low under stress: %.2f", rps)
+			// Response time should be reasonable (less than 100ms)
+			if avgTime > 100*time.Millisecond {
+				t.Errorf("Average response time for %s (%v) is too slow", endpoint.name, avgTime)
+			}
+		})
 	}
 }
 
-// TestPerformance_FileUploadStress tests file upload under stress
-func TestPerformance_FileUploadStress(t *testing.T) {
-	srv := setupPerformanceTestServer(t)
+// TestConcurrentFileOperations tests concurrent file operations
+func TestConcurrentFileOperations(t *testing.T) {
+	srv := helpers.CreateTestServer(t)
 
 	// Create test user
-	user := helpers.CreateTestUser(t, "uploadstressuser", "UploadStress123!", "admin")
-	cookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "UploadStress123!")
+	user := helpers.CreateTestUser(t, "concurrentfileuser", "ConcurrentFile123!", "admin")
+	cookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "ConcurrentFile123!")
 
-	// Stress test parameters
+	// Test concurrent file uploads
 	concurrency := 20
-	uploadsPerGoroutine := 5
-
-	start := time.Now()
 	var wg sync.WaitGroup
-	successCount := 0
-	errorCount := 0
-	var mu sync.Mutex
 
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
 
-			for j := 0; j < uploadsPerGoroutine; j++ {
-				fileContent := fmt.Sprintf("Stress upload test %d-%d", index, j)
-				req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload",
-					fmt.Sprintf("stress_test_%d_%d.tsv", index, j), fileContent, map[string]string{
-						"fileType":    "roadmap",
-						"description": fmt.Sprintf("Stress test %d-%d", index, j),
-					})
-				req.AddCookie(cookie)
+			fileContent := fmt.Sprintf("Concurrent file content %d", index)
+			filename := fmt.Sprintf("concurrent_%d.tsv", index)
 
-				rr := httptest.NewRecorder()
-				srv.Router.ServeHTTP(rr, req)
+			req := helpers.CreateMultipartRequest(t, "/api/v1/web/upload", filename, fileContent, map[string]string{
+				"fileType":    "roadmap",
+				"description": fmt.Sprintf("Concurrent test file %d", index),
+			})
+			req.AddCookie(cookie)
+			rr := httptest.NewRecorder()
+			srv.Router.ServeHTTP(rr, req)
 
-				mu.Lock()
-				if rr.Code == http.StatusOK {
-					successCount++
-				} else {
-					errorCount++
-				}
-				mu.Unlock()
+			if rr.Code != http.StatusOK {
+				t.Errorf("Concurrent upload %d failed with status %d", index, rr.Code)
 			}
 		}(i)
 	}
 
 	wg.Wait()
-	elapsed := time.Since(start)
+}
 
-	totalUploads := concurrency * uploadsPerGoroutine
-	uploadRate := float64(totalUploads) / elapsed.Seconds()
-	successRate := float64(successCount) / float64(totalUploads) * 100
+// TestStressTest performs a stress test with high concurrency
+func TestStressTest(t *testing.T) {
+	srv := helpers.CreateTestServer(t)
 
-	t.Logf("File Upload Stress Test Results:")
-	t.Logf("  Total Uploads: %d", totalUploads)
-	t.Logf("  Successful Uploads: %d", successCount)
-	t.Logf("  Failed Uploads: %d", errorCount)
-	t.Logf("  Success Rate: %.2f%%", successRate)
-	t.Logf("  Uploads per Second: %.2f", uploadRate)
-	t.Logf("  Total Time: %v", elapsed)
+	// Create test user
+	user := helpers.CreateTestUser(t, "stressuser", "Stress123!", "viewer")
+	cookie := helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "Stress123!")
 
-	// Stress test assertions
-	if successRate < 90 {
-		t.Errorf("Upload success rate too low: %.2f%%", successRate)
+	// High concurrency stress test
+	concurrency := 100
+	operationsPerWorker := 10
+	var wg sync.WaitGroup
+
+	start := time.Now()
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+
+			for j := 0; j < operationsPerWorker; j++ {
+				// Mix of different operations
+				switch j % 3 {
+				case 0:
+					// Permission check
+					permissionData := map[string]string{
+						"resource": "files",
+						"action":   "read",
+					}
+					req := helpers.CreateTestRequest(t, http.MethodPost, "/api/v1/web/auth/check-permission", permissionData, nil)
+					req.AddCookie(cookie)
+					rr := httptest.NewRecorder()
+					srv.Router.ServeHTTP(rr, req)
+
+					if rr.Code != http.StatusOK {
+						t.Errorf("Worker %d, operation %d: Permission check failed with status %d", workerID, j, rr.Code)
+					}
+
+				case 1:
+					// File list
+					req := httptest.NewRequest(http.MethodGet, "/api/v1/web/files/list", nil)
+					req.AddCookie(cookie)
+					rr := httptest.NewRecorder()
+					srv.Router.ServeHTTP(rr, req)
+
+					if rr.Code != http.StatusOK {
+						t.Errorf("Worker %d, operation %d: File list failed with status %d", workerID, j, rr.Code)
+					}
+
+				case 2:
+					// Health check
+					req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+					rr := httptest.NewRecorder()
+					srv.Router.ServeHTTP(rr, req)
+
+					if rr.Code != http.StatusOK {
+						t.Errorf("Worker %d, operation %d: Health check failed with status %d", workerID, j, rr.Code)
+					}
+				}
+			}
+		}(i)
 	}
-	if uploadRate < 5 {
-		t.Errorf("Upload rate too low: %.2f", uploadRate)
+
+	wg.Wait()
+
+	elapsed := time.Since(start)
+	totalOperations := concurrency * operationsPerWorker
+	opsPerSecond := float64(totalOperations) / elapsed.Seconds()
+
+	t.Logf("Stress test completed: %d operations in %v (%.2f ops/sec)", totalOperations, elapsed, opsPerSecond)
+
+	// Should handle at least 1000 operations per second
+	if opsPerSecond < 1000 {
+		t.Errorf("Performance too low: %.2f ops/sec (expected at least 1000)", opsPerSecond)
 	}
 }
 
-// TestPerformance_MemoryLeak tests for memory leaks during extended operation
-func TestPerformance_MemoryLeak(t *testing.T) {
-	srv := setupPerformanceTestServer(t)
+// BenchmarkDatabaseOperations benchmarks database operations
+func BenchmarkDatabaseOperations(b *testing.B) {
+	// This would benchmark direct database operations
+	// For now, we'll benchmark through HTTP endpoints
 
-	// Create test user
-	user := helpers.CreateTestUser(t, "leakuser", "LeakUser123!", "admin")
-	_ = helpers.LoginAndGetSessionCookie(t, srv.Router, user.Username, "LeakUser123!")
+	srv := helpers.CreateTestServer(&testing.T{})
+	user := helpers.CreateTestUser(&testing.T{}, "dbbenchuser", "DbBench123!", "viewer")
+	cookie := helpers.LoginAndGetSessionCookie(&testing.T{}, srv.Router, user.Username, "DbBench123!")
 
-	// Memory leak test parameters
-	iterations := 1000
-	measureInterval := 100
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			// Test file list (database operation)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/web/files/list", nil)
+			req.AddCookie(cookie)
+			rr := httptest.NewRecorder()
+			srv.Router.ServeHTTP(rr, req)
 
-	var m1, m2 runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&m1)
-
-	for i := 0; i < iterations; i++ {
-		// Perform various operations
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
-		rr := httptest.NewRecorder()
-		srv.Router.ServeHTTP(rr, req)
-
-		if i%measureInterval == 0 {
-			runtime.GC()
-			runtime.ReadMemStats(&m2)
-
-			if i > 0 {
-				memGrowth := m2.Alloc - m1.Alloc
-				t.Logf("Iteration %d: Memory growth: %d bytes", i, memGrowth)
-
-				// Check for excessive memory growth
-				if memGrowth > 10*1024*1024 { // 10MB
-					t.Errorf("Potential memory leak detected: %d bytes growth at iteration %d", memGrowth, i)
-				}
+			if rr.Code != http.StatusOK {
+				b.Errorf("Expected status 200, got %d", rr.Code)
 			}
-			m1 = m2
 		}
-	}
-
-	runtime.GC()
-	runtime.ReadMemStats(&m2)
-	finalMemGrowth := m2.Alloc - m1.Alloc
-
-	t.Logf("Memory Leak Test Results:")
-	t.Logf("  Total Iterations: %d", iterations)
-	t.Logf("  Final Memory Growth: %d bytes", finalMemGrowth)
-	t.Logf("  Average Growth per Iteration: %.2f bytes", float64(finalMemGrowth)/float64(iterations))
-
-	if finalMemGrowth > 50*1024*1024 { // 50MB
-		t.Errorf("Excessive memory growth detected: %d bytes", finalMemGrowth)
-	}
+	})
 }
