@@ -71,7 +71,7 @@ RUN mkdir -p /tmp/prod-deps && \
 # ================================
 # 运行时镜像
 # ================================
-FROM alpine:3.18
+FROM alpine:3.18 AS runtime
 
 # 元数据
 LABEL maintainer="Secure File Hub Team"
