@@ -145,6 +145,7 @@ ENV NODE_ENV=production \
     PORT=30000 \
     HOSTNAME=0.0.0.0 \
     BACKEND_URL=https://localhost:8443 \
+    NEXT_PUBLIC_API_URL=http://localhost:30000 \
     DISABLE_HTTPS_REDIRECT=true \
     DB_PATH=/app/data/fileserver.db \
     LOG_PATH=/app/logs \

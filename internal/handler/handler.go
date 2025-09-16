@@ -1676,14 +1676,25 @@ func RegisterAPIRoutes(router *mux.Router) {
 	// API routes for external access (different from web routes)
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
 
-	// Package management endpoints with API key authentication
-	apiRouter.Handle("/packages", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
-	apiRouter.Handle("/packages/{id}/remark", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
-
-	// Health check for API
+	// Health check for API (no authentication required) - 对外暴露
 	apiRouter.HandleFunc("/health", healthCheckHandler).Methods("GET")
+	apiRouter.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
 
-	log.Printf("API routes registered")
+	// Public API routes with API key authentication
+	publicAPI := apiRouter.PathPrefix("/public").Subrouter()
+
+	// File management endpoints with API key authentication
+	publicAPI.Handle("/files/upload", middleware.APIKeyAuthMiddleware(http.HandlerFunc(uploadFileHandler))).Methods("POST")
+	publicAPI.Handle("/files", middleware.APIKeyAuthMiddleware(http.HandlerFunc(listFilesHandler))).Methods("GET")
+	publicAPI.Handle("/files/{id}/download", middleware.APIKeyAuthMiddleware(http.HandlerFunc(downloadFileHandler))).Methods("GET")
+	publicAPI.Handle("/files/{id}", middleware.APIKeyAuthMiddleware(http.HandlerFunc(deleteFileHandler))).Methods("DELETE")
+	publicAPI.Handle("/files/{id}/restore", middleware.APIKeyAuthMiddleware(http.HandlerFunc(restoreFileHandler))).Methods("POST")
+
+	// Package management endpoints with API key authentication
+	publicAPI.Handle("/packages", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
+	publicAPI.Handle("/packages/{id}/remark", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
+
+	log.Printf("Public API routes registered with API key authentication")
 }
 
 // CleanupExpiredTempKeys cleans up expired temporary keys

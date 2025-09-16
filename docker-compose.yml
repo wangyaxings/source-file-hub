@@ -10,8 +10,8 @@ services:
 
     # 端口映射
     ports:
-      - "30000:30000"   # Frontend port
-      - "8444:8443"     # Backend HTTPS port (changed to avoid conflict)
+      - "30000:30000"   # Frontend port (Web界面)
+      - "8444:8443"     # Backend HTTPS port (API Key外部访问)
 
     # 持久化卷 - 数据库和日志文件外部挂载
     volumes:
@@ -40,10 +40,12 @@ services:
       # 前端配置
       - PORT=30000
       - HOSTNAME=0.0.0.0
-      - NEXT_PUBLIC_API_URL=https://localhost:8444
+      - NEXT_PUBLIC_API_URL=http://localhost:30000
 
       # 后端配置
-      - BACKEND_URL=https://localhost:8444
+      - BACKEND_URL=https://localhost:8443
+      # 外部API访问地址（用于API Key调用）
+      - EXTERNAL_API_URL=https://localhost:8444
 
     # 重启策略
     restart: unless-stopped
@@ -62,21 +64,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-
-    # 网络配置
-    networks:
-      - fileserver-network
-
-# 注意：数据现在直接挂载到主机目录，不再使用 Docker 卷
-# 主机目录：
-# - ./data - 数据库文件
-# - ./downloads - 下载文件
-# - ./logs - 日志文件
-
-# 网络配置
-networks:
-  fileserver-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
