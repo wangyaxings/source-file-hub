@@ -1,6 +1,6 @@
 # ================================
-# Secure File Hub - Optimized Single Container
-# External volumes for data, logs, and database
+# Secure File Hub - 优化的单容器镜像
+# 外部卷挂载数据、日志和数据库
 # ================================
 
 # ================================
@@ -14,8 +14,9 @@ LABEL description="Secure File Hub - Backend Builder"
 
 WORKDIR /build
 
-# 安装构建依赖
-RUN apk add --no-cache git ca-certificates tzdata upx
+# 安装构建依赖 (移除 upx 以减少构建时间和复杂性)
+RUN apk add --no-cache git ca-certificates tzdata && \
+    apk add --no-cache --virtual .build-deps gcc musl-dev
 
 # 复制依赖文件并下载
 COPY go.mod go.sum ./
@@ -29,17 +30,15 @@ COPY internal/ internal/
 ARG VERSION=dev
 ARG BUILD_TIME=unknown
 
-# 构建后端应用
-# 禁用CGO以创建静态二进制文件，减小镜像大小
-RUN CGO_ENABLED=0 GOOS=linux go build \
+# 构建后端应用 (启用 CGO 以支持 SQLite)
+RUN CGO_ENABLED=1 GOOS=linux go build \
     -trimpath \
-    -ldflags "-s -w -extldflags '-static' -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
-    -tags 'netgo osusergo' \
+    -ldflags "-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
     -o fileserver \
     cmd/server/main.go
 
-# 使用UPX压缩二进制文件以进一步减小大小
-RUN upx --best --lzma fileserver
+# 清理构建依赖
+RUN apk del .build-deps
 
 # ================================
 # 前端构建阶段
@@ -51,27 +50,27 @@ LABEL description="Secure File Hub - Frontend Builder"
 
 WORKDIR /build
 
-# 复制依赖文件
-COPY frontend/package*.json frontend/yarn.lock ./
+# 设置环境变量优化构建
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+ENV YARN_CACHE_FOLDER=/tmp/.yarn
 
-# 安装依赖（使用yarn缓存优化）
-RUN yarn install --frozen-lockfile --prefer-offline --network-timeout 600000
+# 复制依赖文件
+COPY frontend/package*.json frontend/yarn.lock* ./
+
+# 安装依赖（优化缓存和网络）
+RUN yarn config set network-timeout 600000 && \
+    yarn install --frozen-lockfile --prefer-offline --production=false && \
+    yarn cache clean
 
 # 复制源代码
 COPY frontend/ ./
 
-# 设置构建时环境变量
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
-
 # 构建前端应用
-RUN yarn build
-
-# 创建生产依赖目录（优化镜像大小）
-RUN mkdir -p /tmp/prod-deps && \
-    cd /tmp/prod-deps && \
-    cp /build/package*.json /build/yarn.lock . && \
-    yarn install --production --frozen-lockfile --prefer-offline
+RUN yarn build && \
+    rm -rf node_modules && \
+    yarn install --production --frozen-lockfile --prefer-offline && \
+    yarn cache clean
 
 # ================================
 # 运行时镜像
@@ -90,13 +89,12 @@ RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     curl \
-    wget \
     dumb-init \
     libgcc \
     sqlite \
     nodejs \
     npm \
-    && rm -rf /var/cache/apk/*
+    && rm -rf /var/cache/apk/* /tmp/*
 
 # 创建专用用户和组（安全最佳实践）
 RUN addgroup -g 1001 -S appgroup && \
@@ -132,7 +130,7 @@ COPY --from=frontend-builder --chown=appuser:appgroup /build/server.js /app/fron
 COPY --from=frontend-builder --chown=appuser:appgroup /build/package.json /app/frontend/
 
 # 复制生产依赖
-COPY --from=frontend-builder --chown=appuser:appgroup /tmp/prod-deps/node_modules /app/frontend/node_modules/
+COPY --from=frontend-builder --chown=appuser:appgroup /build/node_modules /app/frontend/node_modules/
 
 # 复制启动脚本
 COPY --chown=appuser:appgroup scripts/start.sh /app/start.sh

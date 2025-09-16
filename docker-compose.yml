@@ -60,7 +60,7 @@ services:
 
     # 健康检查
     healthcheck:
-      test: ["CMD", "curl", "-f", "-k", "https://localhost:8443/api/v1/health", "&&", "curl", "-f", "http://localhost:30000"]
+      test: ["CMD", "sh", "-c", "curl -f -k https://localhost:8443/api/v1/health && curl -f http://localhost:30000"]
       interval: 30s
       timeout: 10s
       retries: 3
