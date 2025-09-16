@@ -1,13 +1,13 @@
 package auth
 
 import (
-    "os"
+	"os"
 
-    ab "github.com/aarondl/authboss/v3"
-    _ "github.com/aarondl/authboss/v3/auth"
-    "github.com/aarondl/authboss/v3/defaults"
-    _ "github.com/aarondl/authboss/v3/logout"
-    "github.com/aarondl/authboss/v3/otp/twofactor/totp2fa"
+	ab "github.com/aarondl/authboss/v3"
+	_ "github.com/aarondl/authboss/v3/auth"
+	"github.com/aarondl/authboss/v3/defaults"
+	_ "github.com/aarondl/authboss/v3/logout"
+	"github.com/aarondl/authboss/v3/otp/twofactor/totp2fa"
 )
 
 var AB *ab.Authboss
@@ -23,7 +23,13 @@ func InitAuthboss() (*ab.Authboss, error) {
 	// Mount Authboss under /api/v1/web/auth/ab to avoid route collisions
 	// Note: Mount should be empty when using StripPrefix in server.go
 	a.Config.Paths.Mount = ""
-	a.Config.Paths.RootURL = "https://127.0.0.1:8443"
+	// 动态设置 RootURL 基于环境变量
+	rootURL := os.Getenv("AUTHBOSS_ROOT_URL")
+	if rootURL == "" {
+		// 默认值，支持容器环境
+		rootURL = "https://localhost:8443"
+	}
+	a.Config.Paths.RootURL = rootURL
 	a.Config.Paths.AuthLoginOK = "/api/v1/web/auth/me"
 	a.Config.Storage.Server = UserStorer{}
 
@@ -55,7 +61,7 @@ func InitAuthboss() (*ab.Authboss, error) {
 	if err := a.Init(); err != nil {
 		return nil, err
 	}
-	
+
 	// Setup TOTP module for 2FA verification
 	t := &totp2fa.TOTP{Authboss: a}
 	if err := t.Setup(); err != nil {

@@ -46,6 +46,8 @@ services:
       - BACKEND_URL=https://localhost:8443
       # 外部API访问地址（用于API Key调用）
       - EXTERNAL_API_URL=https://localhost:8444
+      # Authboss 配置
+      - AUTHBOSS_ROOT_URL=https://localhost:8443
 
     # 重启策略
     restart: unless-stopped

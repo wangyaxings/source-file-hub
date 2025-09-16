@@ -75,6 +75,7 @@ func (c cookieStateRW) WriteState(w http.ResponseWriter, state ab.ClientState, e
 		HttpOnly: true,
 		Secure:   false, // Allow non-HTTPS in development/testing
 		SameSite: http.SameSiteLaxMode,
+		Domain:   "", // 不设置域名，允许跨子域名访问
 	}
 	if !c.Persistent {
 		ck.MaxAge = 0
