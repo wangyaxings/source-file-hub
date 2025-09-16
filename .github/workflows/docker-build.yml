@@ -1,11 +1,11 @@
 name: Docker Build and Push
 
+# 触发条件：
+# 1. 推送以 'v' 开头的 tag 时自动触发 (例如: v1.0.0, v2.1.3)
+# 2. 手动触发 (workflow_dispatch)
 on:
   push:
-    branches: [ 0912, main, master, develop ]
     tags: [ 'v*' ]
-  pull_request:
-    branches: [ 0912, main, master ]
   workflow_dispatch:
 
 permissions:
@@ -33,7 +33,6 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Log in to Container Registry
-      if: github.event_name != 'pull_request'
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
@@ -63,7 +62,7 @@ jobs:
       with:
         context: .
         platforms: linux/amd64,linux/arm64
-        push: ${{ github.event_name != 'pull_request' }}
+        push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
@@ -74,7 +73,6 @@ jobs:
           BUILD_TIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
 
     - name: Generate artifact attestation
-      if: github.event_name != 'pull_request'
       uses: actions/attest-build-provenance@v1
       id: attest
       with:
@@ -83,7 +81,6 @@ jobs:
         push-to-registry: true
 
     - name: Output image information
-      if: github.event_name != 'pull_request'
       run: |
         echo "✅ Docker image built and pushed successfully!"
         echo "📦 Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
@@ -110,7 +107,6 @@ jobs:
   security-scan:
     runs-on: ubuntu-latest
     needs: build-and-push
-    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: read
