@@ -1,5 +1,6 @@
 # ================================
 # Secure File Hub - Optimized Single Container
+# External volumes for data, logs, and database
 # ================================
 
 # ================================
@@ -24,11 +25,15 @@ RUN go mod download && go mod verify
 COPY cmd/ cmd/
 COPY internal/ internal/
 
+# 接受构建参数
+ARG VERSION=dev
+ARG BUILD_TIME=unknown
+
 # 构建后端应用
 # 禁用CGO以创建静态二进制文件，减小镜像大小
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
-    -ldflags '-s -w -extldflags "-static"' \
+    -ldflags "-s -w -extldflags '-static' -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
     -tags 'netgo osusergo' \
     -o fileserver \
     cmd/server/main.go
@@ -75,8 +80,8 @@ FROM alpine:3.18 AS runtime
 
 # 元数据
 LABEL maintainer="Secure File Hub Team"
-LABEL description="Secure File Hub - Production Runtime"
-LABEL version="1.0.0"
+LABEL description="Secure File Hub - Production Runtime with External Volumes"
+LABEL version="2.0.0"
 
 WORKDIR /app
 
@@ -98,6 +103,7 @@ RUN addgroup -g 1001 -S appgroup && \
     adduser -D -u 1001 -G appgroup -s /sbin/nologin -S appuser
 
 # 创建应用目录结构
+# 注意：data, logs, downloads 将作为外部卷挂载
 RUN mkdir -p \
     /app/data \
     /app/downloads \
@@ -105,9 +111,10 @@ RUN mkdir -p \
     /app/frontend \
     /app/configs \
     /app/certs \
+    /app/scripts \
     && chown -R appuser:appgroup /app && \
     chmod 755 /app && \
-    chmod 755 /app/data /app/downloads /app/logs /app/frontend /app/configs /app/certs
+    chmod 755 /app/data /app/downloads /app/logs /app/frontend /app/configs /app/certs /app/scripts
 
 # 复制后端二进制文件
 COPY --from=backend-builder --chown=appuser:appgroup /build/fileserver /app/fileserver
@@ -140,7 +147,14 @@ ENV NODE_ENV=production \
     PORT=30000 \
     HOSTNAME=0.0.0.0 \
     BACKEND_URL=https://localhost:8443 \
-    DISABLE_HTTPS_REDIRECT=true
+    DISABLE_HTTPS_REDIRECT=true \
+    DB_PATH=/app/data/fileserver.db \
+    LOG_PATH=/app/logs \
+    DOWNLOAD_PATH=/app/downloads
+
+# 声明外部挂载卷（用于文档说明）
+# 这些目录应该通过docker-compose或docker run -v参数挂载
+VOLUME ["/app/data", "/app/logs", "/app/downloads"]
 
 # 暴露端口
 EXPOSE 30000 8443

@@ -1,34 +1,30 @@
 version: '3.8'
 
 services:
-  # Secure File Hub - Optimized Single Container
+  # Secure File Hub - Production Container
+  # 前后端合并部署，数据库和日志文件外部挂载
   fileserver:
     # 使用预构建的镜像（从 GitHub Container Registry 拉取）
     image: ghcr.io/${GITHUB_REPOSITORY:-wangyaxings/source-file-hub}:latest
     container_name: secure-file-hub
-
-    # 本地构建配置（开发环境使用）
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
-    #   target: runtime
-    #   args:
-    #     - BUILDKIT_INLINE_CACHE=1
 
     # 端口映射
     ports:
       - "30000:30000"   # Frontend port
       - "8443:8443"     # Backend HTTPS port
 
-    # 持久化卷
+    # 持久化卷 - 数据库和日志文件外部挂载
     volumes:
-      # 应用数据 - 挂载到主机目录
+      # 应用数据 - 挂载到主机目录（包含数据库文件）
       - ./data:/app/data
+      # 下载文件 - 挂载到主机目录
       - ./downloads:/app/downloads
+      # 日志文件 - 挂载到主机目录
       - ./logs:/app/logs
 
-      # 配置文件（只读）
+      # 配置文件（只读挂载）
       - ./configs:/app/configs:ro
+      # SSL证书（只读挂载）
       - ./certs:/app/certs:ro
 
     # 环境变量
