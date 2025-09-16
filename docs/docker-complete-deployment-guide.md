@@ -543,6 +543,36 @@ fi
    - 监控异常活动
    - 保留审计记录
 
+## GitHub Actions 构建问题解决
+
+如果在 GitHub Actions 中遇到 attestation 相关错误，可以尝试以下解决方案：
+
+### 解决方案 1：使用修复后的工作流
+主工作流文件已经更新，包含以下修复：
+- 添加了必要的权限 (`attestations: write`, `actions: read`)
+- 设置了 `continue-on-error: true` 使 attestation 失败不会中断构建
+- 添加了条件检查，只在 tag 推送时运行 attestation
+
+### 解决方案 2：使用简化版工作流
+如果仍有问题，可以使用简化版工作流：
+```bash
+# 重命名当前工作流（备份）
+mv .github/workflows/docker-build.yml .github/workflows/docker-build-with-attestation.yml.bak
+
+# 使用简化版工作流
+mv .github/workflows/docker-build-simple.yml .github/workflows/docker-build.yml
+```
+
+简化版工作流移除了 attestation 步骤，但保留了所有核心功能。
+
+### 解决方案 3：完全禁用 attestation
+在主工作流中注释掉 attestation 步骤：
+```yaml
+# - name: Generate artifact attestation
+#   uses: actions/attest-build-provenance@v2
+#   ...
+```
+
 ## 总结
 
 本指南提供了 Secure File Hub 的完整 Docker 部署流程。按照以上步骤，您可以快速在 Ubuntu 系统上部署并运行应用程序。

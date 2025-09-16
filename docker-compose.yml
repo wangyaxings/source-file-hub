@@ -1,4 +1,4 @@
-version: '3.8'
+# version: '3.8'  # Removed as it's obsolete in newer Docker Compose
 
 services:
   # Secure File Hub - Production Container
@@ -11,7 +11,7 @@ services:
     # 端口映射
     ports:
       - "30000:30000"   # Frontend port
-      - "8443:8443"     # Backend HTTPS port
+      - "8444:8443"     # Backend HTTPS port (changed to avoid conflict)
 
     # 持久化卷 - 数据库和日志文件外部挂载
     volumes:
@@ -40,23 +40,20 @@ services:
       # 前端配置
       - PORT=30000
       - HOSTNAME=0.0.0.0
-      - NEXT_PUBLIC_API_URL=https://localhost:8443
+      - NEXT_PUBLIC_API_URL=https://localhost:8444
 
       # 后端配置
-      - BACKEND_URL=https://localhost:8443
+      - BACKEND_URL=https://localhost:8444
 
     # 重启策略
     restart: unless-stopped
 
-    # 资源限制
+    # 资源限制 (兼容旧版本 docker-compose)
     deploy:
       resources:
         limits:
           memory: 1G
           cpus: '1.0'
-        reservations:
-          memory: 256M
-          cpus: '0.5'
 
     # 健康检查
     healthcheck:

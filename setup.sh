@@ -145,14 +145,29 @@ EOF
 set_permissions() {
     log_info "设置目录权限..."
     
+    # 首先尝试获取当前目录的所有权
+    current_user=$(whoami)
+    
     # 设置数据目录权限（容器内用户 UID:1001）
-    sudo chown -R 1001:1001 data downloads logs
-    chmod -R 755 data downloads logs
+    if sudo chown -R 1001:1001 data downloads logs 2>/dev/null; then
+        log_info "使用 sudo 设置目录所有者为 1001:1001"
+    else
+        log_warning "无法使用 sudo 设置所有者，尝试使用当前用户权限"
+        # 如果 sudo 失败，尝试设置为当前用户
+        chown -R $current_user:$current_user data downloads logs 2>/dev/null || true
+    fi
+    
+    # 设置目录权限
+    if chmod -R 755 data downloads logs 2>/dev/null; then
+        log_success "目录权限设置完成"
+    else
+        log_warning "权限设置可能不完整，容器启动时会自动调整"
+    fi
     
     # 设置配置和证书目录权限
-    chmod -R 644 configs/ certs/
-    
-    log_success "目录权限设置完成"
+    chmod -R 644 configs/ certs/ 2>/dev/null || {
+        log_warning "配置目录权限设置失败，使用默认权限"
+    }
 }
 
 # 启动服务
