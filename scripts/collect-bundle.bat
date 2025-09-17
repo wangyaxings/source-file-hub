@@ -26,7 +26,7 @@ if "%FRONTEND_TAG%"=="" set "FRONTEND_TAG=bundle"
 if "%PROXY_IMAGE%"=="" set "PROXY_IMAGE=caddy:2-alpine"
 
 echo [^+] Preparing bundle tree...
-for %%D in (bundle bundle\images bundle\certs bundle\configs bundle\data bundle\logs bundle\downloads) do (
+for %%D in (bundle bundle\images bundle\certs bundle\configs bundle\data bundle\logs bundle\downloads bundle\scripts) do (
   if not exist "%%D" mkdir "%%D"
 )
 
@@ -63,6 +63,52 @@ if exist "configs\casbin_model.conf" (
   echo [^+] Copied configs/casbin_model.conf
 ) else (
   echo [i] configs/casbin_model.conf not found; make sure to provide it for policy initialization
+)
+
+rem Copy deploy script into bundle root
+if exist "scripts\deploy.sh" (
+  copy /y "scripts\deploy.sh" "bundle\deploy.sh" >nul
+  echo [^+] Copied scripts/deploy.sh to bundle\deploy.sh
+) else (
+  echo [i] scripts/deploy.sh not found; please ensure it exists for deployment
+)
+
+rem Include optional database initialization assets
+if exist "scripts\init-database.sh" (
+  copy /y "scripts\init-database.sh" "bundle\scripts\init-database.sh" >nul
+  echo [^+] Included scripts/init-database.sh
+) else (
+  echo [i] scripts/init-database.sh not found; skipping
+)
+if exist "scripts\init-clean-db.sql" (
+  copy /y "scripts\init-clean-db.sql" "bundle\scripts\init-clean-db.sql" >nul
+  echo [^+] Included scripts/init-clean-db.sql
+) else (
+  echo [i] scripts/init-clean-db.sql not found; skipping
+)
+
+rem Include optional reverse proxy config (Caddyfile)
+if exist "scripts\Caddyfile" (
+  copy /y "scripts\Caddyfile" "bundle\scripts\Caddyfile" >nul
+  echo [^+] Included scripts/Caddyfile
+) else (
+  echo [i] scripts/Caddyfile not found; skipping
+)
+
+rem Include documentation readme into bundle root
+if exist "docs\README.txt" (
+  copy /y "docs\README.txt" "bundle\README.txt" >nul
+  echo [^+] Included docs/README.txt -> bundle/README.txt
+) else (
+  echo [i] docs/README.txt not found; skipping
+)
+
+rem Include source docker-compose as reference (do not override runtime compose)
+if exist "docker-compose.yml" (
+  copy /y "docker-compose.yml" "bundle\docker-compose.source.yml" >nul
+  echo [^+] Included docker-compose.yml as bundle/docker-compose.source.yml
+) else (
+  echo [i] docker-compose.yml not found; skipping
 )
 
 if "%NO_BUILD%"=="0" (
@@ -137,6 +183,7 @@ if errorlevel 1 (
 echo [^+] Bundle ready at: %CD%\bundle
 echo [^+] Next steps:
 echo     - Copy the bundle\ folder to the Linux host
-echo     - On Linux host: chmod +x ./deploy.sh& echo     - On Linux host: ./deploy.sh
+echo     - On Linux host: chmod +x ./deploy.sh
+echo     - On Linux host: ./deploy.sh
 
 exit /b 0

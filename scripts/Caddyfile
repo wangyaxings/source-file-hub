@@ -1,0 +1,16 @@
+:30000 {
+  tls /certs/server.crt /certs/server.key
+
+  # API to backend over HTTPS (self-signed OK)
+  # Use handle (NOT handle_path) to preserve /api prefix for backend
+  handle /api/* {
+    reverse_proxy https://backend:8443 {
+      transport http {
+        tls_insecure_skip_verify
+      }
+    }
+  }
+
+  # Everything else to Next.js app (HTTP)
+  reverse_proxy http://frontend:3000
+}

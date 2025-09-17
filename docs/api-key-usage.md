@@ -79,6 +79,23 @@ curl -H "X-API-Key: your-api-key-here" \
      https://localhost:8444/api/v1/public/files/{file-id}/download
 ```
 
+#### 3.1 下载最新 Roadmap/Recommendation
+```bash
+# 获取最新版本元数据
+curl -H "X-API-Key: your-api-key-here" \
+     https://localhost:8444/api/v1/public/versions/roadmap/latest
+
+curl -H "X-API-Key: your-api-key-here" \
+     https://localhost:8444/api/v1/public/versions/recommendation/latest
+
+# 直接下载最新文件
+curl -H "X-API-Key: your-api-key-here" -OJ \
+     https://localhost:8444/api/v1/public/versions/roadmap/latest/download
+
+curl -H "X-API-Key: your-api-key-here" -OJ \
+     https://localhost:8444/api/v1/public/versions/recommendation/latest/download
+```
+
 #### 4. 删除文件
 ```bash
 curl -X DELETE \
@@ -108,6 +125,29 @@ curl -X PATCH \
      -H "Content-Type: application/json" \
      -d '{"remark": "新的备注信息"}' \
      https://localhost:8444/api/v1/public/packages/{package-id}/remark
+```
+
+### 资源包上传（assets / others）
+
+通过 API Key 上传资源包 ZIP 文件，文件名需严格遵循：
+
+- `<tenant>_assets_<UTC>.zip`
+- `<tenant>_others_<UTC>.zip`
+
+其中 `<UTC>` 格式为 `YYYYMMDDThhmmssZ`（例如：`20250101T120000Z`）。
+
+```bash
+# 上传 assets
+curl -X POST \
+     -H "X-API-Key: your-api-key-here" \
+     -F "file=@./tenant123_assets_20250101T120000Z.zip" \
+     https://localhost:8444/api/v1/public/upload/assets-zip
+
+# 上传 others
+curl -X POST \
+     -H "X-API-Key: your-api-key-here" \
+     -F "file=@./tenant123_others_20250101T120000Z.zip" \
+     https://localhost:8444/api/v1/public/upload/others-zip
 ```
 
 ## 权限说明
@@ -248,3 +288,49 @@ async function uploadFile(file, description) {
 - 确保容器正在运行: `docker-compose ps`
 - 检查端口映射: `docker-compose port fileserver 8443`
 - 查看容器日志: `docker-compose logs fileserver`
+
+
+Added Test Scripts
+
+scripts/api-test.ps1: PowerShell batch test with variables
+scripts/api-test.sh: Bash batch test with variables
+Both support:
+
+Variable IPs and ports, SNI --resolve for TLS
+API key via header
+Health, files list, latest endpoints, and optional assets/others ZIP upload
+PowerShell Usage
+
+Minimal:
+.\scripts\api-test.ps1 -Ips 192.168.197.130 -Ports 8444,30000 -Hostname localhost -ApiKey 'sk_6946cb70c5ad8efe4748cbb587a04e8ace3f6e3c9fb56e32a6ca29529385ac66'
+With uploads (creates valid <tenant>_assets_<UTC>.zip and <tenant>_others_<UTC>.zip):
+.\scripts\api-test.ps1 -Ips 192.168.197.130 -Ports 8444,30000 -Hostname localhost -ApiKey 'sk_...' -Tenant tenant123 -DoUploads
+Env alternatives:
+setx API_KEY sk_...
+setx TARGET_IP 192.168.197.130
+setx TARGET_HOSTNAME localhost
+Outputs: tmp/api-test/* per IP:port.
+Bash Usage
+
+Minimal:
+API_KEY=sk_... IPS="192.168.197.130" PORTS="8444,30000" ./scripts/api-test.sh
+With uploads:
+API_KEY=sk_... IPS="192.168.197.130" PORTS="8444,30000" TENANT=tenant123 DO_UPLOADS=1 ./scripts/api-test.sh
+Outputs: tmp/api-test/*
+What I Updated
+
+Public bypass so API-key endpoints don’t require session:
+internal/middleware/auth.go: adds /api/v1/public/ to public paths
+Safer permission fallback (if Casbin errors/denies):
+internal/middleware/apiauth.go: infers required permission by method/path
+Public endpoints for your use cases:
+Latest/version download and info, and download by file ID
+Assets/others ZIP upload with strict naming and DB record
+internal/handler/handler.go
+Expanded policy mapping to cover new endpoints:
+internal/authz/casbin.go
+Next Steps
+
+If you have existing API keys, trigger a policy refresh:
+Use the admin API to “update” the key’s permissions (even without changes) to reapply policies, or run a small maintenance to call RemoveAllAPIKeyPolicies/CreateAPIKeyPolicies per key.
+Run the test script with your target IP(s) and API key to validate read/download/upload flows.

@@ -1,4 +1,4 @@
-const { createServer } = require('https')
+﻿const { createServer } = require('https')
 const { parse } = require('url')
 const next = require('next')
 const { createProxyMiddleware } = require('http-proxy-middleware')
@@ -48,7 +48,7 @@ app.prepare().then(() => {
       const parsedUrl = parse(req.url, true)
       const { pathname } = parsedUrl
 
-      // Handle API proxy - 直接转发所有 /api 开头的请求
+      // Handle API proxy - 直接转发所有/api 开头的请求
       if (pathname.startsWith('/api')) {
         console.log(`Proxying request: ${pathname}`)
         apiProxy(req, res)
