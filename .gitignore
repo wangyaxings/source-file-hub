@@ -243,3 +243,6 @@ data/fileserver.db-shm
 data/fileserver.db-wal
 main
 logs.db
+
+# 构建输出  
+dist/
