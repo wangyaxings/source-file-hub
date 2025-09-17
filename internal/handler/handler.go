@@ -17,6 +17,7 @@ import (
 
 	"secure-file-hub/internal/application/usecases"
 	"secure-file-hub/internal/auth"
+	"secure-file-hub/internal/apikey"
 	"secure-file-hub/internal/authz"
 	"secure-file-hub/internal/database"
 	"secure-file-hub/internal/domain/entities"
@@ -29,6 +30,7 @@ import (
 
 	ab "github.com/aarondl/authboss/v3"
 	"github.com/gorilla/mux"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Global variables
@@ -1512,16 +1514,373 @@ func getActor(r *http.Request) string {
 
 // RegisterWebAdminRoutes registers admin-specific routes
 func RegisterWebAdminRoutes(router *mux.Router) {
-	// Admin routes - these would be implemented based on your admin requirements
-	// For now, just add a placeholder to avoid compilation error
+    // Mount under /admin with admin privilege guard
+    admin := router.PathPrefix("/admin").Subrouter()
+    admin.Use(middleware.RequireAdminAuth)
 
-	// Example admin routes (uncomment and implement as needed):
-	// router.HandleFunc("/admin/users", middleware.RequireAdminAuth(adminListUsersHandler)).Methods("GET")
-	// router.HandleFunc("/admin/analytics", middleware.RequireAdminAuth(adminAnalyticsHandler)).Methods("GET")
-	// router.HandleFunc("/admin/logs", middleware.RequireAdminAuth(adminLogsHandler)).Methods("GET")
+    // API Keys
+    admin.HandleFunc("/api-keys", adminListAPIKeysHandler).Methods("GET")
+    admin.HandleFunc("/api-keys", adminCreateAPIKeyHandler).Methods("POST")
+    admin.HandleFunc("/api-keys/{id}", adminUpdateAPIKeyHandler).Methods("PUT")
+    admin.HandleFunc("/api-keys/{id}", adminDeleteAPIKeyHandler).Methods("DELETE")
+    admin.HandleFunc("/api-keys/{id}/status", adminUpdateAPIKeyStatusHandler).Methods("PATCH")
 
-	log.Printf("Admin routes registered (placeholder implementation)")
+    // Usage logs
+    admin.HandleFunc("/usage/logs", adminUsageLogsHandler).Methods("GET")
+
+    // Users
+    admin.HandleFunc("/users", adminListUsersHandler).Methods("GET")
+    admin.HandleFunc("/users", adminCreateUserHandler).Methods("POST")
+    admin.HandleFunc("/users/{id}", adminPatchUserHandler).Methods("PATCH")
+    admin.HandleFunc("/users/{id}/approve", adminApproveUserHandler).Methods("POST")
+    admin.HandleFunc("/users/{id}/suspend", adminSuspendUserHandler).Methods("POST")
+    admin.HandleFunc("/users/{id}/2fa/enable", adminEnable2FAHandler).Methods("POST")
+    admin.HandleFunc("/users/{id}/2fa/disable", adminDisable2FAHandler).Methods("POST")
+    admin.HandleFunc("/users/{id}/reset-password", adminResetPasswordHandler).Methods("POST")
+
+    log.Printf("Admin routes registered")
 }
+
+// =========================
+// Admin: API Keys Handlers
+// =========================
+
+func adminListAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+        return
+    }
+    keys, err := db.GetAllAPIKeys()
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+        "keys":  keys,
+        "count": len(keys),
+    }})
+}
+
+func adminCreateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
+    var req struct {
+        Name        string   `json:"name"`
+        Description string   `json:"description"`
+        Role        string   `json:"role"`
+        Permissions []string `json:"permissions"`
+        ExpiresAt   string   `json:"expires_at"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+        return
+    }
+    if req.Name == "" || req.Role == "" {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "name and role are required")
+        return
+    }
+    if !apikey.ValidatePermissions(req.Permissions) {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid permissions")
+        return
+    }
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+        return
+    }
+
+    // Generate key
+    fullKey, keyHash, err := apikey.GenerateAPIKey("sk")
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to generate API key")
+        return
+    }
+
+    var expiresAtPtr *time.Time
+    if strings.TrimSpace(req.ExpiresAt) != "" {
+        if t, err := time.Parse(time.RFC3339, req.ExpiresAt); err == nil {
+            expiresAtPtr = &t
+        }
+    }
+
+    rec := &database.APIKey{
+        ID:          apikey.GenerateAPIKeyID(),
+        Name:        req.Name,
+        Description: req.Description,
+        KeyHash:     keyHash,
+        Role:        req.Role,
+        Permissions: req.Permissions,
+        Status:      "active",
+        ExpiresAt:   expiresAtPtr,
+        UsageCount:  0,
+    }
+    if err := db.CreateAPIKey(rec); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save API key")
+        return
+    }
+    // Create casbin policies for this key
+    _ = authz.CreateAPIKeyPolicies(rec.ID, rec.Permissions)
+
+    // Return the plaintext key only once
+    rec.Key = fullKey
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+        "api_key":     rec,
+        "download_url": "",
+    }})
+}
+
+func adminUpdateAPIKeyStatusHandler(w http.ResponseWriter, r *http.Request) {
+    id := mux.Vars(r)["id"]
+    var req struct{ Status string `json:"status"` }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil || id == "" || req.Status == "" {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id and status required")
+        return
+    }
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+        return
+    }
+    if err := db.UpdateAPIKeyStatus(id, req.Status); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "status updated"})
+}
+
+func adminUpdateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
+    id := mux.Vars(r)["id"]
+    if id == "" { writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required"); return }
+    var req struct {
+        Name        *string  `json:"name"`
+        Description *string  `json:"description"`
+        Permissions *[]string `json:"permissions"`
+        ExpiresAt   *string  `json:"expires_at"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+        return
+    }
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+
+    var expiresAt *time.Time
+    clearExpiry := false
+    if req.ExpiresAt != nil {
+        if strings.TrimSpace(*req.ExpiresAt) == "" {
+            clearExpiry = true
+        } else if t, err := time.Parse(time.RFC3339, *req.ExpiresAt); err == nil {
+            expiresAt = &t
+        }
+    }
+
+    if req.Permissions != nil {
+        if !apikey.ValidatePermissions(*req.Permissions) {
+            writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid permissions")
+            return
+        }
+    }
+
+    if err := db.UpdateAPIKeyFields(id, req.Name, req.Description, req.Permissions, expiresAt, clearExpiry); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+        return
+    }
+    if req.Permissions != nil {
+        _ = authz.RemoveAllAPIKeyPolicies(id)
+        _ = authz.CreateAPIKeyPolicies(id, *req.Permissions)
+    }
+    // Return updated record
+    rec, err := db.GetAPIKeyByID(id)
+    if err != nil {
+        writeJSONResponse(w, http.StatusOK, Response{Success: true})
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"api_key": rec}})
+}
+
+func adminDeleteAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
+    id := mux.Vars(r)["id"]
+    if id == "" { writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required"); return }
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    _ = authz.RemoveAllAPIKeyPolicies(id)
+    if err := db.DeleteAPIKey(id); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+        return
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "deleted"})
+}
+
+func adminUsageLogsHandler(w http.ResponseWriter, r *http.Request) {
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    q := r.URL.Query()
+    limit, _ := strconv.Atoi(q.Get("limit"))
+    if limit <= 0 || limit > 1000 { limit = 100 }
+    logs, err := db.GetAPIUsageLogs("", "", limit, 0)
+    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"logs": logs, "count": len(logs)}})
+}
+
+// ======================
+// Admin: Users Handlers
+// ======================
+
+func adminListUsersHandler(w http.ResponseWriter, r *http.Request) {
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    users, err := db.ListUsers()
+    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
+
+    q := strings.TrimSpace(r.URL.Query().Get("q"))
+    statusFilter := strings.TrimSpace(r.URL.Query().Get("status"))
+    page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+    limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+    if page <= 0 { page = 1 }
+    if limit <= 0 { limit = 20 }
+
+    type row struct {
+        UserID    string `json:"user_id"`
+        Email     string `json:"email,omitempty"`
+        Role      string `json:"role"`
+        Status    string `json:"status"`
+        TwoFA     bool   `json:"two_fa"`
+        LastLogin string `json:"last_login,omitempty"`
+    }
+
+    list := make([]row, 0, len(users))
+    for _, u := range users {
+        ur, _ := db.GetUserRole(u.Username)
+        r := row{UserID: u.Username, Email: u.Email, Role: u.Role, Status: "active", TwoFA: u.TwoFAEnabled}
+        if ur != nil && ur.Status != "" { r.Status = ur.Status }
+        if u.LastLoginAt != nil { r.LastLogin = u.LastLoginAt.Format(time.RFC3339) }
+        if q != "" && !(strings.Contains(strings.ToLower(r.UserID), strings.ToLower(q)) || strings.Contains(strings.ToLower(r.Email), strings.ToLower(q))) { continue }
+        if statusFilter != "" && statusFilter != "all" && r.Status != statusFilter { continue }
+        list = append(list, r)
+    }
+    total := len(list)
+    start := (page-1)*limit
+    if start > total { start = total }
+    end := start + limit
+    if end > total { end = total }
+    paged := list[start:end]
+
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+        "users": paged,
+        "count": total,
+        "total": total,
+        "page":  page,
+        "limit": limit,
+    }})
+}
+
+func adminCreateUserHandler(w http.ResponseWriter, r *http.Request) {
+    var req struct {
+        Username  string `json:"username"`
+        Email     string `json:"email"`
+        Role      string `json:"role"`
+        MustReset bool   `json:"must_reset"`
+    }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "username required")
+        return
+    }
+    if req.Role == "" { req.Role = "viewer" }
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    if _, err := db.GetUser(req.Username); err == nil {
+        writeErrorWithCode(w, http.StatusBadRequest, "CONFLICT", "user already exists")
+        return
+    }
+    // Generate a temporary password
+    tmp, _ := apikey.GenerateRandomString(16)
+    // Create user
+    // Hash password
+    hashed, _ := bcrypt.GenerateFromPassword([]byte(tmp), bcrypt.DefaultCost)
+    if err := db.CreateUser(&database.AppUser{Username: req.Username, Email: req.Email, PasswordHash: string(hashed), Role: req.Role}); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+        return
+    }
+    // Set initial role record with pending status
+    _ = db.CreateOrUpdateUserRole(&database.UserRole{UserID: req.Username, Role: req.Role, Status: "pending", QuotaDaily: -1, QuotaMonthly: -1})
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+        "initial_password": tmp,
+    }})
+}
+
+func adminApproveUserHandler(w http.ResponseWriter, r *http.Request) {
+    username := mux.Vars(r)["id"]
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    ur, _ := db.GetUserRole(username)
+    if ur == nil { ur = &database.UserRole{UserID: username, Role: "viewer"} }
+    ur.Status = "active"
+    if err := db.CreateOrUpdateUserRole(ur); err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true})
+}
+
+func adminSuspendUserHandler(w http.ResponseWriter, r *http.Request) {
+    username := mux.Vars(r)["id"]
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    ur, _ := db.GetUserRole(username)
+    if ur == nil { ur = &database.UserRole{UserID: username, Role: "viewer"} }
+    ur.Status = "suspended"
+    if err := db.CreateOrUpdateUserRole(ur); err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true})
+}
+
+func adminEnable2FAHandler(w http.ResponseWriter, r *http.Request) {
+    username := mux.Vars(r)["id"]
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    if err := db.SetUser2FA(username, true, ""); err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true})
+}
+
+func adminDisable2FAHandler(w http.ResponseWriter, r *http.Request) {
+    username := mux.Vars(r)["id"]
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    if err := db.SetUser2FA(username, false, ""); err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true})
+}
+
+func adminResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
+    username := mux.Vars(r)["id"]
+    if username == "" { writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required"); return }
+    tmp, _ := apikey.GenerateRandomString(16)
+    if err := auth.SetPassword(username, tmp); err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"username": username, "temporary_password": tmp}})
+}
+
+func adminPatchUserHandler(w http.ResponseWriter, r *http.Request) {
+    username := mux.Vars(r)["id"]
+    if username == "" { writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required"); return }
+    var req struct { Role *string `json:"role"`; TwoFAEnabled *bool `json:"twofa_enabled"`; Reset2FA *bool `json:"reset_2fa"` }
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil { writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body"); return }
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    // Update role in both tables
+    if req.Role != nil {
+        appUser, err := db.GetUser(username)
+        if err == nil {
+            appUser.Role = *req.Role
+            _ = db.UpdateUser(appUser)
+        }
+        ur, _ := db.GetUserRole(username)
+        if ur == nil { ur = &database.UserRole{UserID: username} }
+        ur.Role = *req.Role
+        _ = db.CreateOrUpdateUserRole(ur)
+    }
+    if req.TwoFAEnabled != nil {
+        _ = db.SetUser2FA(username, *req.TwoFAEnabled, "")
+    }
+    if req.Reset2FA != nil && *req.Reset2FA {
+        _ = db.SetUser2FA(username, false, "")
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true})
+}
+
 
 // checkPermissionHandler checks if the current user has a specific permission
 func checkPermissionHandler(w http.ResponseWriter, r *http.Request) {
@@ -1548,25 +1907,21 @@ func checkPermissionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check permission using Casbin
-	allowed, err := authz.CheckPermission(user.Role, req.Resource, req.Action)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check permission")
-		return
-	}
+    // Check permission using Casbin
+    allowed, err := authz.CheckPermission(user.Role, req.Resource, req.Action)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check permission")
+        return
+    }
 
-	response := Response{
-		Success: true,
-		Message: "Permission check completed",
-		Data: map[string]interface{}{
-			"allowed":  allowed,
-			"resource": req.Resource,
-			"action":   req.Action,
-			"role":     user.Role,
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
+    // Frontend expects top-level fields: { success, allowed, resource, action, role }
+    writeJSONResponse(w, http.StatusOK, map[string]interface{}{
+        "success":  true,
+        "allowed":  allowed,
+        "resource": req.Resource,
+        "action":   req.Action,
+        "role":     user.Role,
+    })
 }
 
 // checkMultiplePermissionsHandler checks multiple permissions at once
@@ -1596,33 +1951,26 @@ func checkMultiplePermissionsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results := make([]map[string]interface{}, 0, len(req.Permissions))
+    // Build mapping result: "<resource>:<action>" => allowed (boolean)
+    resultMap := make(map[string]bool, len(req.Permissions))
 
-	// Check each permission
-	for _, perm := range req.Permissions {
-		allowed, err := authz.CheckPermission(user.Role, perm.Resource, perm.Action)
-		if err != nil {
-			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check permission")
-			return
-		}
+    // Check each permission
+    for _, perm := range req.Permissions {
+        allowed, err := authz.CheckPermission(user.Role, perm.Resource, perm.Action)
+        if err != nil {
+            writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check permission")
+            return
+        }
+        key := perm.Resource + ":" + perm.Action
+        resultMap[key] = allowed
+    }
 
-		results = append(results, map[string]interface{}{
-			"resource": perm.Resource,
-			"action":   perm.Action,
-			"allowed":  allowed,
-		})
-	}
-
-	response := Response{
-		Success: true,
-		Message: "Multiple permission check completed",
-		Data: map[string]interface{}{
-			"results": results,
-			"role":    user.Role,
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
+    // Frontend expects: { success, results: {"/path:METHOD": bool}, role }
+    writeJSONResponse(w, http.StatusOK, map[string]interface{}{
+        "success": true,
+        "results": resultMap,
+        "role":    user.Role,
+    })
 }
 
 // apiListPackagesHandler lists packages (API endpoint)
