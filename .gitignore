@@ -244,5 +244,8 @@ data/fileserver.db-wal
 main
 logs.db
 
-# 构建输出  
+# 构建输出
 dist/
+
+# 忽略bundle文件夹
+bundle/*

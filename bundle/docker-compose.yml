@@ -1,0 +1,75 @@
+services:
+  backend:
+    image: secure-file-hub-backend:bundle
+    container_name: secure-file-hub-backend
+    ports:
+      - "8444:8443"
+    environment:
+      - GO_ENV=production
+      - DISABLE_HTTPS_REDIRECT=true
+      - DB_PATH=/app/data/fileserver.db
+      - AUTHBOSS_ROOT_URL=https://localhost:8444
+    volumes:
+      - ./data:/app/data
+      - ./downloads:/app/downloads
+      - ./logs:/app/logs
+      - ./configs:/app/configs:ro
+      - ./certs:/app/certs:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f -k https://localhost:8443/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - fileserver-network
+
+  frontend:
+    image: secure-file-hub-frontend:bundle
+    container_name: secure-file-hub-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - fileserver-network
+
+  proxy:
+    image: caddy:2-alpine
+    container_name: secure-file-hub-proxy
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    ports:
+      - "30000:30000"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f -k https://localhost:30000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - fileserver-network
+
+networks:
+  fileserver-network:
+    driver: bridge

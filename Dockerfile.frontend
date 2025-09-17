@@ -1,4 +1,4 @@
-# ================================
+﻿# ================================
 # Secure File Hub - Frontend Image (Next.js)
 # Best-practice multi-stage build, HTTPS Next server with API proxy
 # ================================
@@ -24,7 +24,6 @@ RUN yarn config set network-timeout 600000 \
 COPY frontend/ ./
 RUN yarn build \
     && rm -rf node_modules \
-    && yarn install --production --frozen-lockfile --prefer-offline \
     && yarn cache clean
 
 # ================================
@@ -43,26 +42,22 @@ RUN apk add --no-cache dumb-init curl \
     && mkdir -p /app/frontend /app/certs \
     && chown -R appuser:appgroup /app
 
-# Copy build output
+# Copy only standalone output (no node_modules)
 COPY --from=builder --chown=appuser:appgroup /build/.next/standalone /app/frontend/
 COPY --from=builder --chown=appuser:appgroup /build/.next/static /app/frontend/.next/static/
-COPY --from=builder --chown=appuser:appgroup /build/server.js /app/frontend/
-COPY --from=builder --chown=appuser:appgroup /build/package.json /app/frontend/
-COPY --from=builder --chown=appuser:appgroup /build/node_modules /app/frontend/node_modules/
 
 ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
     NODE_TLS_REJECT_UNAUTHORIZED=0 \
-    PORT=30000 \
-    HOSTNAME=0.0.0.0 \
-    # default internal backend URL; override in compose if needed
-    BACKEND_URL=https://backend:8443
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
 
-EXPOSE 30000
+EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f -k https://localhost:30000 >/dev/null
+    CMD curl -f http://localhost:3000 >/dev/null
 
 USER appuser
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-# Ensure Next.js resolves project from /app/frontend
+# Run Next standalone server
 WORKDIR /app/frontend
 CMD ["node", "server.js"]
