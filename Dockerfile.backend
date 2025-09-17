@@ -1,0 +1,85 @@
+# ================================
+# Secure File Hub - Backend Image (Go)
+# Best-practice multi-stage build, HTTPS-only backend
+# ================================
+
+FROM golang:1.23-alpine AS builder
+
+LABEL maintainer="Secure File Hub Team"
+LABEL description="Secure File Hub - Backend Builder"
+
+WORKDIR /build
+
+# Build dependencies
+RUN apk add --no-cache git ca-certificates tzdata \
+    && apk add --no-cache --virtual .build-deps gcc musl-dev
+
+# Go modules
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+
+# Source
+COPY cmd/ cmd/
+COPY internal/ internal/
+
+# Build backend (CGO enabled for SQLite compatibility if needed)
+ARG VERSION=dev
+ARG BUILD_TIME=unknown
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -trimpath \
+    -ldflags "-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" \
+    -o fileserver \
+    cmd/server/main.go
+
+RUN apk del .build-deps || true
+
+# ================================
+# Runtime image
+# ================================
+FROM alpine:3.18 AS runtime
+
+LABEL maintainer="Secure File Hub Team"
+LABEL description="Secure File Hub - Backend Runtime"
+
+WORKDIR /app
+
+# Minimal runtime deps
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    curl \
+    dumb-init \
+    libgcc \
+    sqlite \
+    && rm -rf /var/cache/apk/* /tmp/*
+
+# Non-root user
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -D -u 1001 -G appgroup -s /sbin/nologin -S appuser
+
+# App dirs (mounted as volumes by compose)
+RUN mkdir -p /app/data /app/downloads /app/logs /app/configs /app/certs \
+    && chown -R appuser:appgroup /app
+
+# Copy binary
+COPY --from=builder --chown=appuser:appgroup /build/fileserver /app/fileserver
+RUN chmod +x /app/fileserver
+
+# Environment
+ENV GO_ENV=production \
+    DISABLE_HTTPS_REDIRECT=true \
+    DB_PATH=/app/data/fileserver.db \
+    AUTHBOSS_ROOT_URL=https://localhost:8443
+
+# Volumes (for docs and safe defaults)
+VOLUME ["/app/data", "/app/logs", "/app/downloads", "/app/configs", "/app/certs"]
+
+# Ports and health
+EXPOSE 8443
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f -k https://localhost:8443/api/v1/health >/dev/null
+
+USER appuser
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["/app/fileserver"]
+

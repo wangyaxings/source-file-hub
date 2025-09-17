@@ -1,68 +1,74 @@
-# version: '3.8'  # Removed as it's obsolete in newer Docker Compose
-
 services:
-  # Secure File Hub - Production Container
-  # 前后端合并部署，数据库和日志文件外部挂载
-  fileserver:
-    # 使用预构建的镜像（从 GitHub Container Registry 拉取）
-    image: ghcr.io/${GITHUB_REPOSITORY:-wangyaxings/source-file-hub}:latest
-    container_name: secure-file-hub
-
-    # 端口映射
+  # =====================
+  # Backend (Go, HTTPS)
+  # =====================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      args:
+        - VERSION=${VERSION:-dev}
+        - BUILD_TIME=${BUILD_TIME:-local}
+    image: secure-file-hub-backend:latest
+    container_name: secure-file-hub-backend
     ports:
-      - "30000:30000"   # Frontend port (Web界面)
-      - "8444:8443"     # Backend HTTPS port (API Key外部访问)
-
-    # 持久化卷 - 数据库和日志文件外部挂载
-    volumes:
-      # 应用数据 - 挂载到主机目录（包含数据库文件）
-      - ./data:/app/data
-      # 下载文件 - 挂载到主机目录
-      - ./downloads:/app/downloads
-      # 日志文件 - 挂载到主机目录
-      - ./logs:/app/logs
-
-      # 配置文件（只读挂载）
-      - ./configs:/app/configs:ro
-      # SSL证书（只读挂载）
-      - ./certs:/app/certs:ro
-
-    # 环境变量
+      - "8444:8443"   # Backend HTTPS exposed as 8444 on host
     environment:
-      - NODE_ENV=production
       - GO_ENV=production
-      - NODE_TLS_REJECT_UNAUTHORIZED=0
       - DISABLE_HTTPS_REDIRECT=true
-
-      # 数据库配置
       - DB_PATH=/app/data/fileserver.db
-
-      # 前端配置
-      - PORT=30000
-      - HOSTNAME=0.0.0.0
-      - NEXT_PUBLIC_API_URL=http://localhost:30000
-
-      # 后端配置
-      - BACKEND_URL=https://localhost:8443
-      # 外部API访问地址（用于API Key调用）
-      - EXTERNAL_API_URL=https://localhost:8444
-      # Authboss 配置
-      - AUTHBOSS_ROOT_URL=https://localhost:8443
-
-    # 重启策略
+      - AUTHBOSS_ROOT_URL=https://localhost:8444
+    volumes:
+      - ./data:/app/data
+      - ./downloads:/app/downloads
+      - ./logs:/app/logs
+      - ./configs:/app/configs:ro
+      - ./certs:/app/certs:ro
     restart: unless-stopped
-
-    # 资源限制 (兼容旧版本 docker-compose)
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: '1.0'
-
-    # 健康检查
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f -k https://localhost:8443/api/v1/health && curl -f http://localhost:30000"]
+      test: ["CMD", "sh", "-c", "curl -f -k https://localhost:8443/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 30s
+    networks:
+      - fileserver-network
+
+  # =====================
+  # Frontend (Next.js)
+  # =====================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: secure-file-hub-frontend:latest
+    container_name: secure-file-hub-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "30000:30000"  # Web UI
+    environment:
+      - NODE_ENV=production
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - PORT=30000
+      - HOSTNAME=0.0.0.0
+      # point API proxy to backend service name over Docker network
+      - BACKEND_URL=https://backend:8443
+    volumes:
+      # Only frontend needs certs for HTTPS serving
+      - ./certs:/app/certs:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f -k https://localhost:30000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - fileserver-network
+
+networks:
+  fileserver-network:
+    driver: bridge
+

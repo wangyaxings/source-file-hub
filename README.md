@@ -195,6 +195,17 @@ docker pull ghcr.io/wangyaxings/source-file-hub:latest
 docker-compose up -d
 ```
 
+### Frontend/Backend Split (Best Practice)
+
+- New compose with two services: `backend` (Go, HTTPS) and `frontend` (Next.js, HTTPS + API proxy).
+- Build and run locally:
+
+```bash
+docker-compose up -d --build
+```
+
+See docs at `docs/docker-split-deployment.md` for details.
+
 ### Building Locally
 
 ```bash
