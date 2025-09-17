@@ -93,6 +93,11 @@ func isPublicEndpoint(path string) bool {
 		return true
 	}
 
+	// Public API 前缀：交由 APIKeyAuthMiddleware 处理
+	if strings.HasPrefix(path, "/api/v1/public/") {
+		return true
+	}
+
 	// 静态文件
 	if strings.HasPrefix(path, "/static/") {
 		return true

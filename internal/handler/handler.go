@@ -2028,21 +2028,219 @@ func RegisterAPIRoutes(router *mux.Router) {
 	apiRouter.HandleFunc("/health", healthCheckHandler).Methods("GET")
 	apiRouter.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
 
-	// Public API routes with API key authentication
-	publicAPI := apiRouter.PathPrefix("/public").Subrouter()
+    // Public API routes with API key authentication
+    publicAPI := apiRouter.PathPrefix("/public").Subrouter()
 
-	// File management endpoints with API key authentication
-	publicAPI.Handle("/files/upload", middleware.APIKeyAuthMiddleware(http.HandlerFunc(uploadFileHandler))).Methods("POST")
-	publicAPI.Handle("/files", middleware.APIKeyAuthMiddleware(http.HandlerFunc(listFilesHandler))).Methods("GET")
-	publicAPI.Handle("/files/{id}/download", middleware.APIKeyAuthMiddleware(http.HandlerFunc(downloadFileHandler))).Methods("GET")
-	publicAPI.Handle("/files/{id}", middleware.APIKeyAuthMiddleware(http.HandlerFunc(deleteFileHandler))).Methods("DELETE")
-	publicAPI.Handle("/files/{id}/restore", middleware.APIKeyAuthMiddleware(http.HandlerFunc(restoreFileHandler))).Methods("POST")
+    // File management endpoints with API key authentication
+    publicAPI.Handle("/files/upload", middleware.APIKeyAuthMiddleware(http.HandlerFunc(uploadFileHandler))).Methods("POST")
+    publicAPI.Handle("/files", middleware.APIKeyAuthMiddleware(http.HandlerFunc(listFilesHandler))).Methods("GET")
+    publicAPI.Handle("/files/{id}/download", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiDownloadFileByIDHandler))).Methods("GET")
+    publicAPI.Handle("/files/{id}", middleware.APIKeyAuthMiddleware(http.HandlerFunc(deleteFileHandler))).Methods("DELETE")
+    publicAPI.Handle("/files/{id}/restore", middleware.APIKeyAuthMiddleware(http.HandlerFunc(restoreFileHandler))).Methods("POST")
 
-	// Package management endpoints with API key authentication
-	publicAPI.Handle("/packages", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
-	publicAPI.Handle("/packages/{id}/remark", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
+    // Latest version helpers for roadmap/recommendation
+    publicAPI.Handle("/versions/{type}/latest", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiGetLatestVersionInfoHandler))).Methods("GET")
+    publicAPI.Handle("/versions/{type}/latest/download", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiDownloadLatestByTypeHandler))).Methods("GET")
+
+    // Package management endpoints with API key authentication
+    publicAPI.Handle("/packages", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
+    publicAPI.Handle("/packages/{id}/remark", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
+
+    // Public uploads: assets / others ZIPs
+    publicAPI.Handle("/upload/assets-zip", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUploadAssetsZipHandler))).Methods("POST")
+    publicAPI.Handle("/upload/others-zip", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUploadOthersZipHandler))).Methods("POST")
 
 	log.Printf("Public API routes registered with API key authentication")
+}
+
+// apiDownloadFileByIDHandler downloads a file by database ID (public API)
+func apiDownloadFileByIDHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    id := vars["id"]
+    if strings.TrimSpace(id) == "" {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required")
+        return
+    }
+    db := database.GetDatabase()
+    if db == nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+        return
+    }
+    rec, err := db.GetFileRecordByID(id)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found")
+        return
+    }
+    if rec.Status == database.FileStatusPurged || !rec.FileExists {
+        writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not available")
+        return
+    }
+    // Serve the file
+    fullPath := rec.FilePath
+    if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+        writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File content missing")
+        return
+    }
+    f, err := os.Open(fullPath)
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file")
+        return
+    }
+    defer f.Close()
+    fi, err := f.Stat()
+    if err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot stat file")
+        return
+    }
+    name := filepath.Base(rec.FilePath)
+    w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
+    w.Header().Set("Content-Type", getContentType(name))
+    w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
+    w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+    w.Header().Set("Pragma", "no-cache")
+    w.Header().Set("Expires", "0")
+    if _, err := io.Copy(w, f); err != nil {
+        log.Printf("download by id failed: %v", err)
+        return
+    }
+}
+
+// apiGetLatestVersionInfoHandler returns JSON info for the latest roadmap/recommendation
+func apiGetLatestVersionInfoHandler(w http.ResponseWriter, r *http.Request) {
+    t := strings.ToLower(mux.Vars(r)["type"])
+    if t != "roadmap" && t != "recommendation" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
+        return
+    }
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    items, err := db.GetFilesByType(t, false)
+    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
+    var latest *database.FileRecord
+    for i := range items {
+        if items[i].IsLatest && items[i].Status == database.FileStatusActive { latest = &items[i]; break }
+    }
+    if latest == nil && len(items) > 0 {
+        // Fallback: pick highest version active file
+        for i := range items {
+            if items[i].Status != database.FileStatusActive { continue }
+            if latest == nil || items[i].Version > latest.Version { latest = &items[i] }
+        }
+    }
+    if latest == nil { writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "No file found"); return }
+    info := convertToFileInfo(*latest)
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"latest": info}})
+}
+
+// apiDownloadLatestByTypeHandler streams the latest roadmap/recommendation file
+func apiDownloadLatestByTypeHandler(w http.ResponseWriter, r *http.Request) {
+    t := strings.ToLower(mux.Vars(r)["type"])
+    if t != "roadmap" && t != "recommendation" {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
+        return
+    }
+    db := database.GetDatabase()
+    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+    items, err := db.GetFilesByType(t, false)
+    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
+    var latest *database.FileRecord
+    for i := range items {
+        if items[i].IsLatest && items[i].Status == database.FileStatusActive { latest = &items[i]; break }
+    }
+    if latest == nil && len(items) > 0 {
+        for i := range items {
+            if items[i].Status != database.FileStatusActive { continue }
+            if latest == nil || items[i].Version > latest.Version { latest = &items[i] }
+        }
+    }
+    if latest == nil { writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "No file found"); return }
+    // Stream
+    f, err := os.Open(latest.FilePath)
+    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file"); return }
+    defer f.Close()
+    fi, err := f.Stat(); if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot stat file"); return }
+    name := filepath.Base(latest.FilePath)
+    w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
+    w.Header().Set("Content-Type", getContentType(name))
+    w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
+    w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+    w.Header().Set("Pragma", "no-cache")
+    w.Header().Set("Expires", "0")
+    _, _ = io.Copy(w, f)
+}
+
+// apiUploadAssetsZipHandler handles public upload of assets zip
+func apiUploadAssetsZipHandler(w http.ResponseWriter, r *http.Request) { apiUploadZipHandler(w, r, "assets") }
+
+// apiUploadOthersZipHandler handles public upload of others zip
+func apiUploadOthersZipHandler(w http.ResponseWriter, r *http.Request) { apiUploadZipHandler(w, r, "others") }
+
+// apiUploadZipHandler saves <tenant>_{kind}_<UTC>.zip into downloads/packages/<tenant>/<kind>/
+func apiUploadZipHandler(w http.ResponseWriter, r *http.Request, kind string) {
+    if kind != "assets" && kind != "others" {
+        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid kind")
+        return
+    }
+    // Parse form
+    if err := r.ParseMultipartForm(128 << 20); err != nil {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to parse form", map[string]interface{}{"field": "form", "error": err.Error()})
+        return
+    }
+    file, header, err := r.FormFile("file")
+    if err != nil { writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Missing file", map[string]interface{}{"field": "file"}); return }
+    defer file.Close()
+    if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "Only .zip is allowed", map[string]interface{}{"filename": header.Filename})
+        return
+    }
+    // Validate filename pattern
+    name := header.Filename
+    parts := strings.Split(name, "_")
+    if len(parts) != 3 {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Filename must be <tenant>_"+kind+"_<UTC>.zip", map[string]interface{}{"filename": name})
+        return
+    }
+    tenant := parts[0]
+    mid := strings.ToLower(parts[1])
+    tsPart := strings.TrimSuffix(parts[2], ".zip")
+    if tenant == "" || mid != kind {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Filename segment mismatch", map[string]interface{}{"filename": name, "expected_mid": kind})
+        return
+    }
+    // UTC format YYYYMMDDThhmmssZ
+    if len(tsPart) != 16 || tsPart[8] != 'T' || tsPart[15] != 'Z' {
+        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "UTC segment must be YYYYMMDDThhmmssZ", map[string]interface{}{"utc": tsPart})
+        return
+    }
+    // Create directories
+    baseDir := filepath.Join("downloads", "packages", tenant, kind)
+    if err := os.MkdirAll(baseDir, 0755); err != nil {
+        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create directory")
+        return
+    }
+    targetPath := filepath.Join(baseDir, name)
+    out, err := os.Create(targetPath)
+    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create file"); return }
+    defer out.Close()
+    n, err := io.Copy(out, file)
+    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save file"); return }
+    // Save package record
+    db := database.GetDatabase()
+    if db != nil {
+        rec := &database.PackageRecord{
+            ID:        fmt.Sprintf("pkg_%d", time.Now().UnixNano()),
+            TenantID:  tenant,
+            Type:      kind,
+            FileName:  name,
+            Size:      n,
+            Path:      targetPath,
+            IP:        middleware.GetClientIP(r),
+            Timestamp: time.Now().UTC(),
+            Remark:    "uploaded via public API",
+        }
+        _ = db.InsertPackageRecord(rec)
+    }
+    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Upload successful", Data: map[string]interface{}{"file": name, "size": n, "tenant": tenant, "type": kind}})
 }
 
 // CleanupExpiredTempKeys cleans up expired temporary keys

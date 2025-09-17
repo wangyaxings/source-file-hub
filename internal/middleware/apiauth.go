@@ -85,22 +85,19 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Use Casbin to check permission for this specific request
-		allowed, err := authz.CheckAPIKeyPermission(apiKeyRecord.ID, r.URL.Path, r.Method)
-		if err != nil {
-			log.Printf("Warning: Casbin permission check failed: %v", err)
-			// For testing, fall back to simple permission check if Casbin fails
-			if !apikey.HasPermission(apiKeyRecord.Permissions, "read") {
-				writeAPIErrorResponse(w, http.StatusForbidden, "INSUFFICIENT_PERMISSIONS", "API key does not have permission for this operation")
-				return
-			}
-		} else if !allowed {
-			// If Casbin check succeeds but denies access, check fallback permissions
-			if !apikey.HasPermission(apiKeyRecord.Permissions, "read") {
-				writeAPIErrorResponse(w, http.StatusForbidden, "INSUFFICIENT_PERMISSIONS", "API key does not have permission for this operation")
-				return
-			}
-		}
+    // Use Casbin to check permission for this specific request
+    allowed, err := authz.CheckAPIKeyPermission(apiKeyRecord.ID, r.URL.Path, r.Method)
+    if err != nil || !allowed {
+        if err != nil {
+            log.Printf("Warning: Casbin permission check failed: %v", err)
+        }
+        // Fallback: infer required permission by method and path
+        required := inferRequiredPermission(r.Method, r.URL.Path)
+        if !apikey.HasPermission(apiKeyRecord.Permissions, required) {
+            writeAPIErrorResponse(w, http.StatusForbidden, "INSUFFICIENT_PERMISSIONS", "API key does not have required permission: "+required)
+            return
+        }
+    }
 
 		// Create permission checker function (for backward compatibility)
 		hasPermission := func(permission string) bool {
@@ -179,12 +176,29 @@ func RequirePermission(permission string) func(http.Handler) http.Handler {
 
 // GetAPIAuthContext retrieves API auth context from request
 func GetAPIAuthContext(r *http.Request) *APIAuthContext {
-	if ctx := r.Context().Value(APIAuthContextKey); ctx != nil {
-		if authCtx, ok := ctx.(*APIAuthContext); ok {
-			return authCtx
-		}
-	}
-	return nil
+    if ctx := r.Context().Value(APIAuthContextKey); ctx != nil {
+        if authCtx, ok := ctx.(*APIAuthContext); ok {
+            return authCtx
+        }
+    }
+    return nil
+}
+
+// inferRequiredPermission provides a conservative fallback mapping from HTTP method/path to permission
+func inferRequiredPermission(method, path string) string {
+    m := strings.ToUpper(method)
+    switch m {
+    case http.MethodGet:
+        // Treat explicit downloads as download permission
+        if strings.Contains(path, "/download") || strings.HasPrefix(path, "/api/v1/public/files/") && !strings.HasSuffix(path, "/files") {
+            return "download"
+        }
+        return "read"
+    case http.MethodDelete:
+        return "delete"
+    default: // POST, PUT, PATCH
+        return "upload"
+    }
 }
 
 // APILoggingMiddleware logs API requests

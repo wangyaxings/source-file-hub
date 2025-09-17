@@ -195,16 +195,16 @@ func CheckAPIKeyPermission(apiKeyID, resource, action string) (bool, error) {
 
 // MapPermissionToResource maps API key permissions to resources and actions
 func MapPermissionToResource(permission string) ([]string, []string) {
-	switch permission {
-	case "read":
-		return []string{"/api/v1/public/files", "/api/v1/public/packages"}, []string{"GET"}
-	case "download":
-		return []string{"/api/v1/public/files/*"}, []string{"GET"}
-	case "upload":
-		return []string{"/api/v1/public/files/upload", "/api/v1/public/upload/*", "/api/v1/public/packages/*/remark"}, []string{"POST", "PATCH"}
-	case "delete":
-		return []string{"/api/v1/public/files/*"}, []string{"DELETE"}
-	case "admin":
+    switch permission {
+    case "read":
+        return []string{"/api/v1/public/files", "/api/v1/public/packages", "/api/v1/public/versions/*"}, []string{"GET"}
+    case "download":
+        return []string{"/api/v1/public/files/*", "/api/v1/public/versions/*/latest/download"}, []string{"GET"}
+    case "upload":
+        return []string{"/api/v1/public/files/upload", "/api/v1/public/upload/*", "/api/v1/public/packages/*/remark"}, []string{"POST", "PATCH"}
+    case "delete":
+        return []string{"/api/v1/public/files/*"}, []string{"DELETE"}
+    case "admin":
 		return []string{"/api/v1/public/*"}, []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 	default:
 		return []string{}, []string{}
