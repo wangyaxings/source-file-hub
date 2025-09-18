@@ -31,7 +31,7 @@ export function PackagesPanel() {
   const [items, setItems] = useState<PackageItem[]>([])
   const [count, setCount] = useState(0)
   const [page, setPage] = useState(1)
-  const [limit, setLimit] = useState(10)
+  const [limit, setLimit] = useState(50)
   const [tenant, setTenant] = useState("")
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [q, setQ] = useState("")
@@ -60,10 +60,11 @@ export function PackagesPanel() {
   const totalPages = useMemo(() => Math.max(1, Math.ceil(count / limit)), [count, limit])
 
   const handleUpload = async (kind: "assets" | "others") => {
+    if (!tenant.trim()) { alert('Tenant ID is required'); return }
     try {
       setIsUploading(true)
-      if (kind === "assets" && assetsFile) await apiClient.uploadAssetsZip(assetsFile)
-      if (kind === "others" && othersFile) await apiClient.uploadOthersZip(othersFile)
+      if (kind === "assets" && assetsFile) await apiClient.uploadAssetsZip(assetsFile, tenant.trim())
+      if (kind === "others" && othersFile) await apiClient.uploadOthersZip(othersFile, tenant.trim())
       setAssetsFile(null)
       setOthersFile(null)
       await fetchList()
@@ -106,6 +107,10 @@ export function PackagesPanel() {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid md:grid-cols-2 gap-6">
+          <div className="space-y-2 md:col-span-2">
+            <Label>Tenant ID (required for upload)</Label>
+            <Input placeholder="tenant id" value={tenant} onChange={e=>setTenant(e.target.value)} className="w-64" />
+          </div>
           <div className="space-y-2">
             <Label>Upload Assets ZIP</Label>
             <Input type="file" accept=".zip" onChange={(e) => setAssetsFile(e.target.files?.[0] || null)} />
@@ -113,7 +118,7 @@ export function PackagesPanel() {
               {isUploading ? <Loader2 className="h-4 w-4 animate-spin mr-2"/> : null}
               Upload Assets
             </Button>
-            <div className="text-xs text-gray-500">Filename must be &lt;tenant&gt;_assets_YYYYMMDDThhmmssZ.zip</div>
+            <div className="text-xs text-gray-500">Will upload to packages/&lt;tenant_id&gt;/assets/ ...</div>
           </div>
           <div className="space-y-2">
             <Label>Upload Others ZIP</Label>
@@ -122,7 +127,7 @@ export function PackagesPanel() {
               {isUploading ? <Loader2 className="h-4 w-4 animate-spin mr-2"/> : null}
               Upload Others
             </Button>
-            <div className="text-xs text-gray-500">Filename must be &lt;tenant&gt;_others_YYYYMMDDThhmmssZ.zip</div>
+            <div className="text-xs text-gray-500">Will upload to packages/&lt;tenant_id&gt;/others/ ...</div>
           </div>
         </CardContent>
       </Card>

@@ -557,18 +557,19 @@ func (d *Database) updateCasbinPolicies() error {
 	}
 
 	// Add missing policies
-	missingPolicies := []struct {
-		ptype string
-		v0    string
-		v1    string
-		v2    string
-	}{
-		{"p", "administrator", "/api/v1/web/auth/me", "GET"},
-		{"p", "viewer", "/api/v1/web/auth/me", "GET"},
-		{"p", "administrator", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
-		{"p", "viewer", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
-		{"p", "administrator", "admin", "access"}, // Admin access permission
-	}
+    missingPolicies := []struct {
+        ptype string
+        v0    string
+        v1    string
+        v2    string
+    }{
+        {"p", "administrator", "/api/v1/web/auth/me", "GET"},
+        {"p", "viewer", "/api/v1/web/auth/me", "GET"},
+        {"p", "administrator", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+        {"p", "viewer", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+        {"p", "administrator", "admin", "access"}, // Admin access permission
+        {"p", "administrator", "/api/v1/web/admin/*", "(GET|POST|PUT|PATCH|DELETE)"},
+    }
 
 	stmt, err := d.db.Prepare("INSERT INTO casbin_policies (ptype, v0, v1, v2) VALUES (?, ?, ?, ?)")
 	if err != nil {

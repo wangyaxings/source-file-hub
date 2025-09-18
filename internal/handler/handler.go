@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"secure-file-hub/internal/apikey"
 	"secure-file-hub/internal/application/usecases"
 	"secure-file-hub/internal/auth"
-	"secure-file-hub/internal/apikey"
 	"secure-file-hub/internal/authz"
 	"secure-file-hub/internal/database"
 	"secure-file-hub/internal/domain/entities"
@@ -84,6 +84,7 @@ func convertToFileInfo(record database.FileRecord) FileInfo {
 		IsLatest:     record.IsLatest,
 		Uploader:     record.Uploader,
 		Path:         record.FilePath,
+		Checksum:     record.Checksum,
 	}
 }
 
@@ -153,12 +154,23 @@ func RegisterRoutes(router *mux.Router) {
 	webFilesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
 
 	// Packages web endpoints (delegate to API handlers)
-	webAPI.HandleFunc("/packages", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
+	// Apply API logging middleware to web endpoints for usage tracking
+	webPackagesRouter := webAPI.PathPrefix("/packages").Subrouter()
+	webPackagesRouter.Use(middleware.APILoggingMiddleware)
+	webPackagesRouter.HandleFunc("", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
 		apiListPackagesHandler(w, r)
 	})).Methods("GET")
-	webAPI.HandleFunc("/packages/{id}/remark", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
+	webPackagesRouter.HandleFunc("/{id}/remark", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
 		apiUpdatePackageRemarkHandler(w, r)
 	})).Methods("PATCH")
+
+	// Web upload wrappers (session auth) -> require tenant_id in form and save
+	webAPI.HandleFunc("/packages/upload/assets-zip", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
+		apiUploadAssetsZipHandler(w, r)
+	})).Methods("POST")
+	webAPI.HandleFunc("/packages/upload/others-zip", middleware.RequireAuthorization(func(w http.ResponseWriter, r *http.Request) {
+		apiUploadOthersZipHandler(w, r)
+	})).Methods("POST")
 
 	// 其他业务路由...
 	RegisterWebAdminRoutes(webAPI)
@@ -632,6 +644,7 @@ type FileInfo struct {
 	Uploader     string    `json:"uploader"`
 	Path         string    `json:"path"`
 	VersionID    string    `json:"versionId,omitempty"`
+	Checksum     string    `json:"checksum,omitempty"`
 }
 
 // uploadFileHandler 鏂囦欢涓婁紶澶勭悊鍣?
@@ -1514,31 +1527,35 @@ func getActor(r *http.Request) string {
 
 // RegisterWebAdminRoutes registers admin-specific routes
 func RegisterWebAdminRoutes(router *mux.Router) {
-    // Mount under /admin with admin privilege guard
-    admin := router.PathPrefix("/admin").Subrouter()
-    admin.Use(middleware.RequireAdminAuth)
+	// Mount under /admin with admin privilege guard
+	admin := router.PathPrefix("/admin").Subrouter()
+	admin.Use(middleware.RequireAdminAuth)
 
-    // API Keys
-    admin.HandleFunc("/api-keys", adminListAPIKeysHandler).Methods("GET")
-    admin.HandleFunc("/api-keys", adminCreateAPIKeyHandler).Methods("POST")
-    admin.HandleFunc("/api-keys/{id}", adminUpdateAPIKeyHandler).Methods("PUT")
-    admin.HandleFunc("/api-keys/{id}", adminDeleteAPIKeyHandler).Methods("DELETE")
-    admin.HandleFunc("/api-keys/{id}/status", adminUpdateAPIKeyStatusHandler).Methods("PATCH")
+	// API Keys
+	admin.HandleFunc("/api-keys", adminListAPIKeysHandler).Methods("GET")
+	admin.HandleFunc("/api-keys", adminCreateAPIKeyHandler).Methods("POST")
+	admin.HandleFunc("/api-keys/{id}", adminUpdateAPIKeyHandler).Methods("PUT")
+	admin.HandleFunc("/api-keys/{id}", adminDeleteAPIKeyHandler).Methods("DELETE")
+	admin.HandleFunc("/api-keys/{id}/status", adminUpdateAPIKeyStatusHandler).Methods("PATCH")
 
-    // Usage logs
-    admin.HandleFunc("/usage/logs", adminUsageLogsHandler).Methods("GET")
+	// Usage logs
+	admin.HandleFunc("/usage/logs", adminUsageLogsHandler).Methods("GET")
 
-    // Users
-    admin.HandleFunc("/users", adminListUsersHandler).Methods("GET")
-    admin.HandleFunc("/users", adminCreateUserHandler).Methods("POST")
-    admin.HandleFunc("/users/{id}", adminPatchUserHandler).Methods("PATCH")
-    admin.HandleFunc("/users/{id}/approve", adminApproveUserHandler).Methods("POST")
-    admin.HandleFunc("/users/{id}/suspend", adminSuspendUserHandler).Methods("POST")
-    admin.HandleFunc("/users/{id}/2fa/enable", adminEnable2FAHandler).Methods("POST")
-    admin.HandleFunc("/users/{id}/2fa/disable", adminDisable2FAHandler).Methods("POST")
-    admin.HandleFunc("/users/{id}/reset-password", adminResetPasswordHandler).Methods("POST")
+	// Analytics overview
+	admin.HandleFunc("/analytics", adminAnalyticsHandler).Methods("GET")
+	admin.HandleFunc("/analytics/data", adminAnalyticsHandler).Methods("GET")
 
-    log.Printf("Admin routes registered")
+	// Users
+	admin.HandleFunc("/users", adminListUsersHandler).Methods("GET")
+	admin.HandleFunc("/users", adminCreateUserHandler).Methods("POST")
+	admin.HandleFunc("/users/{id}", adminPatchUserHandler).Methods("PATCH")
+	admin.HandleFunc("/users/{id}/approve", adminApproveUserHandler).Methods("POST")
+	admin.HandleFunc("/users/{id}/suspend", adminSuspendUserHandler).Methods("POST")
+	admin.HandleFunc("/users/{id}/2fa/enable", adminEnable2FAHandler).Methods("POST")
+	admin.HandleFunc("/users/{id}/2fa/disable", adminDisable2FAHandler).Methods("POST")
+	admin.HandleFunc("/users/{id}/reset-password", adminResetPasswordHandler).Methods("POST")
+
+	log.Printf("Admin routes registered")
 }
 
 // =========================
@@ -1546,179 +1563,257 @@ func RegisterWebAdminRoutes(router *mux.Router) {
 // =========================
 
 func adminListAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
-    db := database.GetDatabase()
-    if db == nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
-        return
-    }
-    keys, err := db.GetAllAPIKeys()
-    if err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-        return
-    }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
-        "keys":  keys,
-        "count": len(keys),
-    }})
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	keys, err := db.GetAllAPIKeys()
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+		"keys":  keys,
+		"count": len(keys),
+	}})
 }
 
 func adminCreateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
-    var req struct {
-        Name        string   `json:"name"`
-        Description string   `json:"description"`
-        Role        string   `json:"role"`
-        Permissions []string `json:"permissions"`
-        ExpiresAt   string   `json:"expires_at"`
-    }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
-        return
-    }
-    if req.Name == "" || req.Role == "" {
-        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "name and role are required")
-        return
-    }
-    if !apikey.ValidatePermissions(req.Permissions) {
-        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid permissions")
-        return
-    }
-    db := database.GetDatabase()
-    if db == nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
-        return
-    }
+	var req struct {
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Role        string   `json:"role"`
+		Permissions []string `json:"permissions"`
+		ExpiresAt   string   `json:"expires_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		return
+	}
+	if req.Name == "" || req.Role == "" {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "name and role are required")
+		return
+	}
+	if !apikey.ValidatePermissions(req.Permissions) {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid permissions")
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
 
-    // Generate key
-    fullKey, keyHash, err := apikey.GenerateAPIKey("sk")
-    if err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to generate API key")
-        return
-    }
+	// Generate key
+	fullKey, keyHash, err := apikey.GenerateAPIKey("sk")
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to generate API key")
+		return
+	}
 
-    var expiresAtPtr *time.Time
-    if strings.TrimSpace(req.ExpiresAt) != "" {
-        if t, err := time.Parse(time.RFC3339, req.ExpiresAt); err == nil {
-            expiresAtPtr = &t
-        }
-    }
+	var expiresAtPtr *time.Time
+	if strings.TrimSpace(req.ExpiresAt) != "" {
+		if t, err := time.Parse(time.RFC3339, req.ExpiresAt); err == nil {
+			expiresAtPtr = &t
+		}
+	}
 
-    rec := &database.APIKey{
-        ID:          apikey.GenerateAPIKeyID(),
-        Name:        req.Name,
-        Description: req.Description,
-        KeyHash:     keyHash,
-        Role:        req.Role,
-        Permissions: req.Permissions,
-        Status:      "active",
-        ExpiresAt:   expiresAtPtr,
-        UsageCount:  0,
-    }
-    if err := db.CreateAPIKey(rec); err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save API key")
-        return
-    }
-    // Create casbin policies for this key
-    _ = authz.CreateAPIKeyPolicies(rec.ID, rec.Permissions)
+	rec := &database.APIKey{
+		ID:          apikey.GenerateAPIKeyID(),
+		Name:        req.Name,
+		Description: req.Description,
+		KeyHash:     keyHash,
+		Role:        req.Role,
+		Permissions: req.Permissions,
+		Status:      "active",
+		ExpiresAt:   expiresAtPtr,
+		UsageCount:  0,
+	}
+	if err := db.CreateAPIKey(rec); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save API key")
+		return
+	}
+	// Create casbin policies for this key
+	_ = authz.CreateAPIKeyPolicies(rec.ID, rec.Permissions)
 
-    // Return the plaintext key only once
-    rec.Key = fullKey
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
-        "api_key":     rec,
-        "download_url": "",
-    }})
+	// Return the plaintext key only once
+	rec.Key = fullKey
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+		"api_key":      rec,
+		"download_url": "",
+	}})
 }
 
 func adminUpdateAPIKeyStatusHandler(w http.ResponseWriter, r *http.Request) {
-    id := mux.Vars(r)["id"]
-    var req struct{ Status string `json:"status"` }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil || id == "" || req.Status == "" {
-        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id and status required")
-        return
-    }
-    db := database.GetDatabase()
-    if db == nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
-        return
-    }
-    if err := db.UpdateAPIKeyStatus(id, req.Status); err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-        return
-    }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "status updated"})
+	id := mux.Vars(r)["id"]
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || id == "" || req.Status == "" {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id and status required")
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	if err := db.UpdateAPIKeyStatus(id, req.Status); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "status updated"})
 }
 
 func adminUpdateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
-    id := mux.Vars(r)["id"]
-    if id == "" { writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required"); return }
-    var req struct {
-        Name        *string  `json:"name"`
-        Description *string  `json:"description"`
-        Permissions *[]string `json:"permissions"`
-        ExpiresAt   *string  `json:"expires_at"`
-    }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
-        return
-    }
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
+	id := mux.Vars(r)["id"]
+	if id == "" {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required")
+		return
+	}
+	var req struct {
+		Name        *string   `json:"name"`
+		Description *string   `json:"description"`
+		Permissions *[]string `json:"permissions"`
+		ExpiresAt   *string   `json:"expires_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
 
-    var expiresAt *time.Time
-    clearExpiry := false
-    if req.ExpiresAt != nil {
-        if strings.TrimSpace(*req.ExpiresAt) == "" {
-            clearExpiry = true
-        } else if t, err := time.Parse(time.RFC3339, *req.ExpiresAt); err == nil {
-            expiresAt = &t
-        }
-    }
+	var expiresAt *time.Time
+	clearExpiry := false
+	if req.ExpiresAt != nil {
+		if strings.TrimSpace(*req.ExpiresAt) == "" {
+			clearExpiry = true
+		} else if t, err := time.Parse(time.RFC3339, *req.ExpiresAt); err == nil {
+			expiresAt = &t
+		}
+	}
 
-    if req.Permissions != nil {
-        if !apikey.ValidatePermissions(*req.Permissions) {
-            writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid permissions")
-            return
-        }
-    }
+	if req.Permissions != nil {
+		if !apikey.ValidatePermissions(*req.Permissions) {
+			writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid permissions")
+			return
+		}
+	}
 
-    if err := db.UpdateAPIKeyFields(id, req.Name, req.Description, req.Permissions, expiresAt, clearExpiry); err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-        return
-    }
-    if req.Permissions != nil {
-        _ = authz.RemoveAllAPIKeyPolicies(id)
-        _ = authz.CreateAPIKeyPolicies(id, *req.Permissions)
-    }
-    // Return updated record
-    rec, err := db.GetAPIKeyByID(id)
-    if err != nil {
-        writeJSONResponse(w, http.StatusOK, Response{Success: true})
-        return
-    }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"api_key": rec}})
+	if err := db.UpdateAPIKeyFields(id, req.Name, req.Description, req.Permissions, expiresAt, clearExpiry); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	if req.Permissions != nil {
+		_ = authz.RemoveAllAPIKeyPolicies(id)
+		_ = authz.CreateAPIKeyPolicies(id, *req.Permissions)
+	}
+	// Return updated record
+	rec, err := db.GetAPIKeyByID(id)
+	if err != nil {
+		writeJSONResponse(w, http.StatusOK, Response{Success: true})
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"api_key": rec}})
 }
 
 func adminDeleteAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
-    id := mux.Vars(r)["id"]
-    if id == "" { writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required"); return }
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    _ = authz.RemoveAllAPIKeyPolicies(id)
-    if err := db.DeleteAPIKey(id); err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-        return
-    }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "deleted"})
+	id := mux.Vars(r)["id"]
+	if id == "" {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required")
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	_ = authz.RemoveAllAPIKeyPolicies(id)
+	if err := db.DeleteAPIKey(id); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "deleted"})
 }
 
 func adminUsageLogsHandler(w http.ResponseWriter, r *http.Request) {
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    q := r.URL.Query()
-    limit, _ := strconv.Atoi(q.Get("limit"))
-    if limit <= 0 || limit > 1000 { limit = 100 }
-    logs, err := db.GetAPIUsageLogs("", "", limit, 0)
-    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"logs": logs, "count": len(logs)}})
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	logs, err := db.GetAPIUsageLogs("", "", limit, 0)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	// Return both "logs" and standard "items" to maximize compatibility
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"logs": logs, "items": logs, "count": len(logs)}})
+}
+
+// adminAnalyticsHandler returns analytics data for admin dashboard
+func adminAnalyticsHandler(w http.ResponseWriter, r *http.Request) {
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	q := r.URL.Query()
+	// time range: default last 7 days
+	now := time.Now().UTC()
+	start := now.Add(-7 * 24 * time.Hour)
+	end := now
+	// Accept multiple param aliases from frontend
+	if s := strings.TrimSpace(firstNonEmpty(q.Get("start"), q.Get("startDate"))); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			start = t
+		}
+	}
+	if e := strings.TrimSpace(firstNonEmpty(q.Get("end"), q.Get("endDate"))); e != "" {
+		if t, err := time.Parse(time.RFC3339, e); err == nil {
+			end = t
+		}
+	}
+	// Optional timeRange alias (e.g., '7d','24h')
+	if tr := strings.TrimSpace(q.Get("timeRange")); tr != "" {
+		switch strings.ToLower(tr) {
+		case "24h":
+			start = now.Add(-24 * time.Hour)
+		case "7d":
+			start = now.Add(-7 * 24 * time.Hour)
+		case "30d":
+			start = now.Add(-30 * 24 * time.Hour)
+		}
+	}
+	// Filters
+	apiKeyFilter := strings.TrimSpace(firstNonEmpty(q.Get("api_key_id"), q.Get("apiKey")))
+	userFilter := strings.TrimSpace(firstNonEmpty(q.Get("user_id"), q.Get("user")))
+	data, err := db.GetAnalyticsData(database.AnalyticsTimeRange{Start: start, End: end}, apiKeyFilter, userFilter)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: data})
+}
+
+// helper to pick first non-empty string
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // ======================
@@ -1726,161 +1821,236 @@ func adminUsageLogsHandler(w http.ResponseWriter, r *http.Request) {
 // ======================
 
 func adminListUsersHandler(w http.ResponseWriter, r *http.Request) {
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    users, err := db.ListUsers()
-    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	users, err := db.ListUsers()
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
 
-    q := strings.TrimSpace(r.URL.Query().Get("q"))
-    statusFilter := strings.TrimSpace(r.URL.Query().Get("status"))
-    page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-    limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-    if page <= 0 { page = 1 }
-    if limit <= 0 { limit = 20 }
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	statusFilter := strings.TrimSpace(r.URL.Query().Get("status"))
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 20
+	}
 
-    type row struct {
-        UserID    string `json:"user_id"`
-        Email     string `json:"email,omitempty"`
-        Role      string `json:"role"`
-        Status    string `json:"status"`
-        TwoFA     bool   `json:"two_fa"`
-        LastLogin string `json:"last_login,omitempty"`
-    }
+	type row struct {
+		UserID    string `json:"user_id"`
+		Email     string `json:"email,omitempty"`
+		Role      string `json:"role"`
+		Status    string `json:"status"`
+		TwoFA     bool   `json:"two_fa"`
+		LastLogin string `json:"last_login,omitempty"`
+	}
 
-    list := make([]row, 0, len(users))
-    for _, u := range users {
-        ur, _ := db.GetUserRole(u.Username)
-        r := row{UserID: u.Username, Email: u.Email, Role: u.Role, Status: "active", TwoFA: u.TwoFAEnabled}
-        if ur != nil && ur.Status != "" { r.Status = ur.Status }
-        if u.LastLoginAt != nil { r.LastLogin = u.LastLoginAt.Format(time.RFC3339) }
-        if q != "" && !(strings.Contains(strings.ToLower(r.UserID), strings.ToLower(q)) || strings.Contains(strings.ToLower(r.Email), strings.ToLower(q))) { continue }
-        if statusFilter != "" && statusFilter != "all" && r.Status != statusFilter { continue }
-        list = append(list, r)
-    }
-    total := len(list)
-    start := (page-1)*limit
-    if start > total { start = total }
-    end := start + limit
-    if end > total { end = total }
-    paged := list[start:end]
+	list := make([]row, 0, len(users))
+	for _, u := range users {
+		ur, _ := db.GetUserRole(u.Username)
+		r := row{UserID: u.Username, Email: u.Email, Role: u.Role, Status: "active", TwoFA: u.TwoFAEnabled}
+		if ur != nil && ur.Status != "" {
+			r.Status = ur.Status
+		}
+		if u.LastLoginAt != nil {
+			r.LastLogin = u.LastLoginAt.Format(time.RFC3339)
+		}
+		if q != "" && !(strings.Contains(strings.ToLower(r.UserID), strings.ToLower(q)) || strings.Contains(strings.ToLower(r.Email), strings.ToLower(q))) {
+			continue
+		}
+		if statusFilter != "" && statusFilter != "all" && r.Status != statusFilter {
+			continue
+		}
+		list = append(list, r)
+	}
+	total := len(list)
+	start := (page - 1) * limit
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	paged := list[start:end]
 
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
-        "users": paged,
-        "count": total,
-        "total": total,
-        "page":  page,
-        "limit": limit,
-    }})
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+		"users": paged,
+		"count": total,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+	}})
 }
 
 func adminCreateUserHandler(w http.ResponseWriter, r *http.Request) {
-    var req struct {
-        Username  string `json:"username"`
-        Email     string `json:"email"`
-        Role      string `json:"role"`
-        MustReset bool   `json:"must_reset"`
-    }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" {
-        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "username required")
-        return
-    }
-    if req.Role == "" { req.Role = "viewer" }
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    if _, err := db.GetUser(req.Username); err == nil {
-        writeErrorWithCode(w, http.StatusBadRequest, "CONFLICT", "user already exists")
-        return
-    }
-    // Generate a temporary password
-    tmp, _ := apikey.GenerateRandomString(16)
-    // Create user
-    // Hash password
-    hashed, _ := bcrypt.GenerateFromPassword([]byte(tmp), bcrypt.DefaultCost)
-    if err := db.CreateUser(&database.AppUser{Username: req.Username, Email: req.Email, PasswordHash: string(hashed), Role: req.Role}); err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-        return
-    }
-    // Set initial role record with pending status
-    _ = db.CreateOrUpdateUserRole(&database.UserRole{UserID: req.Username, Role: req.Role, Status: "pending", QuotaDaily: -1, QuotaMonthly: -1})
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
-        "initial_password": tmp,
-    }})
+	var req struct {
+		Username  string `json:"username"`
+		Email     string `json:"email"`
+		Role      string `json:"role"`
+		MustReset bool   `json:"must_reset"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "username required")
+		return
+	}
+	if req.Role == "" {
+		req.Role = "viewer"
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	if _, err := db.GetUser(req.Username); err == nil {
+		writeErrorWithCode(w, http.StatusBadRequest, "CONFLICT", "user already exists")
+		return
+	}
+	// Generate a temporary password
+	tmp, _ := apikey.GenerateRandomString(16)
+	// Create user
+	// Hash password
+	hashed, _ := bcrypt.GenerateFromPassword([]byte(tmp), bcrypt.DefaultCost)
+	if err := db.CreateUser(&database.AppUser{Username: req.Username, Email: req.Email, PasswordHash: string(hashed), Role: req.Role}); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	// Set initial role record with pending status
+	_ = db.CreateOrUpdateUserRole(&database.UserRole{UserID: req.Username, Role: req.Role, Status: "pending", QuotaDaily: -1, QuotaMonthly: -1})
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+		"initial_password": tmp,
+	}})
 }
 
 func adminApproveUserHandler(w http.ResponseWriter, r *http.Request) {
-    username := mux.Vars(r)["id"]
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    ur, _ := db.GetUserRole(username)
-    if ur == nil { ur = &database.UserRole{UserID: username, Role: "viewer"} }
-    ur.Status = "active"
-    if err := db.CreateOrUpdateUserRole(ur); err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true})
+	username := mux.Vars(r)["id"]
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	ur, _ := db.GetUserRole(username)
+	if ur == nil {
+		ur = &database.UserRole{UserID: username, Role: "viewer"}
+	}
+	ur.Status = "active"
+	if err := db.CreateOrUpdateUserRole(ur); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true})
 }
 
 func adminSuspendUserHandler(w http.ResponseWriter, r *http.Request) {
-    username := mux.Vars(r)["id"]
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    ur, _ := db.GetUserRole(username)
-    if ur == nil { ur = &database.UserRole{UserID: username, Role: "viewer"} }
-    ur.Status = "suspended"
-    if err := db.CreateOrUpdateUserRole(ur); err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true})
+	username := mux.Vars(r)["id"]
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	ur, _ := db.GetUserRole(username)
+	if ur == nil {
+		ur = &database.UserRole{UserID: username, Role: "viewer"}
+	}
+	ur.Status = "suspended"
+	if err := db.CreateOrUpdateUserRole(ur); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true})
 }
 
 func adminEnable2FAHandler(w http.ResponseWriter, r *http.Request) {
-    username := mux.Vars(r)["id"]
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    if err := db.SetUser2FA(username, true, ""); err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true})
+	username := mux.Vars(r)["id"]
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	if err := db.SetUser2FA(username, true, ""); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true})
 }
 
 func adminDisable2FAHandler(w http.ResponseWriter, r *http.Request) {
-    username := mux.Vars(r)["id"]
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    if err := db.SetUser2FA(username, false, ""); err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true})
+	username := mux.Vars(r)["id"]
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	if err := db.SetUser2FA(username, false, ""); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true})
 }
 
 func adminResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
-    username := mux.Vars(r)["id"]
-    if username == "" { writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required"); return }
-    tmp, _ := apikey.GenerateRandomString(16)
-    if err := auth.SetPassword(username, tmp); err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"username": username, "temporary_password": tmp}})
+	username := mux.Vars(r)["id"]
+	if username == "" {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required")
+		return
+	}
+	tmp, _ := apikey.GenerateRandomString(16)
+	if err := auth.SetPassword(username, tmp); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"username": username, "temporary_password": tmp}})
 }
 
 func adminPatchUserHandler(w http.ResponseWriter, r *http.Request) {
-    username := mux.Vars(r)["id"]
-    if username == "" { writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required"); return }
-    var req struct { Role *string `json:"role"`; TwoFAEnabled *bool `json:"twofa_enabled"`; Reset2FA *bool `json:"reset_2fa"` }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil { writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body"); return }
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    // Update role in both tables
-    if req.Role != nil {
-        appUser, err := db.GetUser(username)
-        if err == nil {
-            appUser.Role = *req.Role
-            _ = db.UpdateUser(appUser)
-        }
-        ur, _ := db.GetUserRole(username)
-        if ur == nil { ur = &database.UserRole{UserID: username} }
-        ur.Role = *req.Role
-        _ = db.CreateOrUpdateUserRole(ur)
-    }
-    if req.TwoFAEnabled != nil {
-        _ = db.SetUser2FA(username, *req.TwoFAEnabled, "")
-    }
-    if req.Reset2FA != nil && *req.Reset2FA {
-        _ = db.SetUser2FA(username, false, "")
-    }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true})
+	username := mux.Vars(r)["id"]
+	if username == "" {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required")
+		return
+	}
+	var req struct {
+		Role         *string `json:"role"`
+		TwoFAEnabled *bool   `json:"twofa_enabled"`
+		Reset2FA     *bool   `json:"reset_2fa"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	// Update role in both tables
+	if req.Role != nil {
+		appUser, err := db.GetUser(username)
+		if err == nil {
+			appUser.Role = *req.Role
+			_ = db.UpdateUser(appUser)
+		}
+		ur, _ := db.GetUserRole(username)
+		if ur == nil {
+			ur = &database.UserRole{UserID: username}
+		}
+		ur.Role = *req.Role
+		_ = db.CreateOrUpdateUserRole(ur)
+	}
+	if req.TwoFAEnabled != nil {
+		_ = db.SetUser2FA(username, *req.TwoFAEnabled, "")
+	}
+	if req.Reset2FA != nil && *req.Reset2FA {
+		_ = db.SetUser2FA(username, false, "")
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true})
 }
-
 
 // checkPermissionHandler checks if the current user has a specific permission
 func checkPermissionHandler(w http.ResponseWriter, r *http.Request) {
@@ -1907,21 +2077,21 @@ func checkPermissionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    // Check permission using Casbin
-    allowed, err := authz.CheckPermission(user.Role, req.Resource, req.Action)
-    if err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check permission")
-        return
-    }
+	// Check permission using Casbin
+	allowed, err := authz.CheckPermission(user.Role, req.Resource, req.Action)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check permission")
+		return
+	}
 
-    // Frontend expects top-level fields: { success, allowed, resource, action, role }
-    writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-        "success":  true,
-        "allowed":  allowed,
-        "resource": req.Resource,
-        "action":   req.Action,
-        "role":     user.Role,
-    })
+	// Frontend expects top-level fields: { success, allowed, resource, action, role }
+	writeJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"success":  true,
+		"allowed":  allowed,
+		"resource": req.Resource,
+		"action":   req.Action,
+		"role":     user.Role,
+	})
 }
 
 // checkMultiplePermissionsHandler checks multiple permissions at once
@@ -1951,43 +2121,67 @@ func checkMultiplePermissionsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    // Build mapping result: "<resource>:<action>" => allowed (boolean)
-    resultMap := make(map[string]bool, len(req.Permissions))
+	// Build mapping result: "<resource>:<action>" => allowed (boolean)
+	resultMap := make(map[string]bool, len(req.Permissions))
 
-    // Check each permission
-    for _, perm := range req.Permissions {
-        allowed, err := authz.CheckPermission(user.Role, perm.Resource, perm.Action)
-        if err != nil {
-            writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check permission")
-            return
-        }
-        key := perm.Resource + ":" + perm.Action
-        resultMap[key] = allowed
-    }
+	// Check each permission
+	for _, perm := range req.Permissions {
+		allowed, err := authz.CheckPermission(user.Role, perm.Resource, perm.Action)
+		if err != nil {
+			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check permission")
+			return
+		}
+		key := perm.Resource + ":" + perm.Action
+		resultMap[key] = allowed
+	}
 
-    // Frontend expects: { success, results: {"/path:METHOD": bool}, role }
-    writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-        "success": true,
-        "results": resultMap,
-        "role":    user.Role,
-    })
+	// Frontend expects: { success, results: {"/path:METHOD": bool}, role }
+	writeJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"results": resultMap,
+		"role":    user.Role,
+	})
 }
 
 // apiListPackagesHandler lists packages (API endpoint)
 func apiListPackagesHandler(w http.ResponseWriter, r *http.Request) {
-	// This is a placeholder implementation for API package listing
-	// In a real implementation, this would interact with a package service
-
-	response := Response{
-		Success: true,
-		Message: "Packages listed successfully",
-		Data: map[string]interface{}{
-			"packages": []interface{}{}, // Empty array for now
-			"count":    0,
-		},
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
 	}
 
-	writeJSONResponse(w, http.StatusOK, response)
+	q := r.URL.Query()
+	tenant := strings.TrimSpace(q.Get("tenant"))
+	ptype := strings.TrimSpace(q.Get("type"))
+	search := strings.TrimSpace(q.Get("q"))
+	page, _ := strconv.Atoi(q.Get("page"))
+	limit, _ := strconv.Atoi(q.Get("limit"))
+
+	items, total, err := db.ListPackages(tenant, ptype, search, page, limit)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	// Normalize shape for frontend
+	data := map[string]interface{}{
+		"items": items,
+		"count": total,
+		"page": func() int {
+			if page > 0 {
+				return page
+			}
+			return 1
+		}(),
+		"limit": func() int {
+			if limit > 0 {
+				return limit
+			}
+			return 50
+		}(),
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: data})
 }
 
 // apiUpdatePackageRemarkHandler updates package remark (API endpoint)
@@ -2028,219 +2222,319 @@ func RegisterAPIRoutes(router *mux.Router) {
 	apiRouter.HandleFunc("/health", healthCheckHandler).Methods("GET")
 	apiRouter.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
 
-    // Public API routes with API key authentication
-    publicAPI := apiRouter.PathPrefix("/public").Subrouter()
+	// Public API routes with API key authentication
+	publicAPI := apiRouter.PathPrefix("/public").Subrouter()
+	// Log API usage for public endpoints (API key based)
+	publicAPI.Use(middleware.APILoggingMiddleware)
 
-    // File management endpoints with API key authentication
-    publicAPI.Handle("/files/upload", middleware.APIKeyAuthMiddleware(http.HandlerFunc(uploadFileHandler))).Methods("POST")
-    publicAPI.Handle("/files", middleware.APIKeyAuthMiddleware(http.HandlerFunc(listFilesHandler))).Methods("GET")
-    publicAPI.Handle("/files/{id}/download", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiDownloadFileByIDHandler))).Methods("GET")
-    publicAPI.Handle("/files/{id}", middleware.APIKeyAuthMiddleware(http.HandlerFunc(deleteFileHandler))).Methods("DELETE")
-    publicAPI.Handle("/files/{id}/restore", middleware.APIKeyAuthMiddleware(http.HandlerFunc(restoreFileHandler))).Methods("POST")
+	// File management endpoints with API key authentication
+	publicAPI.Handle("/files/upload", middleware.APIKeyAuthMiddleware(http.HandlerFunc(uploadFileHandler))).Methods("POST")
+	publicAPI.Handle("/files", middleware.APIKeyAuthMiddleware(http.HandlerFunc(listFilesHandler))).Methods("GET")
+	publicAPI.Handle("/files/{id}/download", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiDownloadFileByIDHandler))).Methods("GET")
+	publicAPI.Handle("/files/{id}", middleware.APIKeyAuthMiddleware(http.HandlerFunc(deleteFileHandler))).Methods("DELETE")
+	publicAPI.Handle("/files/{id}/restore", middleware.APIKeyAuthMiddleware(http.HandlerFunc(restoreFileHandler))).Methods("POST")
 
-    // Latest version helpers for roadmap/recommendation
-    publicAPI.Handle("/versions/{type}/latest", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiGetLatestVersionInfoHandler))).Methods("GET")
-    publicAPI.Handle("/versions/{type}/latest/download", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiDownloadLatestByTypeHandler))).Methods("GET")
+	// Latest version helpers for roadmap/recommendation
+	publicAPI.Handle("/versions/{type}/latest", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiGetLatestVersionInfoHandler))).Methods("GET")
+	publicAPI.Handle("/versions/{type}/latest/info", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiGetLatestVersionInfoHandler))).Methods("GET")
+	publicAPI.Handle("/versions/{type}/latest/download", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiDownloadLatestByTypeHandler))).Methods("GET")
 
-    // Package management endpoints with API key authentication
-    publicAPI.Handle("/packages", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
-    publicAPI.Handle("/packages/{id}/remark", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
+	// Generic version info: supports 'latest' or concrete versionId
+	publicAPI.Handle("/versions/{type}/{ver}/info", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiGetVersionInfoHandler))).Methods("GET")
 
-    // Public uploads: assets / others ZIPs
-    publicAPI.Handle("/upload/assets-zip", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUploadAssetsZipHandler))).Methods("POST")
-    publicAPI.Handle("/upload/others-zip", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUploadOthersZipHandler))).Methods("POST")
+	// Package management endpoints with API key authentication
+	publicAPI.Handle("/packages", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
+	publicAPI.Handle("/packages/{id}/remark", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
+
+	// Public uploads: assets / others ZIPs
+	publicAPI.Handle("/upload/assets-zip", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUploadAssetsZipHandler))).Methods("POST")
+	publicAPI.Handle("/upload/others-zip", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUploadOthersZipHandler))).Methods("POST")
 
 	log.Printf("Public API routes registered with API key authentication")
 }
 
 // apiDownloadFileByIDHandler downloads a file by database ID (public API)
 func apiDownloadFileByIDHandler(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
-    id := vars["id"]
-    if strings.TrimSpace(id) == "" {
-        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required")
-        return
-    }
-    db := database.GetDatabase()
-    if db == nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
-        return
-    }
-    rec, err := db.GetFileRecordByID(id)
-    if err != nil {
-        writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found")
-        return
-    }
-    if rec.Status == database.FileStatusPurged || !rec.FileExists {
-        writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not available")
-        return
-    }
-    // Serve the file
-    fullPath := rec.FilePath
-    if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-        writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File content missing")
-        return
-    }
-    f, err := os.Open(fullPath)
-    if err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file")
-        return
-    }
-    defer f.Close()
-    fi, err := f.Stat()
-    if err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot stat file")
-        return
-    }
-    name := filepath.Base(rec.FilePath)
-    w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
-    w.Header().Set("Content-Type", getContentType(name))
-    w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
-    w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-    w.Header().Set("Pragma", "no-cache")
-    w.Header().Set("Expires", "0")
-    if _, err := io.Copy(w, f); err != nil {
-        log.Printf("download by id failed: %v", err)
-        return
-    }
+	vars := mux.Vars(r)
+	id := vars["id"]
+	if strings.TrimSpace(id) == "" {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required")
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	rec, err := db.GetFileRecordByID(id)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found")
+		return
+	}
+	if rec.Status == database.FileStatusPurged || !rec.FileExists {
+		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not available")
+		return
+	}
+	// Serve the file
+	fullPath := rec.FilePath
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File content missing")
+		return
+	}
+	f, err := os.Open(fullPath)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file")
+		return
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot stat file")
+		return
+	}
+	name := filepath.Base(rec.FilePath)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
+	w.Header().Set("Content-Type", getContentType(name))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	if _, err := io.Copy(w, f); err != nil {
+		log.Printf("download by id failed: %v", err)
+		return
+	}
 }
 
 // apiGetLatestVersionInfoHandler returns JSON info for the latest roadmap/recommendation
 func apiGetLatestVersionInfoHandler(w http.ResponseWriter, r *http.Request) {
-    t := strings.ToLower(mux.Vars(r)["type"])
-    if t != "roadmap" && t != "recommendation" {
-        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
-        return
-    }
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    items, err := db.GetFilesByType(t, false)
-    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
-    var latest *database.FileRecord
-    for i := range items {
-        if items[i].IsLatest && items[i].Status == database.FileStatusActive { latest = &items[i]; break }
-    }
-    if latest == nil && len(items) > 0 {
-        // Fallback: pick highest version active file
-        for i := range items {
-            if items[i].Status != database.FileStatusActive { continue }
-            if latest == nil || items[i].Version > latest.Version { latest = &items[i] }
-        }
-    }
-    if latest == nil { writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "No file found"); return }
-    info := convertToFileInfo(*latest)
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"latest": info}})
+	t := strings.ToLower(mux.Vars(r)["type"])
+	if t != "roadmap" && t != "recommendation" {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	items, err := db.GetFilesByType(t, false)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	var latest *database.FileRecord
+	for i := range items {
+		if items[i].IsLatest && items[i].Status == database.FileStatusActive {
+			latest = &items[i]
+			break
+		}
+	}
+	if latest == nil && len(items) > 0 {
+		// Fallback: pick highest version active file
+		for i := range items {
+			if items[i].Status != database.FileStatusActive {
+				continue
+			}
+			if latest == nil || items[i].Version > latest.Version {
+				latest = &items[i]
+			}
+		}
+	}
+	if latest == nil {
+		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "No file found")
+		return
+	}
+	info := convertToFileInfo(*latest)
+	if info.VersionID == "" {
+		// Derive versionId from the directory name of the stored file path
+		// downloads/<type>s/<versionId>/<file>
+		info.VersionID = filepath.Base(filepath.Dir(latest.FilePath))
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"latest": info}})
+}
+
+// apiGetVersionInfoHandler returns JSON info for a given versionId (or 'latest') of roadmap/recommendation
+func apiGetVersionInfoHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	t := strings.ToLower(vars["type"])
+	ver := vars["ver"]
+	if t != "roadmap" && t != "recommendation" {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
+		return
+	}
+	if strings.TrimSpace(ver) == "" {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "version identifier required", map[string]interface{}{"field": "ver"})
+		return
+	}
+	// If 'latest', delegate to latest handler logic
+	if strings.EqualFold(ver, "latest") {
+		apiGetLatestVersionInfoHandler(w, r)
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	items, err := db.GetFilesByType(t, false)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	var target *database.FileRecord
+	for i := range items {
+		if items[i].Status != database.FileStatusActive {
+			continue
+		}
+		// versionId is the directory name in the stored path: downloads/<type>s/<versionId>/<file>
+		vid := filepath.Base(filepath.Dir(items[i].FilePath))
+		if vid == ver {
+			target = &items[i]
+			break
+		}
+	}
+	if target == nil {
+		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "Specified version not found")
+		return
+	}
+	info := convertToFileInfo(*target)
+	info.VersionID = ver
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"version": info}})
 }
 
 // apiDownloadLatestByTypeHandler streams the latest roadmap/recommendation file
 func apiDownloadLatestByTypeHandler(w http.ResponseWriter, r *http.Request) {
-    t := strings.ToLower(mux.Vars(r)["type"])
-    if t != "roadmap" && t != "recommendation" {
-        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
-        return
-    }
-    db := database.GetDatabase()
-    if db == nil { writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available"); return }
-    items, err := db.GetFilesByType(t, false)
-    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error()); return }
-    var latest *database.FileRecord
-    for i := range items {
-        if items[i].IsLatest && items[i].Status == database.FileStatusActive { latest = &items[i]; break }
-    }
-    if latest == nil && len(items) > 0 {
-        for i := range items {
-            if items[i].Status != database.FileStatusActive { continue }
-            if latest == nil || items[i].Version > latest.Version { latest = &items[i] }
-        }
-    }
-    if latest == nil { writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "No file found"); return }
-    // Stream
-    f, err := os.Open(latest.FilePath)
-    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file"); return }
-    defer f.Close()
-    fi, err := f.Stat(); if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot stat file"); return }
-    name := filepath.Base(latest.FilePath)
-    w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
-    w.Header().Set("Content-Type", getContentType(name))
-    w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
-    w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-    w.Header().Set("Pragma", "no-cache")
-    w.Header().Set("Expires", "0")
-    _, _ = io.Copy(w, f)
+	t := strings.ToLower(mux.Vars(r)["type"])
+	if t != "roadmap" && t != "recommendation" {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	items, err := db.GetFilesByType(t, false)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	var latest *database.FileRecord
+	for i := range items {
+		if items[i].IsLatest && items[i].Status == database.FileStatusActive {
+			latest = &items[i]
+			break
+		}
+	}
+	if latest == nil && len(items) > 0 {
+		for i := range items {
+			if items[i].Status != database.FileStatusActive {
+				continue
+			}
+			if latest == nil || items[i].Version > latest.Version {
+				latest = &items[i]
+			}
+		}
+	}
+	if latest == nil {
+		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "No file found")
+		return
+	}
+	// Stream
+	f, err := os.Open(latest.FilePath)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file")
+		return
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot stat file")
+		return
+	}
+	name := filepath.Base(latest.FilePath)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
+	w.Header().Set("Content-Type", getContentType(name))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	_, _ = io.Copy(w, f)
 }
 
 // apiUploadAssetsZipHandler handles public upload of assets zip
-func apiUploadAssetsZipHandler(w http.ResponseWriter, r *http.Request) { apiUploadZipHandler(w, r, "assets") }
+func apiUploadAssetsZipHandler(w http.ResponseWriter, r *http.Request) {
+	apiUploadZipHandler(w, r, "assets")
+}
 
 // apiUploadOthersZipHandler handles public upload of others zip
-func apiUploadOthersZipHandler(w http.ResponseWriter, r *http.Request) { apiUploadZipHandler(w, r, "others") }
+func apiUploadOthersZipHandler(w http.ResponseWriter, r *http.Request) {
+	apiUploadZipHandler(w, r, "others")
+}
 
 // apiUploadZipHandler saves <tenant>_{kind}_<UTC>.zip into downloads/packages/<tenant>/<kind>/
 func apiUploadZipHandler(w http.ResponseWriter, r *http.Request, kind string) {
-    if kind != "assets" && kind != "others" {
-        writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid kind")
-        return
-    }
-    // Parse form
-    if err := r.ParseMultipartForm(128 << 20); err != nil {
-        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to parse form", map[string]interface{}{"field": "form", "error": err.Error()})
-        return
-    }
-    file, header, err := r.FormFile("file")
-    if err != nil { writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Missing file", map[string]interface{}{"field": "file"}); return }
-    defer file.Close()
-    if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
-        writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "Only .zip is allowed", map[string]interface{}{"filename": header.Filename})
-        return
-    }
-    // Validate filename pattern
-    name := header.Filename
-    parts := strings.Split(name, "_")
-    if len(parts) != 3 {
-        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Filename must be <tenant>_"+kind+"_<UTC>.zip", map[string]interface{}{"filename": name})
-        return
-    }
-    tenant := parts[0]
-    mid := strings.ToLower(parts[1])
-    tsPart := strings.TrimSuffix(parts[2], ".zip")
-    if tenant == "" || mid != kind {
-        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Filename segment mismatch", map[string]interface{}{"filename": name, "expected_mid": kind})
-        return
-    }
-    // UTC format YYYYMMDDThhmmssZ
-    if len(tsPart) != 16 || tsPart[8] != 'T' || tsPart[15] != 'Z' {
-        writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "UTC segment must be YYYYMMDDThhmmssZ", map[string]interface{}{"utc": tsPart})
-        return
-    }
-    // Create directories
-    baseDir := filepath.Join("downloads", "packages", tenant, kind)
-    if err := os.MkdirAll(baseDir, 0755); err != nil {
-        writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create directory")
-        return
-    }
-    targetPath := filepath.Join(baseDir, name)
-    out, err := os.Create(targetPath)
-    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create file"); return }
-    defer out.Close()
-    n, err := io.Copy(out, file)
-    if err != nil { writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save file"); return }
-    // Save package record
-    db := database.GetDatabase()
-    if db != nil {
-        rec := &database.PackageRecord{
-            ID:        fmt.Sprintf("pkg_%d", time.Now().UnixNano()),
-            TenantID:  tenant,
-            Type:      kind,
-            FileName:  name,
-            Size:      n,
-            Path:      targetPath,
-            IP:        middleware.GetClientIP(r),
-            Timestamp: time.Now().UTC(),
-            Remark:    "uploaded via public API",
-        }
-        _ = db.InsertPackageRecord(rec)
-    }
-    writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Upload successful", Data: map[string]interface{}{"file": name, "size": n, "tenant": tenant, "type": kind}})
+	if kind != "assets" && kind != "others" {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid kind")
+		return
+	}
+	// Parse form
+	if err := r.ParseMultipartForm(128 << 20); err != nil {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to parse form", map[string]interface{}{"field": "form", "error": err.Error()})
+		return
+	}
+	// New: require tenant_id param (no longer parsed from filename)
+	tenant := strings.TrimSpace(r.FormValue("tenant_id"))
+	if tenant == "" {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "tenant_id is required", map[string]interface{}{"field": "tenant_id"})
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Missing file", map[string]interface{}{"field": "file"})
+		return
+	}
+	defer file.Close()
+	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "Only .zip is allowed", map[string]interface{}{"filename": header.Filename})
+		return
+	}
+	name := header.Filename
+	// Create directories by tenant/kind
+	baseDir := filepath.Join("downloads", "packages", tenant, kind)
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create directory")
+		return
+	}
+	targetPath := filepath.Join(baseDir, name)
+	out, err := os.Create(targetPath)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create file")
+		return
+	}
+	defer out.Close()
+	n, err := io.Copy(out, file)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save file")
+		return
+	}
+	// Save package record
+	db := database.GetDatabase()
+	if db != nil {
+		rec := &database.PackageRecord{
+			ID:        fmt.Sprintf("pkg_%d", time.Now().UnixNano()),
+			TenantID:  tenant,
+			Type:      kind,
+			FileName:  name,
+			Size:      n,
+			Path:      targetPath,
+			IP:        middleware.GetClientIP(r),
+			Timestamp: time.Now().UTC(),
+			Remark:    "uploaded via public API",
+		}
+		_ = db.InsertPackageRecord(rec)
+	}
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Upload successful", Data: map[string]interface{}{"file": name, "size": n, "tenant": tenant, "type": kind}})
 }
 
 // CleanupExpiredTempKeys cleans up expired temporary keys

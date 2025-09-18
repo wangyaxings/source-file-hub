@@ -584,9 +584,11 @@ class ApiClient {
   }
 
   // Packages API (web wrappers)
-  async uploadAssetsZip(file: File): Promise<any> {
+  async uploadAssetsZip(file: File, tenantId: string): Promise<any> {
+    if (!tenantId || tenantId.trim() === '') throw new Error('Tenant ID is required')
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('tenant_id', tenantId)
     const response = await fetch(`${this.baseUrl}/packages/upload/assets-zip`, {
       method: 'POST',
       body: formData,
@@ -598,9 +600,11 @@ class ApiClient {
     return result.data
   }
 
-  async uploadOthersZip(file: File): Promise<any> {
+  async uploadOthersZip(file: File, tenantId: string): Promise<any> {
+    if (!tenantId || tenantId.trim() === '') throw new Error('Tenant ID is required')
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('tenant_id', tenantId)
     const response = await fetch(`${this.baseUrl}/packages/upload/others-zip`, {
       method: 'POST',
       body: formData,

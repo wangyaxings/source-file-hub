@@ -31,7 +31,7 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 		var apiKeyValue string
 		authHeader := r.Header.Get("Authorization")
 		xApiKey := r.Header.Get("X-API-Key")
-		
+
 		if authHeader != "" {
 			// Parse Bearer token or API key directly
 			if strings.HasPrefix(authHeader, "Bearer ") {
@@ -48,7 +48,6 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 			writeAPIErrorResponse(w, http.StatusUnauthorized, "MISSING_API_KEY", "API key is required")
 			return
 		}
-
 
 		// Validate API key format
 		if !apikey.ValidateAPIKeyFormat(apiKeyValue) {
@@ -85,19 +84,19 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-    // Use Casbin to check permission for this specific request
-    allowed, err := authz.CheckAPIKeyPermission(apiKeyRecord.ID, r.URL.Path, r.Method)
-    if err != nil || !allowed {
-        if err != nil {
-            log.Printf("Warning: Casbin permission check failed: %v", err)
-        }
-        // Fallback: infer required permission by method and path
-        required := inferRequiredPermission(r.Method, r.URL.Path)
-        if !apikey.HasPermission(apiKeyRecord.Permissions, required) {
-            writeAPIErrorResponse(w, http.StatusForbidden, "INSUFFICIENT_PERMISSIONS", "API key does not have required permission: "+required)
-            return
-        }
-    }
+		// Use Casbin to check permission for this specific request
+		allowed, err := authz.CheckAPIKeyPermission(apiKeyRecord.ID, r.URL.Path, r.Method)
+		if err != nil || !allowed {
+			if err != nil {
+				log.Printf("Warning: Casbin permission check failed: %v", err)
+			}
+			// Fallback: infer required permission by method and path
+			required := inferRequiredPermission(r.Method, r.URL.Path)
+			if !apikey.HasPermission(apiKeyRecord.Permissions, required) {
+				writeAPIErrorResponse(w, http.StatusForbidden, "INSUFFICIENT_PERMISSIONS", "API key does not have required permission: "+required)
+				return
+			}
+		}
 
 		// Create permission checker function (for backward compatibility)
 		hasPermission := func(permission string) bool {
@@ -142,33 +141,33 @@ func RequirePermission(permission string) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			
+
 			// Check user context
 			userCtx := r.Context().Value("user")
 			if userCtx == nil {
 				writeAPIErrorResponse(w, http.StatusUnauthorized, "AUTHENTICATION_REQUIRED", "Authentication required")
 				return
 			}
-			
+
 			user, ok := userCtx.(*auth.User)
 			if !ok {
 				writeAPIErrorResponse(w, http.StatusUnauthorized, "INVALID_USER_CONTEXT", "Invalid user context")
 				return
 			}
-			
+
 			// Use Casbin to check permission
 			e := authz.GetEnforcer()
 			if e == nil {
 				writeAPIErrorResponse(w, http.StatusInternalServerError, "AUTHORIZATION_ERROR", "Authorization system not available")
 				return
 			}
-			
+
 			allowed, err := e.Enforce(user.Role, r.URL.Path, permission)
 			if err != nil || !allowed {
 				writeAPIErrorResponse(w, http.StatusForbidden, "INSUFFICIENT_PERMISSIONS", "User does not have required permission: "+permission)
 				return
 			}
-			
+
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -176,29 +175,29 @@ func RequirePermission(permission string) func(http.Handler) http.Handler {
 
 // GetAPIAuthContext retrieves API auth context from request
 func GetAPIAuthContext(r *http.Request) *APIAuthContext {
-    if ctx := r.Context().Value(APIAuthContextKey); ctx != nil {
-        if authCtx, ok := ctx.(*APIAuthContext); ok {
-            return authCtx
-        }
-    }
-    return nil
+	if ctx := r.Context().Value(APIAuthContextKey); ctx != nil {
+		if authCtx, ok := ctx.(*APIAuthContext); ok {
+			return authCtx
+		}
+	}
+	return nil
 }
 
 // inferRequiredPermission provides a conservative fallback mapping from HTTP method/path to permission
 func inferRequiredPermission(method, path string) string {
-    m := strings.ToUpper(method)
-    switch m {
-    case http.MethodGet:
-        // Treat explicit downloads as download permission
-        if strings.Contains(path, "/download") || strings.HasPrefix(path, "/api/v1/public/files/") && !strings.HasSuffix(path, "/files") {
-            return "download"
-        }
-        return "read"
-    case http.MethodDelete:
-        return "delete"
-    default: // POST, PUT, PATCH
-        return "upload"
-    }
+	m := strings.ToUpper(method)
+	switch m {
+	case http.MethodGet:
+		// Treat explicit downloads as download permission
+		if strings.Contains(path, "/download") || strings.HasPrefix(path, "/api/v1/public/files/") && !strings.HasSuffix(path, "/files") {
+			return "download"
+		}
+		return "read"
+	case http.MethodDelete:
+		return "delete"
+	default: // POST, PUT, PATCH
+		return "upload"
+	}
 }
 
 // APILoggingMiddleware logs API requests
@@ -219,33 +218,48 @@ func APILoggingMiddleware(next http.Handler) http.Handler {
 		// Log the API usage
 		go func() {
 			authCtx := GetAPIAuthContext(r)
-			if authCtx != nil {
-				db := database.GetDatabase()
-				if db != nil {
-					logEntry := &database.APIUsageLog{
-						APIKeyID:       authCtx.KeyID,
-						UserID:         authCtx.Role,
-						Endpoint:       r.URL.Path,
-						Method:         r.Method,
-						IPAddress:      GetClientIP(r),
-						UserAgent:      r.Header.Get("User-Agent"),
-						StatusCode:     recorder.StatusCode,
-						ResponseSize:   recorder.Size,
-						ResponseTimeMs: time.Since(start).Milliseconds(),
-						RequestTime:    start,
-					}
+			db := database.GetDatabase()
+			if db != nil {
+				logEntry := &database.APIUsageLog{
+					Endpoint:       r.URL.Path,
+					Method:         r.Method,
+					IPAddress:      GetClientIP(r),
+					UserAgent:      r.Header.Get("User-Agent"),
+					StatusCode:     recorder.StatusCode,
+					ResponseSize:   recorder.Size,
+					ResponseTimeMs: time.Since(start).Milliseconds(),
+					RequestTime:    start,
+				}
 
-					// Extract file ID from request if applicable
-					if fileID := r.URL.Query().Get("file_id"); fileID != "" {
-						logEntry.FileID = fileID
+				// Set API key info if available
+				if authCtx != nil {
+					logEntry.APIKeyID = authCtx.KeyID
+					logEntry.UserID = authCtx.Role
+				} else {
+					// For session-based requests, try to get user info from session
+					if userCtx := r.Context().Value("user"); userCtx != nil {
+						if user, ok := userCtx.(map[string]interface{}); ok {
+							if username, exists := user["username"]; exists {
+								if usernameStr, ok := username.(string); ok {
+									logEntry.UserID = usernameStr
+								}
+							}
+						}
 					}
-					if filePath := r.URL.Query().Get("file_path"); filePath != "" {
-						logEntry.FilePath = filePath
-					}
+					// Mark as web session request
+					logEntry.APIKeyID = "web_session"
+				}
 
-					if err := db.LogAPIUsage(logEntry); err != nil {
-						log.Printf("Warning: Failed to log API usage: %v", err)
-					}
+				// Extract file ID from request if applicable
+				if fileID := r.URL.Query().Get("file_id"); fileID != "" {
+					logEntry.FileID = fileID
+				}
+				if filePath := r.URL.Query().Get("file_path"); filePath != "" {
+					logEntry.FilePath = filePath
+				}
+
+				if err := db.LogAPIUsage(logEntry); err != nil {
+					log.Printf("Warning: Failed to log API usage: %v", err)
 				}
 			}
 		}()
