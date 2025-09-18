@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"time"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -76,6 +76,7 @@ type APIKey struct {
 type APIUsageLog struct {
 	ID             int64     `json:"id"`
 	APIKeyID       string    `json:"apiKeyId"`
+	APIKeyName     string    `json:"apiKeyName"`
 	UserID         string    `json:"userId"`
 	Endpoint       string    `json:"endpoint"`
 	Method         string    `json:"method"`
@@ -557,19 +558,19 @@ func (d *Database) updateCasbinPolicies() error {
 	}
 
 	// Add missing policies
-    missingPolicies := []struct {
-        ptype string
-        v0    string
-        v1    string
-        v2    string
-    }{
-        {"p", "administrator", "/api/v1/web/auth/me", "GET"},
-        {"p", "viewer", "/api/v1/web/auth/me", "GET"},
-        {"p", "administrator", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
-        {"p", "viewer", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
-        {"p", "administrator", "admin", "access"}, // Admin access permission
-        {"p", "administrator", "/api/v1/web/admin/*", "(GET|POST|PUT|PATCH|DELETE)"},
-    }
+	missingPolicies := []struct {
+		ptype string
+		v0    string
+		v1    string
+		v2    string
+	}{
+		{"p", "administrator", "/api/v1/web/auth/me", "GET"},
+		{"p", "viewer", "/api/v1/web/auth/me", "GET"},
+		{"p", "administrator", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		{"p", "viewer", "/api/v1/web/auth/ab/2fa/totp/*", "(GET|POST|PUT|PATCH|DELETE)"},
+		{"p", "administrator", "admin", "access"}, // Admin access permission
+		{"p", "administrator", "/api/v1/web/admin/*", "(GET|POST|PUT|PATCH|DELETE)"},
+	}
 
 	stmt, err := d.db.Prepare("INSERT INTO casbin_policies (ptype, v0, v1, v2) VALUES (?, ?, ?, ?)")
 	if err != nil {
@@ -1080,48 +1081,56 @@ func (d *Database) scanFileRecords(rows *sql.Rows) ([]FileRecord, error) {
 
 // GetFileRecordByID returns a file record by ID
 func (d *Database) GetFileRecordByID(id string) (*FileRecord, error) {
-    if id == "" {
-        return nil, fmt.Errorf("file id is required")
-    }
-    query := `
+	if id == "" {
+		return nil, fmt.Errorf("file id is required")
+	}
+	query := `
     SELECT id, original_name, versioned_name, file_type, file_path, size,
            description, uploader, upload_time, version, is_latest, status,
            deleted_at, deleted_by, file_exists, checksum, created_at, updated_at
     FROM files WHERE id = ?
     `
-    row := d.db.QueryRow(query, id)
-    var rec FileRecord
-    var uploadTimeStr, createdAtStr, updatedAtStr string
-    var deletedAt sql.NullString
-    if err := row.Scan(&rec.ID, &rec.OriginalName, &rec.VersionedName, &rec.FileType, &rec.FilePath, &rec.Size,
-        &rec.Description, &rec.Uploader, &uploadTimeStr, &rec.Version, &rec.IsLatest, &rec.Status,
-        &deletedAt, &rec.DeletedBy, &rec.FileExists, &rec.Checksum, &createdAtStr, &updatedAtStr); err != nil {
-        return nil, err
-    }
-    if t, err := time.Parse(time.RFC3339, uploadTimeStr); err == nil { rec.UploadTime = t }
-    if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil { rec.CreatedAt = t }
-    if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil { rec.UpdatedAt = t }
-    if deletedAt.Valid {
-        if t, err := time.Parse(time.RFC3339, deletedAt.String); err == nil { rec.DeletedAt = &t }
-    }
-    return &rec, nil
+	row := d.db.QueryRow(query, id)
+	var rec FileRecord
+	var uploadTimeStr, createdAtStr, updatedAtStr string
+	var deletedAt sql.NullString
+	if err := row.Scan(&rec.ID, &rec.OriginalName, &rec.VersionedName, &rec.FileType, &rec.FilePath, &rec.Size,
+		&rec.Description, &rec.Uploader, &uploadTimeStr, &rec.Version, &rec.IsLatest, &rec.Status,
+		&deletedAt, &rec.DeletedBy, &rec.FileExists, &rec.Checksum, &createdAtStr, &updatedAtStr); err != nil {
+		return nil, err
+	}
+	if t, err := time.Parse(time.RFC3339, uploadTimeStr); err == nil {
+		rec.UploadTime = t
+	}
+	if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+		rec.CreatedAt = t
+	}
+	if t, err := time.Parse(time.RFC3339, updatedAtStr); err == nil {
+		rec.UpdatedAt = t
+	}
+	if deletedAt.Valid {
+		if t, err := time.Parse(time.RFC3339, deletedAt.String); err == nil {
+			rec.DeletedAt = &t
+		}
+	}
+	return &rec, nil
 }
 
 // ListFilesWithPagination returns active files with pagination and total count
 func (d *Database) ListFilesWithPagination(offset, limit int) ([]FileRecord, int, error) {
-    if limit <= 0 {
-        limit = 50
-    }
-    if offset < 0 {
-        offset = 0
-    }
-    countQ := `SELECT COUNT(*) FROM files WHERE status = 'active'`
-    var total int
-    if err := d.db.QueryRow(countQ).Scan(&total); err != nil {
-        return nil, 0, fmt.Errorf("count files failed: %v", err)
-    }
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	countQ := `SELECT COUNT(*) FROM files WHERE status = 'active'`
+	var total int
+	if err := d.db.QueryRow(countQ).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count files failed: %v", err)
+	}
 
-    query := `
+	query := `
     SELECT id, original_name, versioned_name, file_type, file_path, size,
            description, uploader, upload_time, version, is_latest, status,
            deleted_at, deleted_by, file_exists, checksum, created_at, updated_at
@@ -1130,28 +1139,62 @@ func (d *Database) ListFilesWithPagination(offset, limit int) ([]FileRecord, int
     ORDER BY upload_time DESC
     LIMIT ? OFFSET ?
     `
-    rows, err := d.db.Query(query, limit, offset)
-    if err != nil {
-        return nil, 0, err
-    }
-    defer rows.Close()
-    recs, err := d.scanFileRecords(rows)
-    if err != nil {
-        return nil, 0, err
-    }
-    return recs, total, nil
+	rows, err := d.db.Query(query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	recs, err := d.scanFileRecords(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	return recs, total, nil
 }
 
 // ListFilesWithPaginationByType returns active files of a specific type with pagination and total count
 func (d *Database) ListFilesWithPaginationByType(fileType string, offset, limit int) ([]FileRecord, int, error) {
-    if limit <= 0 { limit = 50 }
-    if offset < 0 { offset = 0 }
-    countQ := `SELECT COUNT(*) FROM files WHERE status = 'active' AND file_type = ?`
-    var total int
-    if err := d.db.QueryRow(countQ, fileType).Scan(&total); err != nil {
-        return nil, 0, fmt.Errorf("count files failed: %v", err)
-    }
-    query := `
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	
+	// For roadmap and recommendation files, only show latest versions by default
+	if fileType == "roadmap" || fileType == "recommendation" {
+		countQ := `SELECT COUNT(DISTINCT original_name) FROM files WHERE status = 'active' AND file_type = ? AND is_latest = 1`
+		var total int
+		if err := d.db.QueryRow(countQ, fileType).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("count files failed: %v", err)
+		}
+		query := `
+		SELECT id, original_name, versioned_name, file_type, file_path, size,
+			   description, uploader, upload_time, version, is_latest, status,
+			   deleted_at, deleted_by, file_exists, checksum, created_at, updated_at
+		FROM files
+		WHERE status = 'active' AND file_type = ? AND is_latest = 1
+		ORDER BY upload_time DESC
+		LIMIT ? OFFSET ?
+		`
+		rows, err := d.db.Query(query, fileType, limit, offset)
+		if err != nil {
+			return nil, 0, err
+		}
+		defer rows.Close()
+		recs, err := d.scanFileRecords(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		return recs, total, nil
+	}
+	
+	// For other file types, show all versions
+	countQ := `SELECT COUNT(*) FROM files WHERE status = 'active' AND file_type = ?`
+	var total int
+	if err := d.db.QueryRow(countQ, fileType).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count files failed: %v", err)
+	}
+	query := `
     SELECT id, original_name, versioned_name, file_type, file_path, size,
            description, uploader, upload_time, version, is_latest, status,
            deleted_at, deleted_by, file_exists, checksum, created_at, updated_at
@@ -1160,12 +1203,16 @@ func (d *Database) ListFilesWithPaginationByType(fileType string, offset, limit 
     ORDER BY upload_time DESC
     LIMIT ? OFFSET ?
     `
-    rows, err := d.db.Query(query, fileType, limit, offset)
-    if err != nil { return nil, 0, err }
-    defer rows.Close()
-    recs, err := d.scanFileRecords(rows)
-    if err != nil { return nil, 0, err }
-    return recs, total, nil
+	rows, err := d.db.Query(query, fileType, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	recs, err := d.scanFileRecords(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	return recs, total, nil
 }
 
 // Close closes the database connection
@@ -1280,6 +1327,17 @@ func (d *Database) UpdatePackageRemark(id, remark string) error {
 
 // CreateAPIKey creates a new API key
 func (d *Database) CreateAPIKey(apiKey *APIKey) error {
+	// Check if API key name already exists
+	var existingCount int
+	nameCheckQuery := `SELECT COUNT(*) FROM api_keys WHERE name = ? AND status != 'deleted'`
+	if err := d.db.QueryRow(nameCheckQuery, apiKey.Name).Scan(&existingCount); err != nil {
+		return fmt.Errorf("failed to check API key name uniqueness: %v", err)
+	}
+	
+	if existingCount > 0 {
+		return fmt.Errorf("API key name '%s' already exists. Please choose a different name for your API key", apiKey.Name)
+	}
+
 	apiKey.CreatedAt = time.Now()
 	apiKey.UpdatedAt = time.Now()
 
@@ -1574,38 +1632,40 @@ func (d *Database) DeleteAPIKey(keyID string) error {
 
 // UpdateAPIKeyFields updates selective fields of an API key
 func (d *Database) UpdateAPIKeyFields(id string, name *string, description *string, permissions *[]string, expiresAt *time.Time, clearExpiry bool) error {
-    if id == "" { return fmt.Errorf("api key id required") }
-    sets := []string{}
-    args := []interface{}{}
-    if name != nil {
-        sets = append(sets, "name = ?")
-        args = append(args, *name)
-    }
-    if description != nil {
-        sets = append(sets, "description = ?")
-        args = append(args, *description)
-    }
-    if permissions != nil {
-        permJSON, _ := json.Marshal(*permissions)
-        sets = append(sets, "permissions = ?")
-        args = append(args, string(permJSON))
-    }
-    if clearExpiry {
-        sets = append(sets, "expires_at = NULL")
-    } else if expiresAt != nil {
-        sets = append(sets, "expires_at = ?")
-        args = append(args, expiresAt.Format(time.RFC3339))
-    }
-    if len(sets) == 0 {
-        return nil
-    }
-    sets = append(sets, "updated_at = ?")
-    args = append(args, time.Now().Format(time.RFC3339))
-    // where clause id
-    args = append(args, id)
-    query := fmt.Sprintf("UPDATE api_keys SET %s WHERE id = ?", strings.Join(sets, ", "))
-    _, err := d.db.Exec(query, args...)
-    return err
+	if id == "" {
+		return fmt.Errorf("api key id required")
+	}
+	sets := []string{}
+	args := []interface{}{}
+	if name != nil {
+		sets = append(sets, "name = ?")
+		args = append(args, *name)
+	}
+	if description != nil {
+		sets = append(sets, "description = ?")
+		args = append(args, *description)
+	}
+	if permissions != nil {
+		permJSON, _ := json.Marshal(*permissions)
+		sets = append(sets, "permissions = ?")
+		args = append(args, string(permJSON))
+	}
+	if clearExpiry {
+		sets = append(sets, "expires_at = NULL")
+	} else if expiresAt != nil {
+		sets = append(sets, "expires_at = ?")
+		args = append(args, expiresAt.Format(time.RFC3339))
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	sets = append(sets, "updated_at = ?")
+	args = append(args, time.Now().Format(time.RFC3339))
+	// where clause id
+	args = append(args, id)
+	query := fmt.Sprintf("UPDATE api_keys SET %s WHERE id = ?", strings.Join(sets, ", "))
+	_, err := d.db.Exec(query, args...)
+	return err
 }
 
 // LogAPIUsage logs an API usage entry
@@ -1614,14 +1674,20 @@ func (d *Database) LogAPIUsage(log *APIUsageLog) error {
 	INSERT INTO api_usage_logs (
 		api_key_id, user_id, endpoint, method, file_id, file_path,
 		ip_address, user_agent, status_code, response_size, response_time_ms,
-		error_message, request_time
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		error_message, request_time, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
+
+	// Fix IP address formatting - remove brackets from IPv6 loopback
+	ipAddress := log.IPAddress
+	if ipAddress == "[::1]" {
+		ipAddress = "127.0.0.1" // Convert IPv6 loopback to IPv4 for display
+	}
 
 	_, err := d.db.Exec(query,
 		log.APIKeyID, log.UserID, log.Endpoint, log.Method, log.FileID, log.FilePath,
-		log.IPAddress, log.UserAgent, log.StatusCode, log.ResponseSize, log.ResponseTimeMs,
-		log.ErrorMessage, log.RequestTime.Format(time.RFC3339),
+		ipAddress, log.UserAgent, log.StatusCode, log.ResponseSize, log.ResponseTimeMs,
+		log.ErrorMessage, log.RequestTime.Format(time.RFC3339), log.CreatedAt.Format(time.RFC3339),
 	)
 
 	return err
@@ -1630,25 +1696,26 @@ func (d *Database) LogAPIUsage(log *APIUsageLog) error {
 // GetAPIUsageLogs retrieves API usage logs with filters
 func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]APIUsageLog, error) {
 	query := `
-	SELECT id, api_key_id, user_id, endpoint, method, file_id, file_path,
-		   ip_address, user_agent, status_code, response_size, response_time_ms,
-		   error_message, request_time, created_at
-	FROM api_usage_logs
+	SELECT l.id, l.api_key_id, l.user_id, l.endpoint, l.method, l.file_id, l.file_path,
+		   l.ip_address, l.user_agent, l.status_code, l.response_size, l.response_time_ms,
+		   l.error_message, l.request_time, l.created_at, COALESCE(k.name, 'Unknown') as api_key_name
+	FROM api_usage_logs l
+	LEFT JOIN api_keys k ON l.api_key_id = k.id
 	WHERE 1=1
 	`
 	args := []interface{}{}
 
 	if userID != "" {
-		query += " AND user_id = ?"
+		query += " AND l.user_id = ?"
 		args = append(args, userID)
 	}
 
 	if fileID != "" {
-		query += " AND file_id = ?"
+		query += " AND l.file_id = ?"
 		args = append(args, fileID)
 	}
 
-	query += " ORDER BY request_time DESC LIMIT ? OFFSET ?"
+	query += " ORDER BY l.request_time DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
 	rows, err := d.db.Query(query, args...)
@@ -1667,7 +1734,7 @@ func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]
 			&logEntry.ID, &logEntry.APIKeyID, &logEntry.UserID, &logEntry.Endpoint,
 			&logEntry.Method, &fileID, &filePath, &logEntry.IPAddress, &userAgent,
 			&logEntry.StatusCode, &logEntry.ResponseSize, &logEntry.ResponseTimeMs,
-			&errorMessage, &requestTimeStr, &createdAtStr,
+			&errorMessage, &requestTimeStr, &createdAtStr, &logEntry.APIKeyName,
 		)
 
 		if err != nil {
@@ -2046,10 +2113,3 @@ func (d *Database) GetAdminAuditLogs(actor, target, action, since, until string,
 	}
 	return items, total, nil
 }
-
-
-
-
-
-
-

@@ -290,21 +290,52 @@ func GetClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		// Take first IP from comma-separated list
 		if idx := strings.Index(xff, ","); idx != -1 {
-			return strings.TrimSpace(xff[:idx])
+			ip := strings.TrimSpace(xff[:idx])
+			// Handle IPv6 localhost
+			if ip == "::1" {
+				return "127.0.0.1"
+			}
+			return ip
 		}
-		return strings.TrimSpace(xff)
+		ip := strings.TrimSpace(xff)
+		// Handle IPv6 localhost
+		if ip == "::1" {
+			return "127.0.0.1"
+		}
+		return ip
 	}
 
 	// Check X-Real-IP header
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
+		ip := strings.TrimSpace(xri)
+		// Handle IPv6 localhost
+		if ip == "::1" {
+			return "127.0.0.1"
+		}
+		return ip
 	}
 
 	// Fall back to RemoteAddr
-	if idx := strings.LastIndex(r.RemoteAddr, ":"); idx != -1 {
-		return r.RemoteAddr[:idx]
+	remoteAddr := r.RemoteAddr
+	// Handle IPv6 localhost
+	if remoteAddr == "[::1]" {
+		return "127.0.0.1"
 	}
-	return r.RemoteAddr
+
+	// Extract IP from "ip:port" format
+	if idx := strings.LastIndex(remoteAddr, ":"); idx != -1 {
+		ip := remoteAddr[:idx]
+		// Remove brackets from IPv6 addresses
+		if strings.HasPrefix(ip, "[") && strings.HasSuffix(ip, "]") {
+			ip = ip[1 : len(ip)-1]
+		}
+		// Handle IPv6 localhost
+		if ip == "::1" {
+			return "127.0.0.1"
+		}
+		return ip
+	}
+	return remoteAddr
 }
 
 // writeAPIErrorResponse writes a JSON error response

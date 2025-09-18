@@ -54,6 +54,7 @@ interface APIKey {
 interface UsageLog {
   id: number
   apiKeyId: string
+  apiKeyName: string
   userId: string
   endpoint: string
   method: string
@@ -553,7 +554,7 @@ export function APIKeyManagement() {
                     <thead>
                       <tr className="border-b text-left text-sm text-gray-500">
                         <th className="pb-2">Time</th>
-                        <th className="pb-2">User</th>
+                        <th className="pb-2">API Key</th>
                         <th className="pb-2">Method</th>
                         <th className="pb-2">Endpoint</th>
                         <th className="pb-2">Status</th>
@@ -565,7 +566,7 @@ export function APIKeyManagement() {
                       {usageLogs.map((log) => (
                         <tr key={log.id} className="border-b text-sm">
                           <td className="py-2">{formatDate(log.requestTime)}</td>
-                          <td className="py-2">{log.userId}</td>
+                          <td className="py-2">{log.apiKeyName || 'Unknown'}</td>
                           <td className="py-2">
                             <span className={`px-2 py-1 rounded text-xs ${
                               log.method === 'GET' ? 'bg-blue-100 text-blue-800' :

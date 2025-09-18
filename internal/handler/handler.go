@@ -132,12 +132,15 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
 
 	// ========= 文件管理路由 =========
-	webAPI.HandleFunc("/upload", middleware.RequireAuthorization(uploadFileHandler)).Methods("POST")
-	webAPI.HandleFunc("/files/list", middleware.RequireAuthorization(listFilesHandler)).Methods("GET")
-	webAPI.HandleFunc("/files/versions/{type}/{filename}", middleware.RequireAuthorization(getFileVersionsHandler)).Methods("GET")
-	webAPI.HandleFunc("/files/{id}/delete", middleware.RequireAuthorization(deleteFileHandler)).Methods("DELETE")
-	webAPI.HandleFunc("/files/{id}/restore", middleware.RequireAuthorization(restoreFileHandler)).Methods("POST")
-	webAPI.HandleFunc("/files/{id}/purge", middleware.RequireAuthorization(purgeFileHandler)).Methods("DELETE")
+	// Apply API logging middleware to all file management endpoints
+	webFileMgmtRouter := webAPI.PathPrefix("").Subrouter()
+	webFileMgmtRouter.Use(middleware.APILoggingMiddleware)
+	webFileMgmtRouter.HandleFunc("/upload", middleware.RequireAuthorization(uploadFileHandler)).Methods("POST")
+	webFileMgmtRouter.HandleFunc("/files/list", middleware.RequireAuthorization(listFilesHandler)).Methods("GET")
+	webFileMgmtRouter.HandleFunc("/files/versions/{type}/{filename}", middleware.RequireAuthorization(getFileVersionsHandler)).Methods("GET")
+	webFileMgmtRouter.HandleFunc("/files/{id}/delete", middleware.RequireAuthorization(deleteFileHandler)).Methods("DELETE")
+	webFileMgmtRouter.HandleFunc("/files/{id}/restore", middleware.RequireAuthorization(restoreFileHandler)).Methods("POST")
+	webFileMgmtRouter.HandleFunc("/files/{id}/purge", middleware.RequireAuthorization(purgeFileHandler)).Methods("DELETE")
 
 	// ========= 版本管理路由 =========
 	webAPI.HandleFunc("/versions/{type}/versions.json", middleware.RequireAuthorization(webGetVersionsListHandler)).Methods("GET")
@@ -150,6 +153,7 @@ func RegisterRoutes(router *mux.Router) {
 
 	// 统一文件下载
 	webFilesRouter := webAPI.PathPrefix("/files").Subrouter()
+	webFilesRouter.Use(middleware.APILoggingMiddleware) // Add API logging for file downloads
 	webFilesRouter.Use(middleware.Authorize())
 	webFilesRouter.PathPrefix("/").HandlerFunc(downloadFileHandler).Methods("GET")
 
@@ -1605,6 +1609,19 @@ func adminCreateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if API key name already exists
+	existingKeys, err := db.GetAllAPIKeys()
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check existing API keys")
+		return
+	}
+	for _, key := range existingKeys {
+		if key.Name == req.Name {
+			writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "API key name already exists")
+			return
+		}
+	}
+
 	// Generate key
 	fullKey, keyHash, err := apikey.GenerateAPIKey("sk")
 	if err != nil {
@@ -1702,6 +1719,21 @@ func adminUpdateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		if !apikey.ValidatePermissions(*req.Permissions) {
 			writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid permissions")
 			return
+		}
+	}
+
+	// Check if API key name already exists (if name is being updated)
+	if req.Name != nil {
+		existingKeys, err := db.GetAllAPIKeys()
+		if err != nil {
+			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check existing API keys")
+			return
+		}
+		for _, key := range existingKeys {
+			if key.ID != id && key.Name == *req.Name {
+				writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "API key name already exists")
+				return
+			}
 		}
 	}
 
@@ -2499,14 +2531,20 @@ func apiUploadZipHandler(w http.ResponseWriter, r *http.Request, kind string) {
 		writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "Only .zip is allowed", map[string]interface{}{"filename": header.Filename})
 		return
 	}
-	name := header.Filename
+	originalName := header.Filename
+	// Create unique filename to avoid overwriting
+	ext := filepath.Ext(originalName)
+	baseName := strings.TrimSuffix(originalName, ext)
+	timestamp := time.Now().Format("20060102T150405Z")
+	uniqueName := fmt.Sprintf("%s_%s%s", baseName, timestamp, ext)
+
 	// Create directories by tenant/kind
 	baseDir := filepath.Join("downloads", "packages", tenant, kind)
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create directory")
 		return
 	}
-	targetPath := filepath.Join(baseDir, name)
+	targetPath := filepath.Join(baseDir, uniqueName)
 	out, err := os.Create(targetPath)
 	if err != nil {
 		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create file")
@@ -2525,16 +2563,16 @@ func apiUploadZipHandler(w http.ResponseWriter, r *http.Request, kind string) {
 			ID:        fmt.Sprintf("pkg_%d", time.Now().UnixNano()),
 			TenantID:  tenant,
 			Type:      kind,
-			FileName:  name,
+			FileName:  uniqueName,
 			Size:      n,
 			Path:      targetPath,
 			IP:        middleware.GetClientIP(r),
 			Timestamp: time.Now().UTC(),
-			Remark:    "uploaded via public API",
+			Remark:    fmt.Sprintf("uploaded via public API (original: %s)", originalName),
 		}
 		_ = db.InsertPackageRecord(rec)
 	}
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Upload successful", Data: map[string]interface{}{"file": name, "size": n, "tenant": tenant, "type": kind}})
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Upload successful", Data: map[string]interface{}{"file": uniqueName, "original_file": originalName, "size": n, "tenant": tenant, "type": kind}})
 }
 
 // CleanupExpiredTempKeys cleans up expired temporary keys
