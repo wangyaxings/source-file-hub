@@ -231,10 +231,14 @@ func APILoggingMiddleware(next http.Handler) http.Handler {
 					RequestTime:    start,
 				}
 
-				// Set API key info if available
+				// Set API key info if available (API key authentication should have run first)
 				if authCtx != nil {
 					logEntry.APIKeyID = authCtx.KeyID
+					logEntry.APIKeyName = authCtx.APIKey.Name  // Set the actual API key name
 					logEntry.UserID = authCtx.Role
+
+					// Debug log for API key name
+					log.Printf("[DEBUG] APILoggingMiddleware: Set API key info - ID='%s', Name='%s'", authCtx.KeyID, authCtx.APIKey.Name)
 				} else {
 					// For session-based requests, try to get user info from session
 					if userCtx := r.Context().Value("user"); userCtx != nil {
@@ -246,13 +250,21 @@ func APILoggingMiddleware(next http.Handler) http.Handler {
 							}
 						}
 					}
-					// Mark as web session request
+					// Mark as web session request - use special values that won't cause FK constraint issues
 					logEntry.APIKeyID = "web_session"
+					logEntry.APIKeyName = "Web Session"
+
+					// Debug log for web session
+					log.Printf("[DEBUG] APILoggingMiddleware: Set web session info - APIKeyName='%s'", logEntry.APIKeyName)
 				}
 
-				// Extract file ID from request if applicable
+				// Extract file ID from request if applicable (only if file exists in database)
 				if fileID := r.URL.Query().Get("file_id"); fileID != "" {
-					logEntry.FileID = fileID
+					// Validate file_id exists in database
+					var count int
+					if err := db.GetDB().QueryRow("SELECT COUNT(*) FROM files WHERE id = ?", fileID).Scan(&count); err == nil && count > 0 {
+						logEntry.FileID = fileID
+					}
 				}
 				if filePath := r.URL.Query().Get("file_path"); filePath != "" {
 					logEntry.FilePath = filePath

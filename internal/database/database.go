@@ -135,6 +135,11 @@ func InitDatabase(dbPath string) error {
 		return fmt.Errorf("failed to open database: %v", err)
 	}
 
+	// Configure SQLite for better concurrency
+	db.SetMaxOpenConns(1) // SQLite works best with a single connection
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+
 	// Enable foreign keys and WAL mode for better performance
 	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
 		return fmt.Errorf("failed to enable foreign keys: %v", err)
@@ -144,11 +149,24 @@ func InitDatabase(dbPath string) error {
 		return fmt.Errorf("failed to enable WAL mode: %v", err)
 	}
 
+	// Additional SQLite optimizations
+	if _, err := db.Exec("PRAGMA synchronous = NORMAL"); err != nil {
+		return fmt.Errorf("failed to set synchronous mode: %v", err)
+	}
+
+	if _, err := db.Exec("PRAGMA busy_timeout = 30000"); err != nil { // 30 second timeout
+		return fmt.Errorf("failed to set busy timeout: %v", err)
+	}
+
+	if _, err := db.Exec("PRAGMA cache_size = 10000"); err != nil { // Increase cache
+		return fmt.Errorf("failed to set cache size: %v", err)
+	}
+
 	defaultDB = &Database{db: db}
 
-	// Perform lightweight schema migration for api_keys: user_id -> role
-	if err := defaultDB.migrateAPIKeysRoleColumn(); err != nil {
-		return fmt.Errorf("failed to migrate api_keys schema: %v", err)
+	// Migrate api_usage_logs table to remove foreign key constraints
+	if err := defaultDB.migrateAPIUsageLogsTable(); err != nil {
+		return fmt.Errorf("failed to migrate api_usage_logs schema: %v", err)
 	}
 
 	if err := defaultDB.createTables(); err != nil {
@@ -168,11 +186,11 @@ func InitDatabase(dbPath string) error {
 	return nil
 }
 
-// migrateAPIKeysRoleColumn ensures api_keys table has 'role' column instead of legacy 'user_id'
-func (d *Database) migrateAPIKeysRoleColumn() error {
-	// Check if api_keys table exists
+// migrateAPIUsageLogsTable migrates api_usage_logs table to remove foreign key constraints
+func (d *Database) migrateAPIUsageLogsTable() error {
+	// Check if api_usage_logs table exists
 	var c int
-	if err := d.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_keys'").Scan(&c); err != nil {
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_usage_logs'").Scan(&c); err != nil {
 		return err
 	}
 	if c == 0 {
@@ -180,17 +198,18 @@ func (d *Database) migrateAPIKeysRoleColumn() error {
 		return nil
 	}
 
-	// Check if 'role' column exists
-	var roleCol int
-	if err := d.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('api_keys') WHERE name='role'").Scan(&roleCol); err != nil {
+	// Check if the table already has foreign key constraints by examining the table structure
+	var hasFK int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM pragma_foreign_key_list('api_usage_logs')").Scan(&hasFK); err != nil {
 		return err
 	}
-	if roleCol > 0 {
-		// Already migrated
+
+	if hasFK == 0 {
+		// No foreign keys found; already migrated
 		return nil
 	}
 
-	// Legacy table detected: perform migration user_id -> role
+	// Migration needed: recreate table without foreign key constraints
 	tx, err := d.db.Begin()
 	if err != nil {
 		return err
@@ -201,44 +220,74 @@ func (d *Database) migrateAPIKeysRoleColumn() error {
 		}
 	}()
 
-	steps := []string{
-		// Rename old table
-		"ALTER TABLE api_keys RENAME TO api_keys_old",
-		// Create new table with 'role' column
-		`CREATE TABLE api_keys (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            key_hash TEXT NOT NULL UNIQUE,
-            role TEXT NOT NULL,
-            permissions TEXT NOT NULL DEFAULT '["read"]',
-            status TEXT NOT NULL DEFAULT 'active',
-            expires_at TEXT,
-            usage_count INTEGER DEFAULT 0,
-            last_used_at TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )`,
-		// Copy data mapping user_id -> role
-		`INSERT INTO api_keys (id, name, description, key_hash, role, permissions, status, expires_at, usage_count, last_used_at, created_at, updated_at)
-         SELECT id, name, description, key_hash, user_id AS role, permissions, status, expires_at, usage_count, last_used_at, created_at, updated_at FROM api_keys_old`,
-		// Drop old table
-		"DROP TABLE api_keys_old",
-		// Recreate indexes
-		"CREATE INDEX IF NOT EXISTS idx_api_keys_role ON api_keys(role)",
-		"CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status)",
-		"CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)",
+	// Create new table without foreign key constraints
+	if _, err = tx.Exec(`
+		CREATE TABLE api_usage_logs_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			api_key_id TEXT,
+			api_key_name TEXT,
+			user_id TEXT NOT NULL,
+			endpoint TEXT NOT NULL,
+			method TEXT NOT NULL,
+			file_id TEXT,
+			file_path TEXT,
+			ip_address TEXT,
+			user_agent TEXT,
+			status_code INTEGER,
+			response_size INTEGER DEFAULT 0,
+			response_time_ms INTEGER DEFAULT 0,
+			error_message TEXT,
+			request_time TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`); err != nil {
+		return fmt.Errorf("failed to create new api_usage_logs table: %v", err)
 	}
 
-	for _, stmt := range steps {
-		if _, err = tx.Exec(stmt); err != nil {
-			return fmt.Errorf("migration step failed: %v", err)
+	// Copy data from old table to new table
+	if _, err = tx.Exec(`
+		INSERT INTO api_usage_logs_new (
+			id, api_key_id, api_key_name, user_id, endpoint, method, file_id, file_path,
+			ip_address, user_agent, status_code, response_size, response_time_ms,
+			error_message, request_time, created_at
+		)
+		SELECT id, api_key_id, api_key_name, user_id, endpoint, method, file_id, file_path,
+		       ip_address, user_agent, status_code, response_size, response_time_ms,
+		       error_message, request_time, created_at
+		FROM api_usage_logs
+	`); err != nil {
+		return fmt.Errorf("failed to copy data to new table: %v", err)
+	}
+
+	// Drop old table
+	if _, err = tx.Exec("DROP TABLE api_usage_logs"); err != nil {
+		return fmt.Errorf("failed to drop old api_usage_logs table: %v", err)
+	}
+
+	// Rename new table
+	if _, err = tx.Exec("ALTER TABLE api_usage_logs_new RENAME TO api_usage_logs"); err != nil {
+		return fmt.Errorf("failed to rename new api_usage_logs table: %v", err)
+	}
+
+	// Recreate indexes
+	indexes := []string{
+		"CREATE INDEX IF NOT EXISTS idx_api_usage_api_key_id ON api_usage_logs(api_key_id)",
+		"CREATE INDEX IF NOT EXISTS idx_api_usage_user_id ON api_usage_logs(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_api_usage_request_time ON api_usage_logs(request_time)",
+		"CREATE INDEX IF NOT EXISTS idx_api_usage_endpoint ON api_usage_logs(endpoint)",
+		"CREATE INDEX IF NOT EXISTS idx_api_usage_file_id ON api_usage_logs(file_id)",
+	}
+
+	for _, idx := range indexes {
+		if _, err = tx.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %v", err)
 		}
 	}
 
 	if err = tx.Commit(); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -352,7 +401,8 @@ func (d *Database) createTables() error {
 	createAPIUsageTable := `
 	CREATE TABLE IF NOT EXISTS api_usage_logs (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		api_key_id TEXT NOT NULL,
+		api_key_id TEXT,
+		api_key_name TEXT,
 		user_id TEXT NOT NULL,
 		endpoint TEXT NOT NULL,
 		method TEXT NOT NULL,
@@ -365,9 +415,7 @@ func (d *Database) createTables() error {
 		response_time_ms INTEGER DEFAULT 0,
 		error_message TEXT,
 		request_time TEXT NOT NULL,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (api_key_id) REFERENCES api_keys(id),
-		FOREIGN KEY (file_id) REFERENCES files(id)
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_api_usage_api_key_id ON api_usage_logs(api_key_id);
@@ -1439,8 +1487,12 @@ func (d *Database) GetAPIKeyByHash(keyHash string) (*APIKey, error) {
 	)
 
 	if err != nil {
+		log.Printf("[DEBUG] GetAPIKeyByHash: Failed to query API key for hash %s: %v", keyHash, err)
 		return nil, err
 	}
+
+	// Debug log for API key name
+	log.Printf("[DEBUG] GetAPIKeyByHash: Retrieved API key ID=%s, Name='%s'", apiKey.ID, apiKey.Name)
 
 	// Parse JSON permissions
 	if err := json.Unmarshal([]byte(permissionsJSON), &apiKey.Permissions); err != nil {
@@ -1671,24 +1723,70 @@ func (d *Database) UpdateAPIKeyFields(id string, name *string, description *stri
 // LogAPIUsage logs an API usage entry
 func (d *Database) LogAPIUsage(log *APIUsageLog) error {
 	query := `
-	INSERT INTO api_usage_logs (
-		api_key_id, user_id, endpoint, method, file_id, file_path,
-		ip_address, user_agent, status_code, response_size, response_time_ms,
-		error_message, request_time, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
+    INSERT INTO api_usage_logs (
+        api_key_id, api_key_name, user_id, endpoint, method, file_id, file_path,
+        ip_address, user_agent, status_code, response_size, response_time_ms,
+        error_message, request_time, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
 
-	// Fix IP address formatting - remove brackets from IPv6 loopback
+	// Helper to turn empty strings into NULLs
+	toNull := func(s string) interface{} {
+		if strings.TrimSpace(s) == "" {
+			return nil
+		}
+		return s
+	}
+
+	// Validate file_id exists in database before using it
+	var fileIDValue interface{} = nil
+	if log.FileID != "" {
+		var count int
+		err := d.db.QueryRow("SELECT COUNT(*) FROM files WHERE id = ?", log.FileID).Scan(&count)
+		if err == nil && count > 0 {
+			fileIDValue = log.FileID
+		}
+	}
+
+	// Normalize IP address formatting - remove brackets from IPv6 loopback
 	ipAddress := log.IPAddress
 	if ipAddress == "[::1]" {
 		ipAddress = "127.0.0.1" // Convert IPv6 loopback to IPv4 for display
 	}
 
+	// Use current time for created_at if not set
+	createdAt := log.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
+
+	// Debug log for API usage log entry
+	fmt.Printf("[DEBUG] LogAPIUsage: About to insert log entry - APIKeyID='%s', APIKeyName='%s', UserID='%s', Endpoint='%s'\n",
+		log.APIKeyID, log.APIKeyName, log.UserID, log.Endpoint)
+
 	_, err := d.db.Exec(query,
-		log.APIKeyID, log.UserID, log.Endpoint, log.Method, log.FileID, log.FilePath,
-		ipAddress, log.UserAgent, log.StatusCode, log.ResponseSize, log.ResponseTimeMs,
-		log.ErrorMessage, log.RequestTime.Format(time.RFC3339), log.CreatedAt.Format(time.RFC3339),
+		log.APIKeyID,
+		toNull(log.APIKeyName),
+		log.UserID,
+		log.Endpoint,
+		log.Method,
+		fileIDValue,
+		toNull(log.FilePath),
+		ipAddress,
+		toNull(log.UserAgent),
+		log.StatusCode,
+		log.ResponseSize,
+		log.ResponseTimeMs,
+		toNull(log.ErrorMessage),
+		log.RequestTime.Format(time.RFC3339),
+		createdAt.Format(time.RFC3339),
 	)
+
+	if err != nil {
+		fmt.Printf("[DEBUG] LogAPIUsage: Failed to insert API usage log: %v\n", err)
+	} else {
+		fmt.Printf("[DEBUG] LogAPIUsage: Successfully inserted API usage log\n")
+	}
 
 	return err
 }
@@ -1696,17 +1794,17 @@ func (d *Database) LogAPIUsage(log *APIUsageLog) error {
 // GetAPIUsageLogs retrieves API usage logs with filters
 func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]APIUsageLog, error) {
 	query := `
-	SELECT l.id, l.api_key_id, l.user_id, l.endpoint, l.method, l.file_id, l.file_path,
-		   l.ip_address, l.user_agent, l.status_code, l.response_size, l.response_time_ms,
-		   l.error_message, l.request_time, l.created_at,
-		   CASE
-		     WHEN l.api_key_id = 'web_session' THEN 'Web Session'
-		     ELSE COALESCE(k.name, 'Unknown')
-		   END as api_key_name
-	FROM api_usage_logs l
-	LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
-	WHERE 1=1
-	`
+    SELECT l.id, l.api_key_id, l.user_id, l.endpoint, l.method, l.file_id, l.file_path,
+           l.ip_address, l.user_agent, l.status_code, l.response_size, l.response_time_ms,
+           l.error_message, l.request_time, l.created_at,
+           CASE
+             WHEN l.api_key_id = 'web_session' THEN 'Web Session'
+             ELSE COALESCE(l.api_key_name, k.name, 'Unknown')
+           END as api_key_name
+    FROM api_usage_logs l
+    LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
+    WHERE 1=1
+    `
 	args := []interface{}{}
 
 	if userID != "" {
@@ -1722,8 +1820,12 @@ func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]
 	query += " ORDER BY l.request_time DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
+	// Debug log for GetAPIUsageLogs query
+	log.Printf("[DEBUG] GetAPIUsageLogs: Executing query with args: %v", args)
+
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
+		log.Printf("[DEBUG] GetAPIUsageLogs: Query failed: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -1742,9 +1844,12 @@ func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]
 		)
 
 		if err != nil {
-			log.Printf("Error scanning API usage log: %v", err)
+			log.Printf("[DEBUG] GetAPIUsageLogs: Error scanning row: %v", err)
 			continue
 		}
+
+		// Debug log for API key name from GetAPIUsageLogs
+		log.Printf("[DEBUG] GetAPIUsageLogs: API key ID='%s', Name='%s'", logEntry.APIKeyID, logEntry.APIKeyName)
 
 		// Handle nullable fields
 		if fileID.Valid {
@@ -1772,6 +1877,30 @@ func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]
 	}
 
 	return logs, nil
+}
+
+// GetAPIUsageLogsCount retrieves the total count of API usage logs
+func (d *Database) GetAPIUsageLogsCount(userID, fileID string) (int, error) {
+	query := `
+	SELECT COUNT(*)
+	FROM api_usage_logs l
+	WHERE 1=1
+	`
+	args := []interface{}{}
+
+	if userID != "" {
+		query += " AND l.user_id = ?"
+		args = append(args, userID)
+	}
+
+	if fileID != "" {
+		query += " AND l.file_id = ?"
+		args = append(args, fileID)
+	}
+
+	var count int
+	err := d.db.QueryRow(query, args...).Scan(&count)
+	return count, err
 }
 
 // =============================================================================

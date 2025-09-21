@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { apiClient } from "@/lib/api"
 import { formatDate } from "@/lib/utils"
-import { Upload, Search, Loader2, Save } from "lucide-react"
+import { Upload, Search, Loader2, Edit, Copy, MoreVertical } from "lucide-react"
 
 type PackageItem = {
   id: string
@@ -182,18 +182,18 @@ export function PackagesPanel() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
               <thead>
-                <tr className="text-left border-b">
-                  <th className="py-2">Tenant ID</th>
-                  <th className="py-2">IP</th>
-                  <th className="py-2">Timestamp</th>
-                  <th className="py-2">Type</th>
-                  <th className="py-2">Filename</th>
-                  <th className="py-2">Size</th>
-                  <th className="py-2">Path</th>
-                  <th className="py-2">Remark</th>
-                  <th className="py-2"></th>
+                <tr className="text-left border-b text-gray-600 bg-gray-50">
+                  <th className="py-3 px-2 w-24 font-medium text-xs uppercase tracking-wide">Tenant</th>
+                  <th className="py-3 px-2 w-20 font-medium text-xs uppercase tracking-wide">IP</th>
+                  <th className="py-3 px-2 w-32 font-medium text-xs uppercase tracking-wide">Timestamp</th>
+                  <th className="py-3 px-2 w-16 font-medium text-xs uppercase tracking-wide">Type</th>
+                  <th className="py-3 px-2 w-40 font-medium text-xs uppercase tracking-wide">Filename</th>
+                  <th className="py-3 px-2 w-20 font-medium text-xs uppercase tracking-wide">Size</th>
+                  <th className="py-3 px-2 flex-1 font-medium text-xs uppercase tracking-wide">Path</th>
+                  <th className="py-3 px-2 w-48 font-medium text-xs uppercase tracking-wide">Remark</th>
+                  <th className="py-3 px-2 w-12 font-medium text-xs uppercase tracking-wide"></th>
                 </tr>
               </thead>
               <tbody>
@@ -242,24 +242,46 @@ export function PackagesPanel() {
 
 function Row({ item, onEdit }: { item: PackageItem, onEdit: () => void }) {
   const sizeFmt = useMemo(() => `${(item.size/1024/1024).toFixed(2)} MB`, [item.size])
-  const tenantShort = useMemo(() => item.tenantId?.length > 12 ? item.tenantId.slice(0,12) : item.tenantId, [item.tenantId])
   const dirPath = useMemo(() => {
     const p = (item.path || '').replace(/\\/g, '/');
     const idx = p.lastIndexOf('/');
     return idx >= 0 ? p.slice(0, idx) : p;
   }, [item.path])
+
   return (
-    <tr className="border-b align-top">
-      <td className="py-2 pr-4 whitespace-nowrap" title={item.tenantId}>{tenantShort}</td>
-      <td className="py-2 pr-4 whitespace-nowrap">{item.ip}</td>
-      <td className="py-2 pr-4 whitespace-nowrap">{formatDate(item.timestamp)}</td>
-      <td className="py-2 pr-4 whitespace-nowrap">{item.type}</td>
-      <td className="py-2 pr-4">{item.fileName}</td>
-      <td className="py-2 pr-4 whitespace-nowrap">{sizeFmt}</td>
-      <td className="py-2 pr-4" title={item.path}>{dirPath}</td>
-      <td className="py-2 pr-2 min-w-[200px]">{item.remark || ''}</td>
-      <td className="py-2">
-        <Button size="sm" variant="outline" onClick={onEdit}>Edit</Button>
+    <tr className="border-b hover:bg-gray-50">
+      <td className="py-3 px-2 w-24 truncate" title={item.tenantId}>
+        <span className="text-xs">{item.tenantId}</span>
+      </td>
+      <td className="py-3 px-2 w-20 truncate" title={item.ip}>
+        <span className="text-xs font-mono">{item.ip}</span>
+      </td>
+      <td className="py-3 px-2 w-32 truncate" title={formatDate(item.timestamp)}>
+        <span className="text-xs">{formatDate(item.timestamp)}</span>
+      </td>
+      <td className="py-3 px-2 w-16 truncate">
+        <span className={`px-2 py-1 rounded text-xs ${
+          item.type === 'assets' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
+        }`}>
+          {item.type}
+        </span>
+      </td>
+      <td className="py-3 px-2 w-40 truncate" title={item.fileName}>
+        <span className="text-xs">{item.fileName}</span>
+      </td>
+      <td className="py-3 px-2 w-20 text-xs">
+        {sizeFmt}
+      </td>
+      <td className="py-3 px-2 flex-1 truncate font-mono text-xs" title={item.path}>
+        {dirPath}
+      </td>
+      <td className="py-3 px-2 w-48 truncate" title={item.remark || ''}>
+        <span className="text-xs">{item.remark || <span className="text-gray-400">No remark</span>}</span>
+      </td>
+      <td className="py-3 px-2 w-12">
+        <Button size="sm" variant="ghost" onClick={onEdit} className="p-1 h-8 w-8" title="Edit remark">
+          <Edit className="h-4 w-4" />
+        </Button>
       </td>
     </tr>
   )

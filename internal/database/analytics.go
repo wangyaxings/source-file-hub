@@ -64,13 +64,13 @@ type ErrorTypeStats struct {
 
 // AnalyticsData represents comprehensive analytics data
 type AnalyticsData struct {
-	TimeRange            AnalyticsTimeRange    `json:"timeRange"`
-	Overview             AnalyticsOverview     `json:"overview"`
-	Trends               []AnalyticsTrend      `json:"trends"`
-	APIKeyUsage          []APIKeyUsageStats    `json:"apiKeyUsage"`
-	OperationTypes       []OperationTypeStats  `json:"operationTypes"`
-	HourlyDistribution   []HourlyDistribution  `json:"hourlyDistribution"`
-	ErrorTypes           []ErrorTypeStats      `json:"errorTypes"`
+	TimeRange          AnalyticsTimeRange   `json:"timeRange"`
+	Overview           AnalyticsOverview    `json:"overview"`
+	Trends             []AnalyticsTrend     `json:"trends"`
+	APIKeyUsage        []APIKeyUsageStats   `json:"apiKeyUsage"`
+	OperationTypes     []OperationTypeStats `json:"operationTypes"`
+	HourlyDistribution []HourlyDistribution `json:"hourlyDistribution"`
+	ErrorTypes         []ErrorTypeStats     `json:"errorTypes"`
 }
 
 // GetAnalyticsData retrieves comprehensive analytics data for the specified time range
@@ -218,7 +218,7 @@ func (d *Database) getAnalyticsTrends(whereClause string, args []interface{}) ([
 		var avgResponseTime sql.NullFloat64
 
 		err := rows.Scan(&trend.Date, &trend.Requests, &trend.SuccessCount,
-						 &trend.ErrorCount, &avgResponseTime)
+			&trend.ErrorCount, &avgResponseTime)
 		if err != nil {
 			log.Printf("Error scanning trend record: %v", err)
 			continue
@@ -237,26 +237,30 @@ func (d *Database) getAnalyticsTrends(whereClause string, args []interface{}) ([
 // getAPIKeyUsageStats gets API key usage statistics
 func (d *Database) getAPIKeyUsageStats(whereClause string, args []interface{}) ([]APIKeyUsageStats, error) {
 	query := fmt.Sprintf(`
-		SELECT
-			l.api_key_id,
-			CASE
-			  WHEN l.api_key_id = 'web_session' THEN 'Web Session'
-			  ELSE COALESCE(k.name, 'Unknown')
-			END as api_key_name,
-			l.user_id,
-			COUNT(*) as requests,
-			COUNT(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 END) as success_count,
-			MAX(l.request_time) as last_used
-		FROM api_usage_logs l
-		LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
-		%s
-		GROUP BY l.api_key_id, l.user_id
-		ORDER BY requests DESC
-		LIMIT 20
-	`, whereClause)
+        SELECT
+            l.api_key_id,
+            CASE
+              WHEN l.api_key_id = 'web_session' THEN 'Web Session'
+              ELSE COALESCE(l.api_key_name, k.name, 'Unknown')
+            END as api_key_name,
+            l.user_id,
+            COUNT(*) as requests,
+            COUNT(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 END) as success_count,
+            MAX(l.request_time) as last_used
+        FROM api_usage_logs l
+        LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
+        %s
+        GROUP BY l.api_key_id, l.user_id
+        ORDER BY requests DESC
+        LIMIT 20
+    `, whereClause)
+
+	// Debug log for analytics query
+	log.Printf("[DEBUG] getAPIKeyUsageStats: Executing query with args: %v", args)
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
+		log.Printf("[DEBUG] getAPIKeyUsageStats: Query failed: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -267,11 +271,14 @@ func (d *Database) getAPIKeyUsageStats(whereClause string, args []interface{}) (
 		var successCount int64
 
 		err := rows.Scan(&stat.APIKeyID, &stat.APIKeyName, &stat.UserID,
-						 &stat.Requests, &successCount, &stat.LastUsed)
+			&stat.Requests, &successCount, &stat.LastUsed)
 		if err != nil {
-			log.Printf("Error scanning API key usage stat: %v", err)
+			log.Printf("[DEBUG] getAPIKeyUsageStats: Error scanning row: %v", err)
 			continue
 		}
+
+		// Debug log for API key name from analytics
+		log.Printf("[DEBUG] getAPIKeyUsageStats: API key ID='%s', Name='%s'", stat.APIKeyID, stat.APIKeyName)
 
 		if stat.Requests > 0 {
 			stat.SuccessRate = float64(successCount) / float64(stat.Requests) * 100
@@ -279,6 +286,9 @@ func (d *Database) getAPIKeyUsageStats(whereClause string, args []interface{}) (
 
 		stats = append(stats, stat)
 	}
+
+	// Debug log for final results
+	log.Printf("[DEBUG] getAPIKeyUsageStats: Returning %d stats", len(stats))
 
 	return stats, nil
 }

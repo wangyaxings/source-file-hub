@@ -1784,13 +1784,26 @@ func adminUsageLogsHandler(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	logs, err := db.GetAPIUsageLogs("", "", limit, 0)
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+
+	logs, err := db.GetAPIUsageLogs("", "", limit, offset)
 	if err != nil {
 		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
 	}
+
+	// Get total count for pagination
+	totalCount, err := db.GetAPIUsageLogsCount("", "")
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
 	// Return both "logs" and standard "items" to maximize compatibility
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"logs": logs, "items": logs, "count": len(logs)}})
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"logs": logs, "items": logs, "count": totalCount}})
 }
 
 // adminAnalyticsHandler returns analytics data for admin dashboard
@@ -2256,31 +2269,29 @@ func RegisterAPIRoutes(router *mux.Router) {
 
 	// Public API routes with API key authentication
 	publicAPI := apiRouter.PathPrefix("/public").Subrouter()
-	// Log API usage for public endpoints (API key based)
-	publicAPI.Use(middleware.APILoggingMiddleware)
 
 	// File management endpoints with API key authentication
-	publicAPI.Handle("/files/upload", middleware.APIKeyAuthMiddleware(http.HandlerFunc(uploadFileHandler))).Methods("POST")
-	publicAPI.Handle("/files", middleware.APIKeyAuthMiddleware(http.HandlerFunc(listFilesHandler))).Methods("GET")
-	publicAPI.Handle("/files/{id}/download", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiDownloadFileByIDHandler))).Methods("GET")
-	publicAPI.Handle("/files/{id}", middleware.APIKeyAuthMiddleware(http.HandlerFunc(deleteFileHandler))).Methods("DELETE")
-	publicAPI.Handle("/files/{id}/restore", middleware.APIKeyAuthMiddleware(http.HandlerFunc(restoreFileHandler))).Methods("POST")
+	publicAPI.Handle("/files/upload", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(uploadFileHandler)))).Methods("POST")
+	publicAPI.Handle("/files", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(listFilesHandler)))).Methods("GET")
+	publicAPI.Handle("/files/{id}/download", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiDownloadFileByIDHandler)))).Methods("GET")
+	publicAPI.Handle("/files/{id}", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(deleteFileHandler)))).Methods("DELETE")
+	publicAPI.Handle("/files/{id}/restore", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(restoreFileHandler)))).Methods("POST")
 
 	// Latest version helpers for roadmap/recommendation
-	publicAPI.Handle("/versions/{type}/latest", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiGetLatestVersionInfoHandler))).Methods("GET")
-	publicAPI.Handle("/versions/{type}/latest/info", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiGetLatestVersionInfoHandler))).Methods("GET")
-	publicAPI.Handle("/versions/{type}/latest/download", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiDownloadLatestByTypeHandler))).Methods("GET")
+	publicAPI.Handle("/versions/{type}/latest", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiGetLatestVersionInfoHandler)))).Methods("GET")
+	publicAPI.Handle("/versions/{type}/latest/info", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiGetLatestVersionInfoHandler)))).Methods("GET")
+	publicAPI.Handle("/versions/{type}/latest/download", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiDownloadLatestByTypeHandler)))).Methods("GET")
 
 	// Generic version info: supports 'latest' or concrete versionId
-	publicAPI.Handle("/versions/{type}/{ver}/info", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiGetVersionInfoHandler))).Methods("GET")
+	publicAPI.Handle("/versions/{type}/{ver}/info", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiGetVersionInfoHandler)))).Methods("GET")
 
 	// Package management endpoints with API key authentication
-	publicAPI.Handle("/packages", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiListPackagesHandler))).Methods("GET")
-	publicAPI.Handle("/packages/{id}/remark", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUpdatePackageRemarkHandler))).Methods("PATCH")
+	publicAPI.Handle("/packages", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiListPackagesHandler)))).Methods("GET")
+	publicAPI.Handle("/packages/{id}/remark", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiUpdatePackageRemarkHandler)))).Methods("PATCH")
 
 	// Public uploads: assets / others ZIPs
-	publicAPI.Handle("/upload/assets-zip", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUploadAssetsZipHandler))).Methods("POST")
-	publicAPI.Handle("/upload/others-zip", middleware.APIKeyAuthMiddleware(http.HandlerFunc(apiUploadOthersZipHandler))).Methods("POST")
+	publicAPI.Handle("/upload/assets-zip", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiUploadAssetsZipHandler)))).Methods("POST")
+	publicAPI.Handle("/upload/others-zip", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiUploadOthersZipHandler)))).Methods("POST")
 
 	log.Printf("Public API routes registered with API key authentication")
 }
@@ -2570,7 +2581,10 @@ func apiUploadZipHandler(w http.ResponseWriter, r *http.Request, kind string) {
 			Timestamp: time.Now().UTC(),
 			Remark:    fmt.Sprintf("uploaded via public API (original: %s)", originalName),
 		}
-		_ = db.InsertPackageRecord(rec)
+		if err := db.InsertPackageRecord(rec); err != nil {
+			log.Printf("Warning: Failed to save package record to database: %v", err)
+			// Continue anyway - file was saved successfully
+		}
 	}
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Upload successful", Data: map[string]interface{}{"file": uniqueName, "original_file": originalName, "size": n, "tenant": tenant, "type": kind}})
 }

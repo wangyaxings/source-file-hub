@@ -73,6 +73,9 @@ export function APIKeyManagement() {
   const [apiKeys, setApiKeys] = useState<APIKey[]>([])
   const [usageLogs, setUsageLogs] = useState<UsageLog[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [usageLogsPage, setUsageLogsPage] = useState(1)
+  const [usageLogsLimit] = useState(20)
+  const [usageLogsTotal, setUsageLogsTotal] = useState(0)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showKeyDialog, setShowKeyDialog] = useState(false)
   const [selectedKey, setSelectedKey] = useState<APIKey | null>(null)
@@ -148,9 +151,12 @@ export function APIKeyManagement() {
 
   const loadUsageLogs = async () => {
     try {
-      const resp = await apiClient.request<{ logs: UsageLog[]; count: number }>(`/admin/usage/logs?limit=100`)
+      const offset = (usageLogsPage - 1) * usageLogsLimit
+      const resp = await apiClient.request<{ logs: UsageLog[]; count: number }>(`/admin/usage/logs?limit=${usageLogsLimit}&offset=${offset}`)
       if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to load usage logs'), { code: (resp as any).code, details: (resp as any).details })
-      setUsageLogs((resp.data as any)?.logs || [])
+      const data = resp.data as any
+      setUsageLogs(data?.logs || [])
+      setUsageLogsTotal(data?.count || 0)
     } catch (error: any) {
       const { title, description } = mapApiErrorToMessage(error)
       toast({ variant: 'destructive', title, description })
@@ -363,13 +369,33 @@ export function APIKeyManagement() {
     }
   }
 
+  // Get API key display name by ID
+  const getAPIKeyDisplayName = (apiKeyId: string, apiKeyName?: string) => {
+    if (apiKeyId === 'web_session') {
+      return 'Web Session'
+    }
+
+    // If we already have the name from the backend, use it (this should work with our fixed backend)
+    if (apiKeyName && apiKeyName !== 'Unknown') {
+      return apiKeyName
+    }
+
+    // Try to find the key by ID in our loaded API keys
+    const foundKey = apiKeys.find(key => key.id === apiKeyId)
+    if (foundKey) {
+      return foundKey.name
+    }
+
+    return apiKeyName || 'Unknown API Key'
+  }
+
   useEffect(() => {
     if (activeTab === "keys") {
       loadAPIKeys()
     } else if (activeTab === "usage") {
       loadUsageLogs()
     }
-  }, [activeTab])
+  }, [activeTab, usageLogsPage])
 
   // Auto-refresh usage logs every 30 seconds when on usage tab
   useEffect(() => {
@@ -549,53 +575,108 @@ export function APIKeyManagement() {
                   <p>No usage logs found</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b text-left text-sm text-gray-500">
-                        <th className="pb-2">Time</th>
-                        <th className="pb-2">API Key</th>
-                        <th className="pb-2">Method</th>
-                        <th className="pb-2">Endpoint</th>
-                        <th className="pb-2">Status</th>
-                        <th className="pb-2">Response Time</th>
-                        <th className="pb-2">IP Address</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usageLogs.map((log) => (
-                        <tr key={log.id} className="border-b text-sm">
-                          <td className="py-2">{formatDate(log.requestTime)}</td>
-                          <td className="py-2">{log.apiKeyName || 'Unknown'}</td>
-                          <td className="py-2">
-                            <span className={`px-2 py-1 rounded text-xs ${
-                              log.method === 'GET' ? 'bg-blue-100 text-blue-800' :
-                              log.method === 'POST' ? 'bg-green-100 text-green-800' :
-                              log.method === 'DELETE' ? 'bg-red-100 text-red-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {log.method}
-                            </span>
-                          </td>
-                          <td className="py-2 font-mono text-xs">{log.endpoint}</td>
-                          <td className="py-2">
-                            <span className={`px-2 py-1 rounded text-xs ${
-                              log.statusCode >= 200 && log.statusCode < 300
-                                ? 'bg-green-100 text-green-800'
-                                : log.statusCode >= 400
-                                ? 'bg-red-100 text-red-800'
-                                : 'bg-yellow-100 text-yellow-800'
-                            }`}>
-                              {log.statusCode}
-                            </span>
-                          </td>
-                          <td className="py-2">{log.responseTimeMs}ms</td>
-                          <td className="py-2 font-mono text-xs">{log.ipAddress}</td>
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full table-fixed">
+                      <thead>
+                        <tr className="border-b text-left text-sm text-gray-500">
+                          <th className="pb-2 w-36 font-medium">Time</th>
+                          <th className="pb-2 w-32 font-medium">API Key</th>
+                          <th className="pb-2 w-20 font-medium">Method</th>
+                          <th className="pb-2 flex-1 font-medium">Endpoint</th>
+                          <th className="pb-2 w-20 font-medium">Status</th>
+                          <th className="pb-2 w-24 font-medium">Response</th>
+                          <th className="pb-2 w-28 font-medium">IP Address</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {usageLogs.map((log) => (
+                          <tr key={log.id} className="border-b text-sm hover:bg-gray-50">
+                            <td className="py-2 w-36 truncate text-xs" title={formatDate(log.requestTime)}>
+                              {formatDate(log.requestTime)}
+                            </td>
+                            <td className="py-2 w-32 truncate" title={getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)}>
+                              {getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)}
+                            </td>
+                            <td className="py-2 w-20">
+                              <span className={`px-2 py-1 rounded text-xs ${
+                                log.method === 'GET' ? 'bg-blue-100 text-blue-800' :
+                                log.method === 'POST' ? 'bg-green-100 text-green-800' :
+                                log.method === 'DELETE' ? 'bg-red-100 text-red-800' :
+                                log.method === 'PUT' ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {log.method}
+                              </span>
+                            </td>
+                            <td className="py-2 flex-1 font-mono text-xs truncate" title={log.endpoint}>
+                              {log.endpoint}
+                            </td>
+                            <td className="py-2 w-20">
+                              <span className={`px-2 py-1 rounded text-xs ${
+                                log.statusCode >= 200 && log.statusCode < 300
+                                  ? 'bg-green-100 text-green-800'
+                                  : log.statusCode >= 400
+                                  ? 'bg-red-100 text-red-800'
+                                  : 'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {log.statusCode}
+                              </span>
+                            </td>
+                            <td className="py-2 w-24 text-xs">{log.responseTimeMs}ms</td>
+                            <td className="py-2 w-28 font-mono text-xs truncate" title={log.ipAddress}>
+                              {log.ipAddress}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination */}
+                  <div className="flex items-center justify-between mt-4 text-sm text-gray-600">
+                    <div>
+                      Showing {((usageLogsPage - 1) * usageLogsLimit) + 1} to {Math.min(usageLogsPage * usageLogsLimit, usageLogsTotal)} of {usageLogsTotal} entries
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={usageLogsPage <= 1}
+                        onClick={() => setUsageLogsPage(1)}
+                      >
+                        First
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={usageLogsPage <= 1}
+                        onClick={() => setUsageLogsPage(prev => Math.max(1, prev - 1))}
+                      >
+                        Prev
+                      </Button>
+                      <span className="px-3 py-1 bg-gray-100 rounded text-sm">
+                        Page {usageLogsPage} of {Math.max(1, Math.ceil(usageLogsTotal / usageLogsLimit))}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={usageLogsPage >= Math.ceil(usageLogsTotal / usageLogsLimit)}
+                        onClick={() => setUsageLogsPage(prev => prev + 1)}
+                      >
+                        Next
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={usageLogsPage >= Math.ceil(usageLogsTotal / usageLogsLimit)}
+                        onClick={() => setUsageLogsPage(Math.ceil(usageLogsTotal / usageLogsLimit))}
+                      >
+                        Last
+                      </Button>
+                    </div>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
