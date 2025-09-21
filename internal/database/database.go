@@ -1487,12 +1487,8 @@ func (d *Database) GetAPIKeyByHash(keyHash string) (*APIKey, error) {
 	)
 
 	if err != nil {
-		log.Printf("[DEBUG] GetAPIKeyByHash: Failed to query API key for hash %s: %v", keyHash, err)
 		return nil, err
 	}
-
-	// Debug log for API key name
-	log.Printf("[DEBUG] GetAPIKeyByHash: Retrieved API key ID=%s, Name='%s'", apiKey.ID, apiKey.Name)
 
 	// Parse JSON permissions
 	if err := json.Unmarshal([]byte(permissionsJSON), &apiKey.Permissions); err != nil {
@@ -1754,15 +1750,20 @@ func (d *Database) LogAPIUsage(log *APIUsageLog) error {
 		ipAddress = "127.0.0.1" // Convert IPv6 loopback to IPv4 for display
 	}
 
-	// Use current time for created_at if not set
-	createdAt := log.CreatedAt
-	if createdAt.IsZero() {
-		createdAt = time.Now()
+	// Normalize timestamps to UTC for consistent comparisons
+	requestTime := log.RequestTime
+	if requestTime.IsZero() {
+		requestTime = time.Now().UTC()
+	} else {
+		requestTime = requestTime.UTC()
 	}
 
-	// Debug log for API usage log entry
-	fmt.Printf("[DEBUG] LogAPIUsage: About to insert log entry - APIKeyID='%s', APIKeyName='%s', UserID='%s', Endpoint='%s'\n",
-		log.APIKeyID, log.APIKeyName, log.UserID, log.Endpoint)
+	createdAt := log.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	} else {
+		createdAt = createdAt.UTC()
+	}
 
 	_, err := d.db.Exec(query,
 		log.APIKeyID,
@@ -1778,14 +1779,12 @@ func (d *Database) LogAPIUsage(log *APIUsageLog) error {
 		log.ResponseSize,
 		log.ResponseTimeMs,
 		toNull(log.ErrorMessage),
-		log.RequestTime.Format(time.RFC3339),
+		requestTime.Format(time.RFC3339),
 		createdAt.Format(time.RFC3339),
 	)
 
 	if err != nil {
-		fmt.Printf("[DEBUG] LogAPIUsage: Failed to insert API usage log: %v\n", err)
-	} else {
-		fmt.Printf("[DEBUG] LogAPIUsage: Successfully inserted API usage log\n")
+		return err
 	}
 
 	return err
@@ -1820,12 +1819,8 @@ func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]
 	query += " ORDER BY l.request_time DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
-	// Debug log for GetAPIUsageLogs query
-	log.Printf("[DEBUG] GetAPIUsageLogs: Executing query with args: %v", args)
-
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
-		log.Printf("[DEBUG] GetAPIUsageLogs: Query failed: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -1844,12 +1839,8 @@ func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]
 		)
 
 		if err != nil {
-			log.Printf("[DEBUG] GetAPIUsageLogs: Error scanning row: %v", err)
 			continue
 		}
-
-		// Debug log for API key name from GetAPIUsageLogs
-		log.Printf("[DEBUG] GetAPIUsageLogs: API key ID='%s', Name='%s'", logEntry.APIKeyID, logEntry.APIKeyName)
 
 		// Handle nullable fields
 		if fileID.Valid {

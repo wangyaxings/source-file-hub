@@ -204,6 +204,7 @@ func inferRequiredPermission(method, path string) string {
 func APILoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		startUTC := start.UTC()
 
 		// Create a response recorder to capture status code and size
 		recorder := &ResponseRecorder{
@@ -228,17 +229,15 @@ func APILoggingMiddleware(next http.Handler) http.Handler {
 					StatusCode:     recorder.StatusCode,
 					ResponseSize:   recorder.Size,
 					ResponseTimeMs: time.Since(start).Milliseconds(),
-					RequestTime:    start,
+					RequestTime:    startUTC,
+					CreatedAt:      time.Now().UTC(),
 				}
 
 				// Set API key info if available (API key authentication should have run first)
 				if authCtx != nil {
 					logEntry.APIKeyID = authCtx.KeyID
-					logEntry.APIKeyName = authCtx.APIKey.Name  // Set the actual API key name
+					logEntry.APIKeyName = authCtx.APIKey.Name // Set the actual API key name
 					logEntry.UserID = authCtx.Role
-
-					// Debug log for API key name
-					log.Printf("[DEBUG] APILoggingMiddleware: Set API key info - ID='%s', Name='%s'", authCtx.KeyID, authCtx.APIKey.Name)
 				} else {
 					// For session-based requests, try to get user info from session
 					if userCtx := r.Context().Value("user"); userCtx != nil {
@@ -253,9 +252,6 @@ func APILoggingMiddleware(next http.Handler) http.Handler {
 					// Mark as web session request - use special values that won't cause FK constraint issues
 					logEntry.APIKeyID = "web_session"
 					logEntry.APIKeyName = "Web Session"
-
-					// Debug log for web session
-					log.Printf("[DEBUG] APILoggingMiddleware: Set web session info - APIKeyName='%s'", logEntry.APIKeyName)
 				}
 
 				// Extract file ID from request if applicable (only if file exists in database)

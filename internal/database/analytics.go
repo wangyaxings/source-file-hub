@@ -57,9 +57,10 @@ type HourlyDistribution struct {
 
 // ErrorTypeStats represents error type statistics
 type ErrorTypeStats struct {
-	StatusCode int    `json:"statusCode"`
-	Message    string `json:"message"`
-	Count      int64  `json:"count"`
+	StatusCode int     `json:"statusCode"`
+	Message    string  `json:"message"`
+	Count      int64   `json:"count"`
+	Percentage float64 `json:"percentage"`
 }
 
 // AnalyticsData represents comprehensive analytics data
@@ -80,7 +81,7 @@ func (d *Database) GetAnalyticsData(timeRange AnalyticsTimeRange, apiKeyFilter, 
 	}
 
 	// Build WHERE clause for filters
-	whereClause := "WHERE request_time >= ? AND request_time <= ?"
+	whereClause := "WHERE datetime(request_time) >= datetime(?) AND datetime(request_time) <= datetime(?)"
 	args := []interface{}{timeRange.Start.Format(time.RFC3339), timeRange.End.Format(time.RFC3339)}
 
 	if apiKeyFilter != "" {
@@ -195,14 +196,14 @@ func (d *Database) getAnalyticsOverview(whereClause string, args []interface{}) 
 // getAnalyticsTrends gets daily trends
 func (d *Database) getAnalyticsTrends(whereClause string, args []interface{}) ([]AnalyticsTrend, error) {
 	query := fmt.Sprintf(`
-		SELECT
-			DATE(request_time) as date,
+			SELECT
+				DATE(datetime(request_time)) as date,
 			COUNT(*) as requests,
 			COUNT(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 END) as success_count,
 			COUNT(CASE WHEN status_code >= 400 THEN 1 END) as error_count,
 			AVG(response_time_ms) as avg_response_time
-		FROM api_usage_logs %s
-		GROUP BY DATE(request_time)
+			FROM api_usage_logs %s
+			GROUP BY DATE(datetime(request_time))
 		ORDER BY date
 	`, whereClause)
 
@@ -245,8 +246,8 @@ func (d *Database) getAPIKeyUsageStats(whereClause string, args []interface{}) (
             END as api_key_name,
             l.user_id,
             COUNT(*) as requests,
-            COUNT(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 END) as success_count,
-            MAX(l.request_time) as last_used
+			COUNT(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 END) as success_count,
+			MAX(datetime(l.request_time)) as last_used
         FROM api_usage_logs l
         LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
         %s
@@ -255,12 +256,8 @@ func (d *Database) getAPIKeyUsageStats(whereClause string, args []interface{}) (
         LIMIT 20
     `, whereClause)
 
-	// Debug log for analytics query
-	log.Printf("[DEBUG] getAPIKeyUsageStats: Executing query with args: %v", args)
-
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
-		log.Printf("[DEBUG] getAPIKeyUsageStats: Query failed: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -273,12 +270,8 @@ func (d *Database) getAPIKeyUsageStats(whereClause string, args []interface{}) (
 		err := rows.Scan(&stat.APIKeyID, &stat.APIKeyName, &stat.UserID,
 			&stat.Requests, &successCount, &stat.LastUsed)
 		if err != nil {
-			log.Printf("[DEBUG] getAPIKeyUsageStats: Error scanning row: %v", err)
 			continue
 		}
-
-		// Debug log for API key name from analytics
-		log.Printf("[DEBUG] getAPIKeyUsageStats: API key ID='%s', Name='%s'", stat.APIKeyID, stat.APIKeyName)
 
 		if stat.Requests > 0 {
 			stat.SuccessRate = float64(successCount) / float64(stat.Requests) * 100
@@ -286,9 +279,6 @@ func (d *Database) getAPIKeyUsageStats(whereClause string, args []interface{}) (
 
 		stats = append(stats, stat)
 	}
-
-	// Debug log for final results
-	log.Printf("[DEBUG] getAPIKeyUsageStats: Returning %d stats", len(stats))
 
 	return stats, nil
 }
@@ -347,8 +337,8 @@ func (d *Database) getOperationTypeStats(whereClause string, args []interface{})
 // getHourlyDistribution gets hourly request distribution
 func (d *Database) getHourlyDistribution(whereClause string, args []interface{}) ([]HourlyDistribution, error) {
 	query := fmt.Sprintf(`
-		SELECT
-			CAST(strftime('%%H', request_time) AS INTEGER) as hour,
+			SELECT
+				CAST(strftime('%%H', datetime(request_time)) AS INTEGER) as hour,
 			COUNT(*) as requests
 		FROM api_usage_logs %s
 		GROUP BY hour
@@ -386,6 +376,13 @@ func (d *Database) getHourlyDistribution(whereClause string, args []interface{})
 
 // getErrorTypeStats gets error type statistics
 func (d *Database) getErrorTypeStats(whereClause string, args []interface{}) ([]ErrorTypeStats, error) {
+	// First get total requests count
+	var totalRequests int64
+	totalQuery := fmt.Sprintf("SELECT COUNT(*) FROM api_usage_logs %s", whereClause)
+	if err := d.db.QueryRow(totalQuery, args...).Scan(&totalRequests); err != nil {
+		return nil, fmt.Errorf("failed to get total requests: %w", err)
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			status_code,
@@ -413,6 +410,12 @@ func (d *Database) getErrorTypeStats(whereClause string, args []interface{}) ([]
 
 		// Set human-readable message based on status code
 		errorStat.Message = getStatusMessage(errorStat.StatusCode)
+
+		// Calculate percentage
+		if totalRequests > 0 {
+			errorStat.Percentage = float64(errorStat.Count) / float64(totalRequests) * 100
+		}
+
 		errors = append(errors, errorStat)
 	}
 

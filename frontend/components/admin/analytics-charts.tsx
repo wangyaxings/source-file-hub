@@ -60,13 +60,17 @@ interface AnalyticsData {
     avgResponseTime: number
   }[]
   apiKeyUsage: {
+    apiKeyId: string
     apiKeyName: string
+    userId: string
     requests: number
+    successRate: number
     lastUsed: string
   }[]
   operationTypes: {
     operation: string
     count: number
+    percentage: number
   }[]
   hourlyDistribution: {
     hour: number
@@ -76,6 +80,7 @@ interface AnalyticsData {
     statusCode: number
     message: string
     count: number
+    percentage: number
   }[]
 }
 
@@ -817,12 +822,12 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
                               <div
                                 className="bg-red-600 h-2 rounded-full"
                                 style={{
-                                  width: `${((error.count / analyticsData.overview.totalRequests) * 100).toFixed(1)}%`
+                                  width: `${error.percentage.toFixed(1)}%`
                                 }}
                               ></div>
                             </div>
                             <span className="text-sm font-medium text-gray-700">
-                              {((error.count / analyticsData.overview.totalRequests) * 100).toFixed(2)}%
+                              {error.percentage.toFixed(2)}%
                             </span>
                           </div>
                         </td>
