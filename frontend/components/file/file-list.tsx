@@ -290,7 +290,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
         open={versionsDialog.isOpen}
         onOpenChange={(open) => setVersionsDialog(prev => ({ ...prev, isOpen: open }))}
       >
-        <DialogContent className="max-w-4xl max-h-[80vh]">
+        <DialogContent className="max-w-6xl max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
@@ -310,12 +310,12 @@ export function FileList({ refreshTrigger }: FileListProps) {
               <table className="w-full table-fixed text-sm">
                 <thead>
                   <tr className="text-left border-b text-gray-600 bg-gray-50">
-                    <th className="py-3 px-4 w-56 font-medium text-xs uppercase tracking-wide">Version ID</th>
-                    <th className="py-3 px-4 font-medium text-xs uppercase tracking-wide">Tags</th>
-                    <th className="py-3 px-4 w-40 font-medium text-xs uppercase tracking-wide">Date</th>
-                    <th className="py-3 px-4 w-44 font-medium text-xs uppercase tracking-wide">SHA256</th>
+                    <th className="py-3 px-4 w-64 font-medium text-xs uppercase tracking-wide">Version ID</th>
+                    <th className="py-3 px-4 w-40 font-medium text-xs uppercase tracking-wide">Tags</th>
+                    <th className="py-3 px-4 w-44 font-medium text-xs uppercase tracking-wide">Date</th>
+                    <th className="py-3 px-4 w-52 font-medium text-xs uppercase tracking-wide">SHA256</th>
                     <th className="py-3 px-4 w-24 font-medium text-xs uppercase tracking-wide">Size</th>
-                    <th className="py-3 px-4 w-40 font-medium text-xs uppercase tracking-wide">Actions</th>
+                    <th className="py-3 px-4 w-48 font-medium text-xs uppercase tracking-wide">Actions</th>
                   </tr>
                 </thead>
                 <tbody>

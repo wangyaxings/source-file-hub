@@ -249,3 +249,9 @@ dist/
 
 # 忽略bundle文件夹
 bundle/*
+tmp/api-downloads/recommendation_v20250918160006Z.xlsx
+tmp/api-downloads/recommendation_v20250921133824Z.xlsx
+tmp/api-downloads/roadmap_v20250918160015Z.tsv
+tmp/api-downloads/roadmap_v20250921133829Z.tsv
+certs/cert_info.json
+certs/server.crt

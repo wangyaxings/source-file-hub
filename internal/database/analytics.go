@@ -239,13 +239,16 @@ func (d *Database) getAPIKeyUsageStats(whereClause string, args []interface{}) (
 	query := fmt.Sprintf(`
 		SELECT
 			l.api_key_id,
-			COALESCE(k.name, 'Unknown') as api_key_name,
+			CASE
+			  WHEN l.api_key_id = 'web_session' THEN 'Web Session'
+			  ELSE COALESCE(k.name, 'Unknown')
+			END as api_key_name,
 			l.user_id,
 			COUNT(*) as requests,
 			COUNT(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 END) as success_count,
 			MAX(l.request_time) as last_used
 		FROM api_usage_logs l
-		LEFT JOIN api_keys k ON l.api_key_id = k.id
+		LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
 		%s
 		GROUP BY l.api_key_id, l.user_id
 		ORDER BY requests DESC

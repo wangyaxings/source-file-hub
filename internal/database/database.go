@@ -1159,7 +1159,7 @@ func (d *Database) ListFilesWithPaginationByType(fileType string, offset, limit 
 	if offset < 0 {
 		offset = 0
 	}
-	
+
 	// For roadmap and recommendation files, only show latest versions by default
 	if fileType == "roadmap" || fileType == "recommendation" {
 		countQ := `SELECT COUNT(DISTINCT original_name) FROM files WHERE status = 'active' AND file_type = ? AND is_latest = 1`
@@ -1187,7 +1187,7 @@ func (d *Database) ListFilesWithPaginationByType(fileType string, offset, limit 
 		}
 		return recs, total, nil
 	}
-	
+
 	// For other file types, show all versions
 	countQ := `SELECT COUNT(*) FROM files WHERE status = 'active' AND file_type = ?`
 	var total int
@@ -1333,7 +1333,7 @@ func (d *Database) CreateAPIKey(apiKey *APIKey) error {
 	if err := d.db.QueryRow(nameCheckQuery, apiKey.Name).Scan(&existingCount); err != nil {
 		return fmt.Errorf("failed to check API key name uniqueness: %v", err)
 	}
-	
+
 	if existingCount > 0 {
 		return fmt.Errorf("API key name '%s' already exists. Please choose a different name for your API key", apiKey.Name)
 	}
@@ -1698,9 +1698,13 @@ func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]
 	query := `
 	SELECT l.id, l.api_key_id, l.user_id, l.endpoint, l.method, l.file_id, l.file_path,
 		   l.ip_address, l.user_agent, l.status_code, l.response_size, l.response_time_ms,
-		   l.error_message, l.request_time, l.created_at, COALESCE(k.name, 'Unknown') as api_key_name
+		   l.error_message, l.request_time, l.created_at,
+		   CASE
+		     WHEN l.api_key_id = 'web_session' THEN 'Web Session'
+		     ELSE COALESCE(k.name, 'Unknown')
+		   END as api_key_name
 	FROM api_usage_logs l
-	LEFT JOIN api_keys k ON l.api_key_id = k.id
+	LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
 	WHERE 1=1
 	`
 	args := []interface{}{}
