@@ -3,10 +3,26 @@
 import React, { useEffect, useState } from 'react'
 import { apiClient } from '@/lib/api'
 import { mapApiErrorToMessage } from '@/lib/errors'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useToast } from '@/lib/use-toast'
+import { 
+  Table, 
+  Input, 
+  Button, 
+  Space, 
+  Typography, 
+  Tag, 
+  message,
+  Tooltip
+} from 'antd'
+import { 
+  SearchOutlined, 
+  AuditOutlined, 
+  ClockCircleOutlined,
+  UserOutlined,
+  FileTextOutlined
+} from '@ant-design/icons'
+import type { ColumnsType } from 'antd/es/table'
+
+const { Title, Text } = Typography
 
 export function AuditLogsPanel() {
   const [mounted, setMounted] = useState(false)
@@ -18,7 +34,6 @@ export function AuditLogsPanel() {
   const [limit, setLimit] = useState(20)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
-  const { toast } = useToast()
 
   const load = async () => {
     setLoading(true)
@@ -35,7 +50,7 @@ export function AuditLogsPanel() {
       setTotal((resp.data as any)?.total || 0)
     } catch (err: any) {
       const { title, description } = mapApiErrorToMessage(err)
-      toast({ title, description, variant: 'destructive' })
+      message.error(`${title}: ${description}`)
     } finally {
       setLoading(false)
     }
@@ -46,58 +61,137 @@ export function AuditLogsPanel() {
 
   if (!mounted) return null
 
+  // Define table columns
+  const columns: ColumnsType<any> = [
+    {
+      title: (
+        <Space>
+          <ClockCircleOutlined />
+          Time
+        </Space>
+      ),
+      dataIndex: 'createdAt',
+      key: 'time',
+      render: (text, record) => {
+        const time = text || record.created_at || ''
+        return time ? new Date(time).toLocaleString() : '-'
+      },
+      width: 180
+    },
+    {
+      title: (
+        <Space>
+          <UserOutlined />
+          Actor
+        </Space>
+      ),
+      dataIndex: 'actor',
+      key: 'actor',
+      render: (text) => <Tag color="blue">{text}</Tag>
+    },
+    {
+      title: (
+        <Space>
+          <UserOutlined />
+          Target
+        </Space>
+      ),
+      dataIndex: 'targetUser',
+      key: 'target',
+      render: (text, record) => {
+        const target = text || record.target_user
+        return target ? <Tag color="green">{target}</Tag> : '-'
+      }
+    },
+    {
+      title: (
+        <Space>
+          <FileTextOutlined />
+          Action
+        </Space>
+      ),
+      dataIndex: 'action',
+      key: 'action',
+      render: (text) => <Tag color="orange">{text}</Tag>
+    },
+    {
+      title: 'Details',
+      dataIndex: 'details',
+      key: 'details',
+      render: (text) => (
+        <Tooltip title={text} placement="topLeft">
+          <Text code className="text-xs break-words max-w-xs block truncate">
+            {text}
+          </Text>
+        </Tooltip>
+      ),
+      ellipsis: true
+    }
+  ]
+
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 items-center flex-wrap">
-        <Input placeholder="Actor" value={actor} onChange={e => setActor(e.target.value)} className="w-48" />
-        <Input placeholder="Target user" value={target} onChange={e => setTarget(e.target.value)} className="w-48" />
-        <Input placeholder="Action" value={action} onChange={e => setAction(e.target.value)} className="w-48" />
-        <Button variant="secondary" onClick={() => { setPage(1); load() }} disabled={loading}>{loading ? 'Loading...' : 'Search'}</Button>
+      <div className="flex items-center justify-between">
+        <Title level={3}>
+          <Space>
+            <AuditOutlined />
+            Audit Logs
+          </Space>
+        </Title>
+        <Space>
+          <Input
+            placeholder="Actor"
+            value={actor}
+            onChange={e => setActor(e.target.value)}
+            style={{ width: 150 }}
+            prefix={<UserOutlined />}
+          />
+          <Input
+            placeholder="Target user"
+            value={target}
+            onChange={e => setTarget(e.target.value)}
+            style={{ width: 150 }}
+            prefix={<UserOutlined />}
+          />
+          <Input
+            placeholder="Action"
+            value={action}
+            onChange={e => setAction(e.target.value)}
+            style={{ width: 150 }}
+            prefix={<FileTextOutlined />}
+          />
+          <Button
+            type="primary"
+            icon={<SearchOutlined />}
+            onClick={() => { setPage(1); load() }}
+            loading={loading}
+          >
+            Search
+          </Button>
+        </Space>
       </div>
-      <div className="overflow-x-auto border rounded-md">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted">
-            <tr>
-              <th className="text-left p-2">Time</th>
-              <th className="text-left p-2">Actor</th>
-              <th className="text-left p-2">Target</th>
-              <th className="text-left p-2">Action</th>
-              <th className="text-left p-2">Details</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((it, idx) => (
-              <tr key={idx} className="border-t">
-                <td className="p-2">{it.createdAt || it.created_at || ''}</td>
-                <td className="p-2">{it.actor}</td>
-                <td className="p-2">{it.targetUser || it.target_user}</td>
-                <td className="p-2">{it.action}</td>
-                <td className="p-2"><code className="text-xs break-words">{it.details}</code></td>
-              </tr>
-            ))}
-            {items.length === 0 && (
-              <tr><td className="p-4 text-center text-muted-foreground" colSpan={5}>No records</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex items-center justify-between py-2">
-        <div className="text-sm text-muted-foreground">Page {page}, total {total}</div>
-        <div className="flex items-center gap-2">
-          <Select value={String(limit)} onValueChange={(v) => { setLimit(parseInt(v || '20', 10)); setPage(1) }}>
-            <SelectTrigger className="w-[100px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="10">10 / page</SelectItem>
-              <SelectItem value="20">20 / page</SelectItem>
-              <SelectItem value="50">50 / page</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="flex gap-2">
-            <Button variant="outline" disabled={page<=1} onClick={() => setPage(p => Math.max(1, p-1))}>Prev</Button>
-            <Button variant="outline" disabled={(page*limit)>=total} onClick={() => setPage(p => p+1)}>Next</Button>
-          </div>
-        </div>
-      </div>
+
+      <Table
+        columns={columns}
+        dataSource={items}
+        rowKey={(record, index) => `${record.id || index}`}
+        loading={loading}
+        pagination={{
+          current: page,
+          pageSize: limit,
+          total: total,
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} records`,
+          onChange: (newPage, newPageSize) => {
+            setPage(newPage)
+            if (newPageSize !== limit) {
+              setLimit(newPageSize)
+            }
+          }
+        }}
+        scroll={{ x: 800 }}
+      />
     </div>
   )
 }

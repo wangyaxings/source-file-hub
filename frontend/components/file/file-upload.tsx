@@ -1,17 +1,35 @@
 'use client'
 
 import { useState, useCallback, useEffect } from "react"
-import { useDropzone } from "react-dropzone"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { 
+  Upload, 
+  Button, 
+  Card, 
+  Input, 
+  Select, 
+  Modal, 
+  message, 
+  Typography,
+  Space,
+  Alert
+} from "antd"
+import { 
+  UploadOutlined, 
+  FileTextOutlined, 
+  LoadingOutlined, 
+  CheckCircleOutlined, 
+  ExclamationCircleOutlined,
+  InboxOutlined,
+  CloseOutlined
+} from "@ant-design/icons"
+import type { UploadProps, UploadFile } from 'antd'
 import { apiClient, type FileInfo } from "@/lib/api"
 import { mapApiErrorToMessage } from "@/lib/errors"
 import { formatFileSize } from "@/lib/utils"
-import { Upload, FileText, Loader2, CheckCircle, AlertCircle, X } from "lucide-react"
+
+const { Dragger } = Upload
+const { Title, Text } = Typography
+const { Option } = Select
 
 interface FileUploadProps {
   onUploadComplete?: (file: FileInfo) => void
@@ -42,6 +60,8 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
     file?: FileInfo
   } | null>(null)
   const [maxBytes, setMaxBytes] = useState(128 * 1024 * 1024)
+  const [fileList, setFileList] = useState<UploadFile[]>([])
+
   // Optionally fetch from backend API info
   useEffect(() => {
     (async () => {
@@ -53,15 +73,20 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
     })()
   }, [])
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    const file = acceptedFiles[0]
-    if (file) {
+  // AntD Upload props
+  const uploadProps: UploadProps = {
+    name: 'file',
+    multiple: false,
+    maxCount: 1,
+    accept: '.tsv,.xlsx',
+    beforeUpload: (file) => {
+      // Check file size
       if (file.size > maxBytes) {
-        setUploadResult({ success: false, message: `File is too large. Max ${(maxBytes/(1024*1024)).toFixed(0)} MB` })
-        return
+        message.error(`File is too large. Max ${(maxBytes/(1024*1024)).toFixed(0)} MB`)
+        return false
       }
-      setSelectedFile(file)
-      // 根据文件扩展名自动选择类型
+      
+      // Auto-detect file type based on extension
       const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
       const detectedType = allowedFileTypes.find(type =>
         type.extensions.includes(ext)
@@ -69,44 +94,55 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
       if (detectedType) {
         setFileType(detectedType.value)
       }
-    }
-  }, [])
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'text/tab-separated-values': ['.tsv'],
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']
+      
+      setSelectedFile(file)
+      setFileList([{
+        uid: file.name,
+        name: file.name,
+        status: 'done',
+        size: file.size,
+      }])
+      
+      // Prevent auto upload
+      return false
     },
-    maxFiles: 1,
-    multiple: false
-  })
+    onRemove: () => {
+      setSelectedFile(null)
+      setFileList([])
+      setFileType("")
+    },
+    fileList,
+  }
 
   const handleUpload = async () => {
     if (!selectedFile || !fileType) return
     if (selectedFile.size > maxBytes) {
-      setUploadResult({ success: false, message: `File is too large. Max ${(maxBytes/(1024*1024)).toFixed(0)} MB` })
+      message.error(`File is too large. Max ${(maxBytes/(1024*1024)).toFixed(0)} MB`)
       return
     }
 
     setIsUploading(true)
     try {
       const result = await apiClient.uploadFile(selectedFile, fileType, description, versionTags)
+      message.success("File uploaded successfully!")
+      onUploadComplete?.(result)
+
+      // 重置表单
+      setSelectedFile(null)
+      setFileList([])
+      setFileType("")
+      setDescription("")
+      setVersionTags("")
       setUploadResult({
         success: true,
         message: "File uploaded successfully!",
         file: result
       })
-      onUploadComplete?.(result)
-
-      // 重置表单
-      setSelectedFile(null)
-      setFileType("")
-      setDescription("")
-      setVersionTags("")
     } catch (error: any) {
-      const { title, description } = mapApiErrorToMessage(error)
-      setUploadResult({ success: false, message: `${title}: ${description}` })
+      const { title, description: desc } = mapApiErrorToMessage(error)
+      const errorMsg = `${title}: ${desc}`
+      message.error(errorMsg)
+      setUploadResult({ success: false, message: errorMsg })
     } finally {
       setIsUploading(false)
       setShowConfirmDialog(false)
@@ -120,216 +156,150 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            File Upload
-          </CardTitle>
-          <CardDescription>
-            Upload Roadmap (.tsv) and Recommendation (.xlsx) files
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* 拖拽上传区域 */}
-          <div
-            {...getRootProps()}
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-              isDragActive
-                ? "border-primary bg-primary/5"
-                : "border-gray-300 hover:border-gray-400"
-            }`}
-          >
-            <input {...getInputProps()} />
-            <div className="flex flex-col items-center space-y-4">
-              <div className="p-4 bg-gray-100 rounded-full">
-                <Upload className="h-8 w-8 text-gray-600" />
-              </div>
-              {selectedFile ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <FileText className="h-4 w-4" />
-                    {selectedFile.name}
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    {formatFileSize(selectedFile.size)}
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-lg font-medium">
-                    {isDragActive ? "Drop file to upload" : "Click or drag file here"}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    Supports .tsv (Roadmap) and .xlsx (Recommendation)
-                  </p>
-                </div>
-              )}
-            </div>
+        <div className="p-6">
+          <div className="mb-6">
+            <Title level={3} className="flex items-center gap-2 mb-2">
+              <UploadOutlined />
+              File Upload
+            </Title>
+            <Text type="secondary">
+              Upload Roadmap (.tsv) and Recommendation (.xlsx) files
+            </Text>
           </div>
 
-          {/* 文件类型选择 */}
-          <div className="space-y-2">
-            <Label htmlFor="fileType">File Type</Label>
-            <Select value={fileType} onValueChange={setFileType}>
-              <SelectTrigger id="fileType">
-                <SelectValue placeholder="Select file type" />
-              </SelectTrigger>
-              <SelectContent>
+          <div className="space-y-4">
+            {/* 拖拽上传区域 */}
+            <Dragger {...uploadProps}>
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text">Click or drag file to this area to upload</p>
+              <p className="ant-upload-hint">
+                Supports .tsv (Roadmap) and .xlsx (Recommendation) files. Max size: {(maxBytes/(1024*1024)).toFixed(0)} MB
+              </p>
+            </Dragger>
+
+            {/* 文件类型选择 */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium">File Type</label>
+              <Select
+                value={fileType}
+                onChange={setFileType}
+                placeholder="Select file type"
+                style={{ width: '100%' }}
+              >
                 {allowedFileTypes.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    <div className="flex items-center gap-2">
-                      <div>
-                        <div>{type.label}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {type.extensions.join(", ")}
-                        </div>
+                  <Option key={type.value} value={type.value}>
+                    <div>
+                      <div>{type.label}</div>
+                      <div className="text-xs text-gray-500">
+                        {type.extensions.join(", ")}
                       </div>
                     </div>
-                  </SelectItem>
+                  </Option>
                 ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* 文件描述 */}
-          <div className="space-y-2">
-            <Label htmlFor="description">File Description (Optional)</Label>
-            <Input
-              id="description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Enter file description"
-            />
-          </div>
-
-          {/* Version Tags */}
-          <div className="space-y-2">
-            <Label htmlFor="tags">Version Tags (Optional)</Label>
-            <Input
-              id="tags"
-              value={versionTags}
-              onChange={(e) => setVersionTags(e.target.value)}
-              placeholder="comma separated, e.g. v1.2.3, Q3-Final"
-            />
-          </div>
-
-          {/* 上传按钮 */}
-          <Button
-            onClick={() => setShowConfirmDialog(true)}
-            disabled={!isValidFile || isUploading}
-            className="w-full"
-          >
-            {isUploading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Uploading...
-              </>
-            ) : (
-              <>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload File
-              </>
-            )}
-          </Button>
-
-          {!isValidFile && selectedFile && (
-            <div className="text-sm text-red-500 bg-red-50 p-3 rounded-md border border-red-200">
-              <AlertCircle className="inline mr-2 h-4 w-4" />
-              Please select the correct file type or check if the file extension is valid
+              </Select>
             </div>
-          )}
-        </CardContent>
+
+            {/* 文件描述 */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium">File Description (Optional)</label>
+              <Input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Enter file description"
+              />
+            </div>
+
+            {/* Version Tags */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium">Version Tags (Optional)</label>
+              <Input
+                value={versionTags}
+                onChange={(e) => setVersionTags(e.target.value)}
+                placeholder="comma separated, e.g. v1.2.3, Q3-Final"
+              />
+            </div>
+
+            {/* 上传按钮 */}
+            <Button
+              type="primary"
+              onClick={() => setShowConfirmDialog(true)}
+              disabled={!isValidFile || isUploading}
+              loading={isUploading}
+              icon={<UploadOutlined />}
+              block
+            >
+              {isUploading ? 'Uploading...' : 'Upload File'}
+            </Button>
+
+            {!isValidFile && selectedFile && (
+              <Alert
+                message="Please select the correct file type or check if the file extension is valid"
+                type="error"
+                showIcon
+              />
+            )}
+          </div>
+        </div>
       </Card>
 
       {/* 确认上传对话框 */}
-      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm Upload</DialogTitle>
-            <DialogDescription>
-              Please confirm the file information is correct:
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <strong>File Name:</strong>
-                <span className="text-right flex-1 ml-2">{selectedFile?.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <strong>File Size:</strong>
-                <span className="text-right flex-1 ml-2">{selectedFile && formatFileSize(selectedFile.size)}</span>
-              </div>
-              <div className="flex justify-between">
-                <strong>File Type:</strong>
-                <span className="text-right flex-1 ml-2 whitespace-nowrap">{allowedFileTypes.find(t => t.value === fileType)?.label}</span>
-              </div>
-              <div className="flex justify-between">
-                <strong>Description:</strong>
-                <span className="text-right flex-1 ml-2">{description || "None"}</span>
-              </div>
+      <Modal
+        title="Confirm Upload"
+        open={showConfirmDialog}
+        onCancel={() => setShowConfirmDialog(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setShowConfirmDialog(false)} disabled={isUploading}>
+            Cancel
+          </Button>,
+          <Button key="upload" type="primary" onClick={handleUpload} loading={isUploading}>
+            Confirm Upload
+          </Button>
+        ]}
+      >
+        <div className="space-y-4">
+          <Text>Please confirm the file information is correct:</Text>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <strong>File Name:</strong>
+              <span className="text-right flex-1 ml-2">{selectedFile?.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <strong>File Size:</strong>
+              <span className="text-right flex-1 ml-2">{selectedFile && formatFileSize(selectedFile.size)}</span>
+            </div>
+            <div className="flex justify-between">
+              <strong>File Type:</strong>
+              <span className="text-right flex-1 ml-2 whitespace-nowrap">{allowedFileTypes.find(t => t.value === fileType)?.label}</span>
+            </div>
+            <div className="flex justify-between">
+              <strong>Description:</strong>
+              <span className="text-right flex-1 ml-2">{description || "None"}</span>
             </div>
           </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowConfirmDialog(false)}
-              disabled={isUploading}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleUpload} disabled={isUploading}>
-              {isUploading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Uploading...
-                </>
-              ) : (
-                "Confirm Upload"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </Modal>
 
       {/* 上传结果提示 */}
       {uploadResult && (
-        <Card className={uploadResult.success ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {uploadResult.success ? (
-                  <CheckCircle className="h-5 w-5 text-green-600" />
-                ) : (
-                  <AlertCircle className="h-5 w-5 text-red-600" />
-                )}
-                <span className={uploadResult.success ? "text-green-800" : "text-red-800"}>
-                  {uploadResult.message}
-                </span>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setUploadResult(null)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
+        <Alert
+          message={uploadResult.message}
+          type={uploadResult.success ? "success" : "error"}
+          showIcon
+          closable
+          onClose={() => setUploadResult(null)}
+          description={uploadResult.success && uploadResult.file && (
+            <div className="mt-2 text-sm">
+              File saved as: {uploadResult.file.fileName}
+              {uploadResult.file.versionId && (
+                <div className="mt-1">
+                  Version ID: <span className="font-mono">{uploadResult.file.versionId}</span>
+                </div>
+              )}
             </div>
-
-            {uploadResult.success && uploadResult.file && (
-              <div className="mt-3 text-sm text-green-700">
-                File saved as: {uploadResult.file.fileName}
-                {uploadResult.file.versionId && (
-                  <div className="mt-1">
-                    Version ID: <span className="font-mono">{uploadResult.file.versionId}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          )}
+        />
       )}
     </div>
   )

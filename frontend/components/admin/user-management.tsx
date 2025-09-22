@@ -3,12 +3,39 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { apiClient } from "@/lib/api"
 import { mapApiErrorToMessage } from "@/lib/errors"
-import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Input } from "@/components/ui/input"
-import { useToast } from "@/lib/use-toast"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
+import { 
+  Button, 
+  Table, 
+  Input, 
+  Select, 
+  Modal, 
+  Form, 
+  Tag, 
+  Space, 
+  Pagination,
+  message,
+  Typography,
+  Checkbox,
+  InputNumber,
+  Popconfirm,
+  Tooltip
+} from "antd"
+import { 
+  UserOutlined, 
+  EditOutlined, 
+  DeleteOutlined, 
+  CheckOutlined, 
+  StopOutlined,
+  KeyOutlined,
+  CopyOutlined,
+  DownloadOutlined,
+  SafetyOutlined
+} from "@ant-design/icons"
+import type { ColumnsType } from 'antd/es/table'
 import { usePermissions } from "@/lib/permissions"
+
+const { Title, Text } = Typography
+const { Option } = Select
 
 type UserRow = {
   user_id: string
@@ -30,8 +57,6 @@ export default function UserManagement() {
   const [total, setTotal] = useState<number>(0)
   const [credOpen, setCredOpen] = useState(false)
   const [cred, setCred] = useState<{ username?: string; password?: string } | null>(null)
-  const { toast } = useToast()
-
 
   const load = async () => {
     setLoading(true)
@@ -41,7 +66,7 @@ export default function UserManagement() {
       setTotal((resp as any).total || (resp as any).count || 0)
     } catch (err: any) {
       const { title, description } = mapApiErrorToMessage(err)
-      toast({ title, description, variant: 'destructive' })
+      message.error(`${title}: ${description}`)
     } finally {
       setLoading(false)
     }
@@ -55,33 +80,33 @@ export default function UserManagement() {
   const onChangeRole = async (u: UserRow, role: string) => {
     try {
       await apiClient.adminUpdateUser(u.user_id, { role })
-      toast({ title: 'Role updated', description: `${u.user_id} → ${role}` })
+      message.success(`Role updated: ${u.user_id} → ${role}`)
       load()
     } catch (err: any) {
       const { title, description } = mapApiErrorToMessage(err)
-      toast({ title, description, variant: 'destructive' })
+      message.error(`${title}: ${description}`)
     }
   }
 
   const onApprove = async (u: UserRow) => {
     try {
       await apiClient.adminApproveUser(u.user_id)
-      toast({ title: 'User approved', description: u.user_id })
+      message.success(`User approved: ${u.user_id}`)
       load()
     } catch (err: any) {
       const { title, description } = mapApiErrorToMessage(err)
-      toast({ title, description, variant: 'destructive' })
+      message.error(`${title}: ${description}`)
     }
   }
 
   const onSuspend = async (u: UserRow) => {
     try {
       await apiClient.adminSuspendUser(u.user_id)
-      toast({ title: 'User suspended', description: u.user_id })
+      message.success(`User suspended: ${u.user_id}`)
       load()
     } catch (err: any) {
       const { title, description } = mapApiErrorToMessage(err)
-      toast({ title, description, variant: 'destructive' })
+      message.error(`${title}: ${description}`)
     }
   }
 
@@ -91,20 +116,17 @@ export default function UserManagement() {
       if (u.two_fa) {
         // 禁用2FA - 直接调用API
         await apiClient.adminDisable2FA(u.user_id)
-        toast({ title: '2FA disabled', description: `2FA has been disabled for ${u.user_id}` })
+        message.success(`2FA has been disabled for ${u.user_id}`)
         load() // 重新加载用户列表
       } else {
         // 启用2FA - 管理员直接启用，用户首次登录时会引导设置
         await apiClient.adminEnable2FA(u.user_id)
-        toast({ 
-          title: '2FA enabled', 
-          description: `2FA has been enabled for ${u.user_id}. User will be prompted to complete setup on next login.` 
-        })
+        message.success(`2FA has been enabled for ${u.user_id}. User will be prompted to complete setup on next login.`)
         load() // 重新加载用户列表
       }
     } catch (err: any) {
       const { title, description } = mapApiErrorToMessage(err)
-      toast({ title, description, variant: 'destructive' })
+      message.error(`${title}: ${description}`)
     }
   }
 
@@ -120,27 +142,141 @@ export default function UserManagement() {
     return <div className="p-6">403 Forbidden: Admins only.</div>
   }
 
+  // Define table columns
+  const columns: ColumnsType<UserRow> = [
+    {
+      title: 'Username',
+      dataIndex: 'user_id',
+      key: 'user_id',
+      render: (text) => <Text strong>{text}</Text>
+    },
+    {
+      title: 'Email',
+      dataIndex: 'email',
+      key: 'email',
+      render: (text) => text || '-'
+    },
+    {
+      title: 'Role',
+      dataIndex: 'role',
+      key: 'role',
+      render: (role, record) => (
+        <Select
+          value={role}
+          onChange={(value) => onChangeRole(record, value)}
+          style={{ width: 160 }}
+        >
+          <Option value="viewer">viewer</Option>
+          <Option value="administrator">administrator</Option>
+        </Select>
+      )
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status) => {
+        const color = status === 'active' ? 'green' : status === 'pending' ? 'orange' : 'red'
+        return <Tag color={color}>{status}</Tag>
+      }
+    },
+    {
+      title: '2FA',
+      dataIndex: 'two_fa',
+      key: 'two_fa',
+      render: (twoFA, record) => (
+        <Button
+          size="small"
+          type={twoFA ? "default" : "dashed"}
+          icon={<SafetyOutlined />}
+          onClick={() => onToggle2FA(record)}
+        >
+          {twoFA ? 'Disable' : 'Enable'}
+        </Button>
+      )
+    },
+    {
+      title: 'Last Login',
+      dataIndex: 'last_login',
+      key: 'last_login',
+      render: (date) => date ? new Date(date).toLocaleString() : '-'
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_, record) => (
+        <Space>
+          {record.status !== 'active' && (
+            <Tooltip title="Approve user">
+              <Button
+                size="small"
+                type="primary"
+                icon={<CheckOutlined />}
+                onClick={() => onApprove(record)}
+              >
+                Approve
+              </Button>
+            </Tooltip>
+          )}
+          {record.status !== 'suspended' && (
+            <Popconfirm
+              title="Suspend user?"
+              description="Are you sure you want to suspend this user?"
+              onConfirm={() => onSuspend(record)}
+              okText="Yes"
+              cancelText="No"
+            >
+              <Tooltip title="Suspend user">
+                <Button
+                  size="small"
+                  danger
+                  icon={<StopOutlined />}
+                >
+                  Suspend
+                </Button>
+              </Tooltip>
+            </Popconfirm>
+          )}
+          <EditRoleButton user={record} onSaved={load} />
+          <ResetPasswordButton user={record} onDone={(pwd) => {
+            setCred({ username: record.user_id, password: pwd })
+            setCredOpen(true)
+          }} />
+        </Space>
+      )
+    }
+  ]
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">User Management</h1>
-        <div className="flex gap-2 items-center">
-          <Input placeholder="Filter by username/email" value={filter} onChange={(e) => setFilter(e.target.value)} className="w-64" />
-          <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1) }}>
-            <SelectTrigger className="w-[140px]"><SelectValue placeholder="All statuses" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="active">active</SelectItem>
-              <SelectItem value="pending">pending</SelectItem>
-              <SelectItem value="suspended">suspended</SelectItem>
-            </SelectContent>
+        <Title level={2}>User Management</Title>
+        <Space>
+          <Input.Search
+            placeholder="Filter by username/email"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            onSearch={() => { setPage(1); load() }}
+            style={{ width: 250 }}
+          />
+          <Select
+            value={status}
+            onChange={(value) => { setStatus(value); setPage(1) }}
+            style={{ width: 140 }}
+          >
+            <Option value="all">All Statuses</Option>
+            <Option value="active">Active</Option>
+            <Option value="pending">Pending</Option>
+            <Option value="suspended">Suspended</Option>
           </Select>
-          <Button variant="secondary" onClick={() => { setPage(1); load() }} disabled={loading}>{loading ? 'Loading...' : 'Search'}</Button>
-        </div>
+          <Button onClick={() => { setPage(1); load() }} loading={loading}>
+            Search
+          </Button>
+        </Space>
       </div>
 
       <CreateUserModal onCreated={(u, pwd) => {
-        toast({ title: 'User created', description: u })
+        message.success(`User created: ${u}`)
         setCred({ username: u, password: pwd })
         setCredOpen(true)
         load()
@@ -148,87 +284,31 @@ export default function UserManagement() {
 
       <CredentialsModal open={credOpen} onOpenChange={setCredOpen} creds={cred} />
 
-      <div className="overflow-x-auto border rounded-md">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted">
-            <tr>
-              <th className="text-left p-2">Username</th>
-              <th className="text-left p-2">Email</th>
-              <th className="text-left p-2">Role</th>
-              <th className="text-left p-2">Status</th>
-              <th className="text-left p-2">2FA</th>
-              <th className="text-left p-2">Last Login</th>
-              <th className="text-left p-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(u => (
-              <tr key={u.user_id} className="border-t">
-                <td className="p-2 font-medium">{u.user_id}</td>
-                <td className="p-2">{u.email || '-'}</td>
-                <td className="p-2">
-                  <Select defaultValue={u.role} onValueChange={(v) => onChangeRole(u, v)}>
-                    <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="viewer">viewer</SelectItem>
-                      <SelectItem value="administrator">administrator</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </td>
-                <td className="p-2">
-                  <span className={`px-2 py-0.5 rounded text-xs ${u.status==='active'?'bg-green-100 text-green-700':u.status==='pending'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700'}`}>{u.status}</span>
-                </td>
-                <td className="p-2">
-                  <Button size="sm" variant={u.two_fa ? 'secondary' : 'outline'} onClick={() => onToggle2FA(u)}>
-                    {u.two_fa ? 'Disable 2FA' : 'Enable 2FA'}
-                  </Button>
-                </td>
-                <td className="p-2">{u.last_login ? new Date(u.last_login).toLocaleString() : '-'}</td>
-                <td className="p-2 flex gap-2">
-                  {u.status !== 'active' && (
-                    <Button size="sm" onClick={() => onApprove(u)}>Approve</Button>
-                  )}
-                  {u.status !== 'suspended' && (
-                    <Button size="sm" variant="destructive" onClick={() => onSuspend(u)}>Suspend</Button>
-                  )}
-                  <EditRoleButton user={u} onSaved={load} />
-                  <ResetPasswordButton user={u} onDone={(pwd) => {
-                    setCred({ username: u.user_id, password: pwd })
-                    setCredOpen(true)
-                  }} />
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
-              <tr><td className="p-4 text-center text-muted-foreground" colSpan={7}>No users</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex items-center justify-between py-2">
-        <div className="text-sm text-muted-foreground">Page {page}, total {total}</div>
-        <div className="flex items-center gap-2">
-          <Select value={String(limit)} onValueChange={(v) => { setLimit(parseInt(v || '20', 10)); setPage(1) }}>
-            <SelectTrigger className="w-[100px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="10">10 / page</SelectItem>
-              <SelectItem value="20">20 / page</SelectItem>
-              <SelectItem value="50">50 / page</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="flex gap-2">
-            <Button variant="outline" disabled={page<=1} onClick={() => setPage(p => Math.max(1, p-1))}>Prev</Button>
-            <Button variant="outline" disabled={(page*limit)>=total} onClick={() => setPage(p => p+1)}>Next</Button>
-          </div>
-        </div>
-      </div>
-
+      <Table
+        columns={columns}
+        dataSource={filtered}
+        rowKey="user_id"
+        loading={loading}
+        pagination={{
+          current: page,
+          pageSize: limit,
+          total: total,
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} users`,
+          onChange: (newPage, newPageSize) => {
+            setPage(newPage)
+            if (newPageSize !== limit) {
+              setLimit(newPageSize)
+            }
+          }
+        }}
+      />
     </div>
   )
 }
 
 function EditRoleButton({ user, onSaved }: { user: UserRow; onSaved: () => void }) {
-  const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [role, setRole] = useState(user.role)
   const [perms, setPerms] = useState<string[]>([])
@@ -247,98 +327,107 @@ function EditRoleButton({ user, onSaved }: { user: UserRow; onSaved: () => void 
       if (quotaD) payload.quota_daily = parseInt(quotaD, 10)
       if (quotaM) payload.quota_monthly = parseInt(quotaM, 10)
       await apiClient.adminSetUserRole(user.user_id, payload)
-      toast({
-        title: 'Saved',
-        description: `Role updated for ${user.user_id}. User may need to re-login to see changes.`,
-        duration: 5000
-      })
+      message.success(`Role updated for ${user.user_id}. User may need to re-login to see changes.`)
       setOpen(false)
       onSaved()
     } catch (err: any) {
-      toast({ title: 'Save failed', description: err?.message || String(err), variant: 'destructive' })
+      message.error(`Save failed: ${err?.message || String(err)}`)
     } finally {
       setBusy(false)
     }
   }
 
+  const handleOpen = async () => {
+    setOpen(true)
+    try {
+      const details = await apiClient.adminGetUser(user.user_id)
+      setRole(details?.role || user.role)
+      setStatus(details?.status || user.status)
+      setPerms(details?.permissions || [])
+      setQuotaD((details?.quota_daily ?? '') === '' ? '' : String(details?.quota_daily))
+      setQuotaM((details?.quota_monthly ?? '') === '' ? '' : String(details?.quota_monthly))
+    } catch (e: any) {
+      const { title, description } = mapApiErrorToMessage(e)
+      message.error(`${title}: ${description}`)
+    }
+  }
+
   return (
-    <Dialog open={open} onOpenChange={async (v) => {
-      setOpen(v)
-      if (v) {
-        try {
-          const details = await apiClient.adminGetUser(user.user_id)
-          setRole(details?.role || user.role)
-          setStatus(details?.status || user.status)
-          setPerms(details?.permissions || [])
-          setQuotaD((details?.quota_daily ?? '') === '' ? '' : String(details?.quota_daily))
-          setQuotaM((details?.quota_monthly ?? '') === '' ? '' : String(details?.quota_monthly))
-        } catch (e:any) {
-          const { title, description } = mapApiErrorToMessage(e)
-          toast({ title, description, variant: 'destructive' })
-        }
-      }
-    }}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline">Edit</Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit Role & Permissions</DialogTitle>
-          <DialogDescription>Adjust role, permissions and quotas</DialogDescription>
-        </DialogHeader>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <>
+      <Tooltip title="Edit role & permissions">
+        <Button size="small" icon={<EditOutlined />} onClick={handleOpen}>
+          Edit
+        </Button>
+      </Tooltip>
+      
+      <Modal
+        title="Edit Role & Permissions"
+        open={open}
+        onCancel={() => setOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setOpen(false)} disabled={busy}>
+            Cancel
+          </Button>,
+          <Button key="save" type="primary" onClick={save} loading={busy}>
+            Save
+          </Button>
+        ]}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <div className="text-xs mb-1 text-muted-foreground">Role</div>
-            <Select value={role} onValueChange={setRole}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="viewer">viewer</SelectItem>
-                <SelectItem value="administrator">administrator</SelectItem>
-              </SelectContent>
+            <Text className="block mb-2">Role</Text>
+            <Select value={role} onChange={setRole} style={{ width: '100%' }}>
+              <Option value="viewer">viewer</Option>
+              <Option value="administrator">administrator</Option>
             </Select>
           </div>
           <div>
-            <div className="text-xs mb-1 text-muted-foreground">Status</div>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">active</SelectItem>
-                <SelectItem value="pending">pending</SelectItem>
-                <SelectItem value="suspended">suspended</SelectItem>
-              </SelectContent>
+            <Text className="block mb-2">Status</Text>
+            <Select value={status} onChange={setStatus} style={{ width: '100%' }}>
+              <Option value="active">active</Option>
+              <Option value="pending">pending</Option>
+              <Option value="suspended">suspended</Option>
             </Select>
           </div>
           <div className="sm:col-span-2">
-            <div className="text-xs mb-1 text-muted-foreground">Permissions</div>
-            <div className="flex flex-wrap gap-3">
-              {['read','download','upload','admin'].map(p => (
-                <label key={p} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={perms.includes(p)} onChange={() => togglePerm(p)} />
-                  {p}
-                </label>
-              ))}
-            </div>
+            <Text className="block mb-2">Permissions</Text>
+            <Checkbox.Group
+              value={perms}
+              onChange={(checkedValues) => setPerms(checkedValues as string[])}
+            >
+              <Space wrap>
+                <Checkbox value="read">Read</Checkbox>
+                <Checkbox value="download">Download</Checkbox>
+                <Checkbox value="upload">Upload</Checkbox>
+                <Checkbox value="admin">Admin</Checkbox>
+              </Space>
+            </Checkbox.Group>
           </div>
           <div>
-            <div className="text-xs mb-1 text-muted-foreground">Daily quota (-1 unlimited)</div>
-            <Input type="number" value={quotaD} onChange={e => setQuotaD(e.target.value)} placeholder="-1" />
+            <Text className="block mb-2">Daily quota (-1 unlimited)</Text>
+            <InputNumber
+              value={quotaD ? parseInt(quotaD) : undefined}
+              onChange={(value) => setQuotaD(value ? String(value) : '')}
+              placeholder="-1"
+              style={{ width: '100%' }}
+            />
           </div>
           <div>
-            <div className="text-xs mb-1 text-muted-foreground">Monthly quota (-1 unlimited)</div>
-            <Input type="number" value={quotaM} onChange={e => setQuotaM(e.target.value)} placeholder="-1" />
+            <Text className="block mb-2">Monthly quota (-1 unlimited)</Text>
+            <InputNumber
+              value={quotaM ? parseInt(quotaM) : undefined}
+              onChange={(value) => setQuotaM(value ? String(value) : '')}
+              placeholder="-1"
+              style={{ width: '100%' }}
+            />
           </div>
         </div>
-        <DialogFooter>
-          <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={save} disabled={busy}>{busy ? 'Saving...' : 'Save'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </Modal>
+    </>
   )
 }
 
 function CreateUserModal({ onCreated }: { onCreated: (username: string, password: string) => void }) {
-  const { toast } = useToast()
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [role, setRole] = useState("viewer")
@@ -348,7 +437,7 @@ function CreateUserModal({ onCreated }: { onCreated: (username: string, password
 
   const createUser = async () => {
     if (!username) {
-      toast({ title: 'Username required', variant: 'destructive' })
+      message.error('Username required')
       return
     }
     setBusy(true)
@@ -363,55 +452,68 @@ function CreateUserModal({ onCreated }: { onCreated: (username: string, password
       setOpen(false)
     } catch (err: any) {
       const { title, description } = mapApiErrorToMessage(err)
-      toast({ title, description, variant: 'destructive' })
+      message.error(`${title}: ${description}`)
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <div className="flex items-center justify-between">
-        <DialogTrigger asChild>
-          <Button>Create User</Button>
-        </DialogTrigger>
-      </div>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create User</DialogTitle>
-          <DialogDescription>Generate a one-time password and optionally force reset.</DialogDescription>
-        </DialogHeader>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Input placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
-          <Input placeholder="Email (optional)" value={email} onChange={e => setEmail(e.target.value)} />
-          <div>
-            <div className="text-xs mb-1 text-muted-foreground">Role</div>
-            <Select value={role} onValueChange={setRole}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="viewer">viewer</SelectItem>
-                <SelectItem value="administrator">administrator</SelectItem>
-              </SelectContent>
-            </Select>
+    <>
+      <Button type="primary" icon={<UserOutlined />} onClick={() => setOpen(true)}>
+        Create User
+      </Button>
+      
+      <Modal
+        title="Create User"
+        open={open}
+        onCancel={() => setOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setOpen(false)} disabled={busy}>
+            Cancel
+          </Button>,
+          <Button key="create" type="primary" onClick={createUser} loading={busy}>
+            Create
+          </Button>
+        ]}
+      >
+        <div className="space-y-4">
+          <Text>Generate a one-time password and optionally force reset.</Text>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input 
+              placeholder="Username" 
+              value={username} 
+              onChange={e => setUsername(e.target.value)} 
+            />
+            <Input 
+              placeholder="Email (optional)" 
+              value={email} 
+              onChange={e => setEmail(e.target.value)} 
+            />
+            <div>
+              <Text className="block mb-2">Role</Text>
+              <Select value={role} onChange={setRole} style={{ width: '100%' }}>
+                <Option value="viewer">viewer</Option>
+                <Option value="administrator">administrator</Option>
+              </Select>
+            </div>
+            <div className="flex items-center">
+              <Checkbox 
+                checked={mustReset} 
+                onChange={e => setMustReset(e.target.checked)}
+              >
+                Force password reset
+              </Checkbox>
+            </div>
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={mustReset} onChange={e => setMustReset(e.target.checked)} />
-            Force password reset
-          </label>
         </div>
-        <DialogFooter>
-          <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={createUser} disabled={busy}>{busy ? 'Creating...' : 'Create'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </Modal>
+    </>
   )
 }
 
 function ResetPasswordButton({ user, onDone }: { user: UserRow; onDone: (password: string) => void }) {
-  const { toast } = useToast()
   const [busy, setBusy] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const onReset = async () => {
     setBusy(true)
@@ -419,32 +521,30 @@ function ResetPasswordButton({ user, onDone }: { user: UserRow; onDone: (passwor
       const data = await apiClient.adminResetPassword(user.user_id)
       const pwd = data?.temporary_password || ''
       onDone(pwd)
-      toast({ title: 'Password reset', description: user.user_id })
-      setConfirmOpen(false)
+      message.success(`Password reset for ${user.user_id}`)
     } catch (err: any) {
       const { title, description } = mapApiErrorToMessage(err)
-      toast({ title, description, variant: 'destructive' })
+      message.error(`${title}: ${description}`)
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline">Reset Password</Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Reset password for {user.user_id}?</DialogTitle>
-          <DialogDescription>This generates a new temporary password and forces reset on next login.</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="secondary" onClick={() => setConfirmOpen(false)} disabled={busy}>Cancel</Button>
-          <Button variant="destructive" onClick={onReset} disabled={busy}>{busy ? 'Resetting...' : 'Reset Password'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <Popconfirm
+      title={`Reset password for ${user.user_id}?`}
+      description="This generates a new temporary password and forces reset on next login."
+      onConfirm={onReset}
+      okText="Reset Password"
+      cancelText="Cancel"
+      okButtonProps={{ danger: true, loading: busy }}
+    >
+      <Tooltip title="Reset password">
+        <Button size="small" icon={<KeyOutlined />}>
+          Reset Password
+        </Button>
+      </Tooltip>
+    </Popconfirm>
   )
 }
 
@@ -455,8 +555,9 @@ function CredentialsModal({ open, onOpenChange, creds }: { open: boolean; onOpen
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(password)
+      message.success('Password copied to clipboard')
     } catch {
-      // ignore
+      message.error('Failed to copy password')
     }
   }
 
@@ -473,30 +574,44 @@ function CredentialsModal({ open, onOpenChange, creds }: { open: boolean; onOpen
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
+    message.success('Credentials downloaded')
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Temporary Credentials</DialogTitle>
-          <DialogDescription>Copy or download the password now. It won’t be shown again.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2">
-          <div className="text-sm">Username</div>
-          <Input readOnly value={username} />
-          <div className="text-sm">Temporary Password</div>
-          <div className="flex gap-2">
-            <Input readOnly value={password} />
-            <Button onClick={copy} variant="outline">Copy</Button>
-            <Button onClick={download}>Download</Button>
+    <Modal
+      title="Temporary Credentials"
+      open={open}
+      onCancel={() => onOpenChange(false)}
+      footer={[
+        <Button key="close" onClick={() => onOpenChange(false)}>
+          Close
+        </Button>
+      ]}
+    >
+      <div className="space-y-4">
+        <Text type="secondary">Copy or download the password now. It won't be shown again.</Text>
+        <div className="space-y-3">
+          <div>
+            <Text className="block mb-1">Username</Text>
+            <Input readOnly value={username} />
           </div>
-          <div className="text-xs text-muted-foreground">Ask the user to login and change the password immediately.</div>
+          <div>
+            <Text className="block mb-1">Temporary Password</Text>
+            <Space.Compact style={{ width: '100%' }}>
+              <Input readOnly value={password} />
+              <Button icon={<CopyOutlined />} onClick={copy}>
+                Copy
+              </Button>
+              <Button icon={<DownloadOutlined />} onClick={download}>
+                Download
+              </Button>
+            </Space.Compact>
+          </div>
+          <Text type="secondary" className="text-xs">
+            Ask the user to login and change the password immediately.
+          </Text>
         </div>
-        <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>Close</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </Modal>
   )
 }
