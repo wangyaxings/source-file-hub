@@ -1,24 +1,37 @@
 'use client'
 
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { 
+  Button, 
+  Card, 
+  Table, 
+  Modal, 
+  Space, 
+  Typography, 
+  Tag, 
+  Tooltip, 
+  message,
+  Popconfirm,
+  Spin,
+  Empty
+} from "antd"
+import {
+  DeleteOutlined,
+  ReloadOutlined,
+  UndoOutlined,
+  ExclamationCircleOutlined,
+  FileTextOutlined,
+  ClockCircleOutlined,
+  UserOutlined,
+  LoadingOutlined,
+  CloseOutlined
+} from "@ant-design/icons"
+import type { ColumnsType } from 'antd/es/table'
 import { apiClient } from "@/lib/api"
 import { formatFileSize, formatDate } from "@/lib/utils"
-import { useToast } from "@/lib/use-toast"
 import { usePermissions } from "@/lib/permissions"
-import {
-  Trash2,
-  RefreshCw,
-  RotateCcw,
-  AlertTriangle,
-  FileText,
-  Clock,
-  User,
-  Loader2,
-  X
-} from "lucide-react"
+
+const { Title, Text } = Typography
 
 interface RecycleBinItem {
   id: string
@@ -43,7 +56,6 @@ interface RecycleBinItem {
 }
 
 export function RecycleBin() {
-  const { toast } = useToast()
   const currentUser = apiClient.getCurrentUser()
   // 使用权限系统替代硬编码的角色检查
   const { permissions } = usePermissions()
@@ -60,11 +72,7 @@ export function RecycleBin() {
       setItems(data)
     } catch (error) {
       console.error('Failed to load recycle bin:', error)
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to load recycle bin'
-      })
+      message.error(`Failed to load recycle bin: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsLoading(false)
     }
@@ -91,18 +99,11 @@ export function RecycleBin() {
     setRestoringFile(restoreDialog.item.id)
     try {
       await apiClient.restoreFile(restoreDialog.item.id)
-      toast({
-        title: "Success",
-        description: 'File restored successfully'
-      })
+      message.success('File restored successfully')
       loadRecycleBin() // Refresh the list
     } catch (error) {
       console.error('Restore failed:', error)
-      toast({
-        variant: "destructive",
-        title: "Restore Failed",
-        description: error instanceof Error ? error.message : 'Restore failed'
-      })
+      message.error(`Restore failed: ${error instanceof Error ? error.message : 'Restore failed'}`)
     } finally {
       setRestoringFile(null)
       setRestoreDialog({ isOpen: false, item: null })
@@ -113,18 +114,11 @@ export function RecycleBin() {
     setIsClearing(true)
     try {
       await apiClient.clearRecycleBin()
-      toast({
-        title: "Success",
-        description: 'Recycle bin cleared successfully'
-      })
+      message.success('Recycle bin cleared successfully')
       loadRecycleBin()
     } catch (error) {
       console.error('Clear failed:', error)
-      toast({
-        variant: "destructive",
-        title: "Clear Failed",
-        description: error instanceof Error ? error.message : 'Failed to clear recycle bin'
-      })
+      message.error(`Clear failed: ${error instanceof Error ? error.message : 'Failed to clear recycle bin'}`)
     } finally {
       setIsClearing(false)
       setShowClearDialog(false)
@@ -138,228 +132,227 @@ export function RecycleBin() {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <div className="flex items-center gap-2 text-gray-500">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Loading recycle bin...
-          </div>
-        </CardContent>
+        <div className="flex items-center justify-center py-12">
+          <Space>
+            <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} />
+            <Text>Loading recycle bin...</Text>
+          </Space>
+        </div>
       </Card>
     )
   }
+
+  // Define table columns for AntD Table
+  const columns: ColumnsType<RecycleBinItem> = [
+    {
+      title: 'File Name',
+      dataIndex: 'originalName',
+      key: 'name',
+      render: (text, record) => (
+        <Space direction="vertical" size="small">
+          <Space>
+            <FileTextOutlined />
+            <Text strong>{text}</Text>
+          </Space>
+          {record.description && (
+            <Text type="secondary" className="text-sm">{record.description}</Text>
+          )}
+          {!record.fileExists && (
+            <Space>
+              <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />
+              <Text type="danger" className="text-sm">Physical file missing</Text>
+            </Space>
+          )}
+        </Space>
+      )
+    },
+    {
+      title: 'Size',
+      dataIndex: 'size',
+      key: 'size',
+      render: (size) => formatFileSize(size),
+      width: 100
+    },
+    {
+      title: 'Deleted By',
+      dataIndex: 'deletedBy',
+      key: 'deletedBy',
+      render: (deletedBy) => (
+        <Space>
+          <UserOutlined />
+          {deletedBy || "unknown"}
+        </Space>
+      ),
+      width: 120
+    },
+    {
+      title: 'Deleted At',
+      dataIndex: 'deletedAt',
+      key: 'deletedAt',
+      render: (deletedAt) => (
+        <Space>
+          <ClockCircleOutlined />
+          {formatDate(deletedAt)}
+        </Space>
+      ),
+      width: 180
+    },
+    {
+      title: 'Days Left',
+      dataIndex: 'daysUntilPurge',
+      key: 'daysLeft',
+      render: (days) => {
+        const color = days <= 7 ? 'red' : days <= 30 ? 'orange' : 'green'
+        return (
+          <Tag color={color}>
+            {days <= 0 ? 'Expired' : `${days} days`}
+          </Tag>
+        )
+      },
+      width: 120
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_, record) => (
+        <Space>
+          {permissions?.canAccessRecycle && (
+            <Tooltip title="Restore file">
+              <Button
+                type="text"
+                icon={restoringFile === record.id ? <LoadingOutlined /> : <UndoOutlined />}
+                onClick={() => handleRestore(record)}
+                loading={restoringFile === record.id}
+              />
+            </Tooltip>
+          )}
+        </Space>
+      ),
+      width: 100
+    }
+  ]
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <Card>
-        <CardHeader>
+        <div className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Trash2 className="h-5 w-5" />
+              <Title level={3} className="flex items-center gap-2 mb-2">
+                <DeleteOutlined />
                 Recycle Bin
-              </CardTitle>
-              <CardDescription>
+              </Title>
+              <Text type="secondary">
                 Manage deleted files. Files are automatically purged after 90 days.
-              </CardDescription>
+              </Text>
             </div>
-            <div className="flex items-center gap-4">
-              <Button variant="outline" size="sm" onClick={loadRecycleBin}>
-                <RefreshCw className="h-4 w-4 mr-2" />
+            <Space>
+              <Button icon={<ReloadOutlined />} onClick={loadRecycleBin}>
                 Refresh
               </Button>
               {permissions?.canAccessRecycle && items.length > 0 && (
                 <Button
-                  variant="destructive"
-                  size="sm"
+                  danger
+                  icon={<DeleteOutlined />}
                   onClick={() => setShowClearDialog(true)}
                 >
-                  <Trash2 className="h-4 w-4 mr-2" />
                   Clear All
                 </Button>
               )}
-            </div>
+            </Space>
           </div>
-        </CardHeader>
+        </div>
       </Card>
 
       {/* Items List */}
       <Card>
-        <CardContent className="pt-6">
-          {items.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Trash2 className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>Recycle bin is empty</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
-                    <th className="pb-4 font-medium w-1/4">File Name</th>
-                    <th className="pb-4 font-medium w-20">Size</th>
-                    <th className="pb-4 font-medium w-24">Deleted By</th>
-                    <th className="pb-4 font-medium w-32">Deleted At</th>
-                    <th className="pb-4 font-medium w-24">Days Left</th>
-                    <th className="pb-4 font-medium w-32">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) => (
-                    <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex-shrink-0">
-                            <FileText className="h-5 w-5 text-gray-400" />
-                          </div>
-                          <div>
-                            <div className="font-medium text-gray-900">
-                              {item.originalName}
-                            </div>
-                            {item.description && (
-                              <div className="text-sm text-gray-500 mt-1">{item.description}</div>
-                            )}
-                            {!item.fileExists && (
-                              <div className="text-sm text-red-500 mt-1 flex items-center gap-1">
-                                <AlertTriangle className="h-3 w-3" />
-                                Physical file missing
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-4 text-sm text-gray-600">
-                        {formatFileSize(item.size)}
-                      </td>
-                      <td className="py-4 text-sm text-gray-600">
-                        <div className="flex items-center gap-2">
-                          <User className="h-3 w-3" />
-                          <span>{item.deletedBy || "unknown"}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 text-sm text-gray-600">
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-3 w-3" />
-                          <span>{formatDate(item.deletedAt)}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs ${
-                          item.daysUntilPurge <= 7
-                            ? 'bg-red-100 text-red-800'
-                            : item.daysUntilPurge <= 30
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : 'bg-green-100 text-green-800'
-                        }`}>
-                          {item.daysUntilPurge <= 0 ? 'Expired' : `${item.daysUntilPurge} days`}
-                        </span>
-                      </td>
-                      <td className="py-4">
-                        <div className="flex items-center gap-2">
-                          {permissions?.canAccessRecycle && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleRestore(item)}
-                              disabled={restoringFile === item.id}
-                              title="Restore File"
-                            >
-                              {restoringFile === item.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <RotateCcw className="h-4 w-4" />
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
+        <div className="p-6">
+          <Table
+            columns={columns}
+            dataSource={items}
+            rowKey="id"
+            pagination={{
+              showSizeChanger: true,
+              showQuickJumper: true,
+              showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`
+            }}
+            locale={{
+              emptyText: (
+                <Empty
+                  image={<DeleteOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />}
+                  description="Recycle bin is empty"
+                />
+              )
+            }}
+          />
+        </div>
       </Card>
 
-      {/* Clear All Confirmation Dialog */}
+      {/* Clear All Confirmation Modal */}
       {permissions?.canAccessRecycle && (
-      <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <AlertTriangle className="h-5 w-5" />
+        <Modal
+          title={
+            <Space>
+              <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />
               Clear Recycle Bin
-            </DialogTitle>
-            <DialogDescription>
-              This will permanently delete all {items.length} files in the recycle bin.
-              This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowClearDialog(false)}
-              disabled={isClearing}
-            >
+            </Space>
+          }
+          open={showClearDialog}
+          onCancel={() => setShowClearDialog(false)}
+          footer={[
+            <Button key="cancel" onClick={() => setShowClearDialog(false)} disabled={isClearing}>
               Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleClearRecycleBin}
-              disabled={isClearing}
+            </Button>,
+            <Button 
+              key="clear" 
+              danger 
+              onClick={handleClearRecycleBin} 
+              loading={isClearing}
+              icon={!isClearing ? <DeleteOutlined /> : undefined}
             >
-              {isClearing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Clearing...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Clear All
-                </>
-              )}
+              {isClearing ? 'Clearing...' : 'Clear All'}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          ]}
+        >
+          <Text>
+            This will permanently delete all {items.length} files in the recycle bin.
+            This action cannot be undone.
+          </Text>
+        </Modal>
       )}
 
-      {/* Restore Confirmation Dialog */}
+      {/* Restore Confirmation Modal */}
       {permissions?.canAccessRecycle && (
-      <Dialog open={restoreDialog.isOpen} onOpenChange={(open) => setRestoreDialog({ isOpen: open, item: null })}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-green-600">
-              <RotateCcw className="h-5 w-5" />
+        <Modal
+          title={
+            <Space>
+              <UndoOutlined style={{ color: '#52c41a' }} />
               Confirm Restore
-            </DialogTitle>
-            <DialogDescription>
-              Are you sure you want to restore "<strong>{restoreDialog.item?.originalName}</strong>"?
-              The file will be moved back to the active files list.
-            </DialogDescription>
-          </DialogHeader>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRestoreDialog({ isOpen: false, item: null })}
-            >
+            </Space>
+          }
+          open={restoreDialog.isOpen}
+          onCancel={() => setRestoreDialog({ isOpen: false, item: null })}
+          footer={[
+            <Button key="cancel" onClick={() => setRestoreDialog({ isOpen: false, item: null })}>
               Cancel
-            </Button>
-            <Button
-              variant="default"
+            </Button>,
+            <Button 
+              key="restore" 
+              type="primary" 
               onClick={confirmRestore}
-              className="bg-green-600 hover:bg-green-700"
+              style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+              icon={<UndoOutlined />}
             >
-              <RotateCcw className="mr-2 h-4 w-4" />
               Restore File
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          ]}
+        >
+          <Text>
+            Are you sure you want to restore "<Text strong>{restoreDialog.item?.originalName}</Text>"?
+            The file will be moved back to the active files list.
+          </Text>
+        </Modal>
       )}
     </div>
   )

@@ -1,37 +1,51 @@
-﻿'use client'
-
+'use client'
 
 import { useSearchParams, useRouter } from "next/navigation"
 import { mapApiErrorToMessage } from "@/lib/errors"
 
 import { useState, useEffect, useMemo } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { 
+  Button, 
+  Card, 
+  Table, 
+  Select, 
+  Modal, 
+  Space, 
+  Typography, 
+  Tag, 
+  Tooltip, 
+  Input,
+  message,
+  Popconfirm,
+  Spin,
+  Empty
+} from "antd"
+import {
+  FileOutlined,
+  DownloadOutlined,
+  ClockCircleOutlined,
+  UserOutlined,
+  FileTextOutlined,
+  SettingOutlined,
+  SafetyOutlined,
+  BookOutlined,
+  LoadingOutlined,
+  ReloadOutlined,
+  HistoryOutlined,
+  DeleteOutlined,
+  ExclamationCircleOutlined
+} from "@ant-design/icons"
+import type { ColumnsType } from 'antd/es/table'
 import { apiClient, type FileInfo } from "@/lib/api"
 import { formatFileSize, formatDate } from "@/lib/utils"
-import { useToast } from "@/lib/use-toast"
 import { usePermissions } from "@/lib/permissions"
-import {
-  Files,
-  Download,
-  Clock,
-  User,
-  FileText,
-  Settings,
-  Shield,
-  BookOpen,
-  Loader2,
-  RefreshCw,
-  History,
-  Trash2,
-  AlertTriangle
-} from "lucide-react"
+
+const { Title, Text } = Typography
+const { Option } = Select
 
 const fileTypeIcons = {
-  roadmap: FileText,
-  recommendation: FileText
+  roadmap: FileTextOutlined,
+  recommendation: FileTextOutlined
 }
 
 const fileTypeLabels = {
@@ -44,19 +58,11 @@ interface FileListProps {
 }
 
 export function FileList({ refreshTrigger }: FileListProps) {
-  const { toast } = useToast()
   const [files, setFiles] = useState<FileInfo[]>([])
   const [filteredFiles, setFilteredFiles] = useState<FileInfo[]>([])
   const [selectedType, setSelectedType] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(true)
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null)
-  const [deleteDialog, setDeleteDialog] = useState<{
-    isOpen: boolean
-    file: FileInfo | null
-  }>({
-    isOpen: false,
-    file: null
-  })
   type VersionRow = { versionId: string; tags: string[]; date?: string; sha256?: string; size?: number; fileName?: string; path?: string }
   const [versionsDialog, setVersionsDialog] = useState<{
     isOpen: boolean
@@ -95,7 +101,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
   const handleViewVersions = async (file: FileInfo) => {
     const type = (file.fileType === 'roadmap' || file.fileType === 'recommendation') ? file.fileType : null
     if (!type) {
-      toast({ variant: 'destructive', title: 'Unsupported', description: 'Version history is only for roadmap/recommendation' })
+      message.error('Version history is only for roadmap/recommendation')
       return
     }
     setVersionsDialog(prev => ({ ...prev, isOpen: true, file, fileType: type, versions: [], loading: true }))
@@ -122,7 +128,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
       setVersionsDialog(prev => ({ ...prev, versions: rows, loading: false }))
     } catch (e) {
       console.error('Load versions failed', e)
-      toast({ variant: 'destructive', title: 'Failed to load versions', description: e instanceof Error ? e.message : 'Failed' })
+      message.error(`Failed to load versions: ${e instanceof Error ? e.message : 'Failed'}`)
       setVersionsDialog(prev => ({ ...prev, loading: false }))
     }
   }
@@ -138,44 +144,12 @@ export function FileList({ refreshTrigger }: FileListProps) {
       await apiClient.downloadFile(file.path)
     } catch (error) {
       console.error('Download failed:', error)
-      toast({
-        variant: "destructive",
-        title: "Download Failed",
-        description: error instanceof Error ? error.message : 'Download failed'
-      })
+      message.error(`Download failed: ${error instanceof Error ? error.message : 'Download failed'}`)
     } finally {
       setDownloadingFile(null)
     }
   }
 
-  const handleDelete = (file: FileInfo) => {
-    setDeleteDialog({
-      isOpen: true,
-      file: file
-    })
-  }
-
-  const confirmDelete = async () => {
-    if (!deleteDialog.file) return
-
-    try {
-      await apiClient.deleteFile(deleteDialog.file.id)
-      toast({
-        title: "Success",
-        description: 'File moved to recycle bin successfully'
-      })
-      loadFiles() // Refresh the file list
-    } catch (error) {
-      console.error('Delete failed:', error)
-      toast({
-        variant: "destructive",
-        title: "Delete Failed",
-        description: error instanceof Error ? error.message : 'Delete failed'
-      })
-    } finally {
-      setDeleteDialog({ isOpen: false, file: null })
-    }
-  }
 
   useEffect(() => {
     loadFiles()
@@ -184,12 +158,12 @@ export function FileList({ refreshTrigger }: FileListProps) {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <div className="flex items-center gap-2 text-gray-500">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Loading file list...
-          </div>
-        </CardContent>
+        <div className="flex items-center justify-center py-12">
+          <Space>
+            <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} />
+            <Text>Loading file list...</Text>
+          </Space>
+        </div>
       </Card>
     )
   }
@@ -204,335 +178,347 @@ export function FileList({ refreshTrigger }: FileListProps) {
     return acc
   }, {} as Record<string, FileInfo[]>)
 
+  // Define table columns for AntD Table
+  const columns: ColumnsType<FileInfo> = [
+    {
+      title: 'File Name',
+      dataIndex: 'originalName',
+      key: 'name',
+      render: (text, record) => (
+        <Space>
+          <FileTextOutlined />
+          <div>
+            <div className="font-medium">{text || record.fileName}</div>
+            {record.description && (
+              <div className="text-sm text-gray-500">{record.description}</div>
+            )}
+          </div>
+        </Space>
+      )
+    },
+    {
+      title: 'Size',
+      dataIndex: 'size',
+      key: 'size',
+      render: (size) => formatFileSize(size),
+      width: 100
+    },
+    {
+      title: 'Upload Time',
+      dataIndex: 'uploadTime',
+      key: 'uploadTime',
+      render: (time) => (
+        <Space>
+          <ClockCircleOutlined />
+          {formatDate(time)}
+        </Space>
+      ),
+      width: 180
+    },
+    {
+      title: 'Uploader',
+      dataIndex: 'uploader',
+      key: 'uploader',
+      render: (uploader) => (
+        <Space>
+          <UserOutlined />
+          {uploader || "unknown"}
+        </Space>
+      ),
+      width: 120
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_, record) => (
+        <Space>
+          <Tooltip title="Download">
+            <Button
+              type="text"
+              icon={downloadingFile === record.path ? <LoadingOutlined /> : <DownloadOutlined />}
+              onClick={() => handleDownload(record)}
+              loading={downloadingFile === record.path}
+            />
+          </Tooltip>
+          <Tooltip title="View Version History">
+            <Button
+              type="text"
+              icon={<HistoryOutlined />}
+              onClick={() => handleViewVersions(record)}
+            />
+          </Tooltip>
+          {permissions?.canManageFiles && (
+            <Tooltip title="Delete">
+              <Popconfirm
+                title="Delete file?"
+                description="Are you sure you want to move this file to recycle bin?"
+                onConfirm={async () => {
+                  try {
+                    await apiClient.deleteFile(record.id)
+                    message.success('File moved to recycle bin successfully')
+                    loadFiles() // Refresh the file list
+                  } catch (error) {
+                    console.error('Delete failed:', error)
+                    message.error(`Delete failed: ${error instanceof Error ? error.message : 'Delete failed'}`)
+                  }
+                }}
+                okText="Yes"
+                cancelText="No"
+              >
+                <Button
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
+                />
+              </Popconfirm>
+            </Tooltip>
+          )}
+        </Space>
+      ),
+      width: 150
+    }
+  ]
+
   return (
     <div className="space-y-6">
-      {/* 澶撮儴鎺у埗 */}
+      {/* Header Controls */}
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Files className="h-5 w-5" />
+              <Title level={3} className="flex items-center gap-2 mb-2">
+                <FileOutlined />
                 File Management
-              </CardTitle>
-              <CardDescription>
+              </Title>
+              <Text type="secondary">
                 Manage uploaded Roadmaps (.tsv) and Recommendations (.xlsx)
-              </CardDescription>
+              </Text>
             </div>
-            <div className="flex items-center gap-4">
-              <Select value={selectedType} onValueChange={handleTypeChange}>
-                <SelectTrigger className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Files</SelectItem>
-                  <SelectItem value="roadmap">Roadmaps</SelectItem>
-                  <SelectItem value="recommendation">Recommendations</SelectItem>
-                </SelectContent>
+            <Space>
+              <Select
+                value={selectedType}
+                onChange={handleTypeChange}
+                style={{ width: 160 }}
+              >
+                <Option value="all">All Files</Option>
+                <Option value="roadmap">Roadmaps</Option>
+                <Option value="recommendation">Recommendations</Option>
               </Select>
-              <Button variant="outline" size="sm" onClick={loadFiles}>
-                <RefreshCw className="h-4 w-4 mr-2" />
+              <Button icon={<ReloadOutlined />} onClick={loadFiles}>
                 Refresh
               </Button>
-            </div>
+            </Space>
           </div>
-        </CardHeader>
+        </div>
       </Card>
 
-      {/* 鏂囦欢鍒楄〃 */}
+      {/* File List */}
       {selectedType === "all" ? (
-        // 鍒嗙粍鏄剧ず
+        // Grouped display
         <div className="space-y-6">
           {Object.entries(groupedFiles).map(([type, typeFiles]) => {
-            const Icon = (fileTypeIcons as any)[type] || FileText
+            const Icon = (fileTypeIcons as any)[type] || FileTextOutlined
             const label = (fileTypeLabels as any)[type] || type
             return (
               <Card key={type}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Icon className="h-5 w-5" />
+                <div className="p-6">
+                  <Title level={4} className="flex items-center gap-2 mb-4">
+                    <Icon />
                     {label}
-                    <span className="text-sm font-normal text-gray-500">
-                      ({typeFiles.length} files)
-                    </span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <FileTable
-                    files={typeFiles}
-                    onDownload={handleDownload}
-                    onViewVersions={handleViewVersions}
-                    onDelete={permissions?.canManageFiles ? handleDelete : undefined}
-                    downloadingFile={downloadingFile}
+                    <Tag color="blue">{typeFiles.length} files</Tag>
+                  </Title>
+                  <Table
+                    columns={columns}
+                    dataSource={typeFiles}
+                    rowKey={(record) => record.id || record.path}
+                    pagination={false}
+                    size="small"
                   />
-                </CardContent>
+                </div>
               </Card>
             )
           })}
         </div>
       ) : (
-        // 鍗曠被鍨嬫樉绀?
+        // Single type display
         <Card>
-          <CardContent className="pt-6">
-            <FileTable
-              files={filteredFiles.filter(f => f.isLatest)}
-              onDownload={handleDownload}
-              onViewVersions={handleViewVersions}
-              onDelete={permissions?.canManageFiles ? handleDelete : undefined}
-              downloadingFile={downloadingFile}
+          <div className="p-6">
+            <Table
+              columns={columns}
+              dataSource={filteredFiles.filter(f => f.isLatest)}
+              rowKey={(record) => record.id || record.path}
+              pagination={{
+                showSizeChanger: true,
+                showQuickJumper: true,
+                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} files`
+              }}
             />
-          </CardContent>
+          </div>
         </Card>
       )}
 
-      {/* 鐗堟湰鍘嗗彶瀵硅瘽妗?*/}
-      <Dialog
+      {/* Version History Modal */}
+      <Modal
+        title={
+          <Space>
+            <HistoryOutlined />
+            Version History - {versionsDialog.file?.originalName || versionsDialog.file?.fileName}
+          </Space>
+        }
         open={versionsDialog.isOpen}
-        onOpenChange={(open) => setVersionsDialog(prev => ({ ...prev, isOpen: open }))}
+        onCancel={() => setVersionsDialog(prev => ({ ...prev, isOpen: false }))}
+        width={1200}
+        footer={null}
       >
-        <DialogContent className="max-w-6xl max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <History className="h-5 w-5" />
-              Version History - {versionsDialog.file?.originalName || versionsDialog.file?.fileName}
-            </DialogTitle>
-            <DialogDescription>
-              View and download all versions of this file, {versionsDialog.versions.length} versions total
-            </DialogDescription>
-          </DialogHeader>
+        <Text type="secondary" className="block mb-4">
+          View and download all versions of this file, {versionsDialog.versions.length} versions total
+        </Text>
 
-          <div className="max-h-[60vh] overflow-y-auto">
-            {versionsDialog.loading ? (
-              <div className="p-6 text-sm text-gray-500 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin"/> Loading versions...</div>
-            ) : (versionsDialog.versions.length === 0 ? (
-              <div className="p-6 text-sm text-gray-500">No versions</div>
-            ) : (
-              <table className="w-full table-fixed text-sm">
-                <thead>
-                  <tr className="text-left border-b text-gray-600 bg-gray-50">
-                    <th className="py-3 px-4 w-64 font-medium text-xs uppercase tracking-wide">Version ID</th>
-                    <th className="py-3 px-4 w-40 font-medium text-xs uppercase tracking-wide">Tags</th>
-                    <th className="py-3 px-4 w-44 font-medium text-xs uppercase tracking-wide">Date</th>
-                    <th className="py-3 px-4 w-52 font-medium text-xs uppercase tracking-wide">SHA256</th>
-                    <th className="py-3 px-4 w-24 font-medium text-xs uppercase tracking-wide">Size</th>
-                    <th className="py-3 px-4 w-48 font-medium text-xs uppercase tracking-wide">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {versionsDialog.versions.map(v => (
-                    <tr key={v.versionId} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="py-3 px-4 font-mono text-sm truncate" title={v.versionId}>{v.versionId}</td>
-                      <td className="py-3 px-4 text-sm truncate" title={(v.tags||[]).join(', ')}>
-                        {(v.tags || []).length === 0 ? (
-                          <span className="text-gray-400">-</span>
-                        ) : (
-                          <span>{v.tags.join(', ')}</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-gray-600 truncate" title={v.date || ''}>{v.date ? formatDate(v.date) : ''}</td>
-                      <td className="py-3 px-4 font-mono text-sm truncate" title={v.sha256 || ''}>{v.sha256 ? v.sha256.slice(0, 12) : ''}</td>
-                      <td className="py-3 px-4 text-sm">{typeof v.size === 'number' ? formatFileSize(v.size) : ''}</td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          {v.path && (
-                            <Button variant="outline" size="sm" onClick={() => apiClient.downloadFile(v.path!)} title="Download file">
-                              <Download className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {permissions?.canManageFiles && (
-                            <Button variant="ghost" size="sm" onClick={() => setEditTags({ open: true, fileType: versionsDialog.fileType, versionId: v.versionId, text: (v.tags||[]).join(', ') })} title="Edit tags">
-                              <Settings className="h-4 w-4" /> Edit Tags
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ))}
+        {versionsDialog.loading ? (
+          <div className="text-center py-8">
+            <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} />
+            <Text className="block mt-2">Loading versions...</Text>
           </div>
-        </DialogContent>
-      </Dialog>
+        ) : versionsDialog.versions.length === 0 ? (
+          <Empty description="No versions found" />
+        ) : (
+          <Table
+            columns={[
+              {
+                title: 'Version ID',
+                dataIndex: 'versionId',
+                key: 'versionId',
+                render: (text) => <Text code>{text}</Text>,
+                width: 200
+              },
+              {
+                title: 'Tags',
+                dataIndex: 'tags',
+                key: 'tags',
+                render: (tags) => (
+                  <Space wrap>
+                    {tags && tags.length > 0 ? (
+                      tags.map((tag: string, index: number) => (
+                        <Tag key={index} color="blue">{tag}</Tag>
+                      ))
+                    ) : (
+                      <Text type="secondary">-</Text>
+                    )}
+                  </Space>
+                ),
+                width: 150
+              },
+              {
+                title: 'Date',
+                dataIndex: 'date',
+                key: 'date',
+                render: (date) => date ? formatDate(date) : '-',
+                width: 150
+              },
+              {
+                title: 'SHA256',
+                dataIndex: 'sha256',
+                key: 'sha256',
+                render: (sha256) => sha256 ? (
+                  <Tooltip title={sha256}>
+                    <Text code>{sha256.slice(0, 12)}...</Text>
+                  </Tooltip>
+                ) : '-',
+                width: 120
+              },
+              {
+                title: 'Size',
+                dataIndex: 'size',
+                key: 'size',
+                render: (size) => typeof size === 'number' ? formatFileSize(size) : '-',
+                width: 100
+              },
+              {
+                title: 'Actions',
+                key: 'actions',
+                render: (_, record) => (
+                  <Space>
+                    {record.path && (
+                      <Tooltip title="Download file">
+                        <Button
+                          type="text"
+                          icon={<DownloadOutlined />}
+                          onClick={() => apiClient.downloadFile(record.path!)}
+                        />
+                      </Tooltip>
+                    )}
+                    {permissions?.canManageFiles && (
+                      <Tooltip title="Edit tags">
+                        <Button
+                          type="text"
+                          icon={<SettingOutlined />}
+                          onClick={() => setEditTags({ 
+                            open: true, 
+                            fileType: versionsDialog.fileType, 
+                            versionId: record.versionId, 
+                            text: (record.tags || []).join(', ') 
+                          })}
+                        />
+                      </Tooltip>
+                    )}
+                  </Space>
+                )
+              }
+            ]}
+            dataSource={versionsDialog.versions}
+            rowKey="versionId"
+            pagination={false}
+            size="small"
+            scroll={{ y: 400 }}
+          />
+        )}
+      </Modal>
 
-      {/* Edit Tags Dialog */}
-      <Dialog open={editTags.open} onOpenChange={(open)=> setEditTags(prev => ({ ...prev, open }))}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Version Tags</DialogTitle>
-            <DialogDescription>Comma-separated tags for {editTags.versionId}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <input className="w-full border rounded px-3 py-2 text-sm" value={editTags.text} onChange={(e)=> setEditTags(prev => ({ ...prev, text: e.target.value }))} placeholder="v1.2.3, Q3-Final" />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={()=> setEditTags(prev => ({ ...prev, open: false }))}>Cancel</Button>
-            <Button onClick={async ()=>{
+      {/* Edit Tags Modal */}
+      <Modal
+        title="Edit Version Tags"
+        open={editTags.open}
+        onCancel={() => setEditTags(prev => ({ ...prev, open: false }))}
+        footer={[
+          <Button key="cancel" onClick={() => setEditTags(prev => ({ ...prev, open: false }))}>
+            Cancel
+          </Button>,
+          <Button 
+            key="save" 
+            type="primary" 
+            onClick={async () => {
               if (!editTags.fileType) return
-              const tags = editTags.text.split(',').map(t=>t.trim()).filter(Boolean)
-              try{
+              const tags = editTags.text.split(',').map(t => t.trim()).filter(Boolean)
+              try {
                 await apiClient.updateVersionTagsWeb(editTags.fileType, editTags.versionId, tags)
                 // refresh current list
                 if (versionsDialog.file) {
                   await handleViewVersions(versionsDialog.file)
                 }
                 setEditTags(prev => ({ ...prev, open: false }))
-              }catch(e){
-                toast({ variant:'destructive', title:'Update failed', description: e instanceof Error ? e.message : 'Failed' })
+                message.success('Tags updated successfully')
+              } catch (e) {
+                message.error(`Update failed: ${e instanceof Error ? e.message : 'Failed'}`)
               }
-            }}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            }}
+          >
+            Save
+          </Button>
+        ]}
+      >
+        <div className="space-y-4">
+          <Text>Comma-separated tags for version {editTags.versionId}</Text>
+          <Input
+            value={editTags.text}
+            onChange={(e) => setEditTags(prev => ({ ...prev, text: e.target.value }))}
+            placeholder="v1.2.3, Q3-Final"
+          />
+        </div>
+      </Modal>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialog.isOpen} onOpenChange={(open) => setDeleteDialog({ isOpen: open, file: null })}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <AlertTriangle className="h-5 w-5" />
-              Confirm Delete
-            </DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete "<strong>{deleteDialog.file?.originalName}</strong>"?
-              The file will be moved to the recycle bin and can be restored later.
-            </DialogDescription>
-          </DialogHeader>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteDialog({ isOpen: false, file: null })}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={confirmDelete}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Move to Recycle Bin
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
 
-interface FileTableProps {
-  files: FileInfo[]
-  onDownload: (file: FileInfo) => void
-  onViewVersions?: (file: FileInfo) => void
-  onDelete?: (file: FileInfo) => void
-  downloadingFile: string | null
-  showVersions?: boolean
-}
-
-function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFile, showVersions = false }: FileTableProps) {
-  if (files.length === 0) {
-    return (
-      <div className="text-center py-8 text-gray-500">
-        <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-        <p>No files</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr className="border-b text-left text-sm text-gray-500">
-            <th className="pb-4 font-medium w-1/3">File Name</th>
-            <th className="pb-4 font-medium w-20">Size</th>
-            <th className="pb-4 font-medium w-32">Upload Time</th>
-            <th className="pb-4 font-medium w-24">Uploader</th>
-            {showVersions && <th className="pb-4 font-medium w-16">Version</th>}
-            <th className="pb-4 font-medium w-32">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {files.map((file) => (
-            <tr key={file.id || file.path} className="border-b last:border-0 hover:bg-gray-50">
-              <td className="py-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex-shrink-0">
-                    <FileText className="h-5 w-5 text-gray-400" />
-                  </div>
-                  <div>
-                    <div className="font-medium text-gray-900">
-                      {file.originalName || file.fileName}
-                    </div>
-                    {file.description && (
-                      <div className="text-sm text-gray-500 mt-1">{file.description}</div>
-                    )}
-                  </div>
-                </div>
-              </td>
-              <td className="py-4 text-sm text-gray-600">
-                {formatFileSize(file.size)}
-              </td>
-              <td className="py-4 text-sm text-gray-600">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-3 w-3" />
-                  <span>{formatDate(file.uploadTime)}</span>
-                </div>
-              </td>
-              <td className="py-4 text-sm text-gray-600">
-                <div className="flex items-center gap-2">
-                  <User className="h-3 w-3" />
-                  <span>{file.uploader || "unknown"}</span>
-                </div>
-              </td>
-              {showVersions && (
-                <td className="py-4 text-sm text-gray-600 font-mono">
-                  v{file.version}
-                </td>
-              )}
-              <td className="py-4">
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onDownload(file)}
-                    disabled={downloadingFile === file.path}
-                  >
-                    {downloadingFile === file.path ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4" />
-                    )}
-                  </Button>
-                  {!showVersions && onViewVersions && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onViewVersions(file)}
-                      title="View Version History"
-                    >
-                      <History className="h-4 w-4" />
-                    </Button>
-                  )}
-                  {!showVersions && onDelete && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onDelete(file)}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      title="Delete File"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
 
 

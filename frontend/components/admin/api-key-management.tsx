@@ -3,36 +3,33 @@
 import { apiClient } from "@/lib/api"
 import { mapApiErrorToMessage } from "@/lib/errors"
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useToast } from "@/lib/use-toast"
+import { Button, Card, Modal, Input, Select, Tabs, message, Space, Typography, Table, Tag, Tooltip, Popconfirm } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import { formatDate, isoToDatetimeLocal, datetimeLocalToISO } from "@/lib/utils"
-import { AnalyticsCharts } from "./analytics-charts"
+import AnalyticsCharts from "./analytics-charts"
 import {
-  Key,
-  Plus,
-  RefreshCw,
-  Eye,
-  EyeOff,
-  Copy,
-  Trash2,
-  Edit,
-  Users,
-  BarChart3,
-  Settings,
-  CheckCircle,
-  XCircle,
-  AlertTriangle,
-  Loader2,
-  Download,
-  Calendar,
-  X
-} from "lucide-react"
+  KeyOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  EyeOutlined,
+  EyeInvisibleOutlined,
+  CopyOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  UserOutlined,
+  BarChartOutlined,
+  SettingOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  ExclamationTriangleOutlined,
+  LoadingOutlined,
+  DownloadOutlined,
+  CalendarOutlined,
+  CloseOutlined
+} from '@ant-design/icons'
+
+const { Title, Text } = Typography
+const { TabPane } = Tabs
 
 // Feature flag: backend does not yet support clearing expiry
 const CLEAR_EXPIRY_SUPPORTED = true as const
@@ -68,7 +65,6 @@ interface UsageLog {
 }
 
 export function APIKeyManagement() {
-  const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("keys")
   const [apiKeys, setApiKeys] = useState<APIKey[]>([])
   const [usageLogs, setUsageLogs] = useState<UsageLog[]>([])
@@ -268,7 +264,7 @@ export function APIKeyManagement() {
       })
       if (!resp.success) throw Object.assign(new Error(resp.error || 'Failed to update API key status'), { code: (resp as any).code, details: (resp as any).details })
       loadAPIKeys()
-      toast({ title: "Success", description: `API key ${status === 'active' ? 'enabled' : 'disabled'} successfully` })
+      message.success(`API key ${status === 'active' ? 'enabled' : 'disabled'} successfully`)
     } catch (error: any) {
       const { title, description } = mapApiErrorToMessage(error)
       toast({ variant: 'destructive', title, description })

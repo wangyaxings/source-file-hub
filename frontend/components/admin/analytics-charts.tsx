@@ -1,29 +1,28 @@
 import { useState, useEffect, useMemo } from "react"
 import ReactECharts from 'echarts-for-react'
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { useToast } from "@/lib/use-toast"
+import { Button, Card, Select, Input, message, DatePicker, Space, Typography, Progress, Tag, Table } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import { apiClient } from "@/lib/api"
 import { mapApiErrorToMessage } from "@/lib/errors"
 import {
-  RefreshCw,
-  Download,
-  Calendar,
-  TrendingUp,
-  Activity,
-  Clock,
-  PieChart,
-  BarChart3,
-  Users,
-  AlertCircle,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  Key
-} from "lucide-react"
+  ReloadOutlined,
+  DownloadOutlined,
+  CalendarOutlined,
+  RiseOutlined,
+  ThunderboltOutlined,
+  ClockCircleOutlined,
+  PieChartOutlined,
+  BarChartOutlined,
+  UserOutlined,
+  ExclamationCircleOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  LoadingOutlined,
+  KeyOutlined
+} from '@ant-design/icons'
+
+const { Title, Text } = Typography
+const { RangePicker } = DatePicker
 
 // 颜色辅助函数
 function adjustColorBrightness(color: string, amount: number): string {
@@ -89,8 +88,7 @@ interface AnalyticsChartsProps {
   apiKeys: any[]
 }
 
-export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
-  const { toast } = useToast()
+export default function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [timeRange, setTimeRange] = useState('7d')
   const [selectedApiKey, setSelectedApiKey] = useState<string>('all')
@@ -126,7 +124,7 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
       setAnalyticsData(resp.data as any)
     } catch (error: any) {
       const { title, description } = mapApiErrorToMessage(error)
-      toast({ title, description, variant: "destructive" })
+      message.error(`${title}: ${description}`)
       // Fallback to local processing
       setAnalyticsData(processLocalAnalyticsData())
     } finally {
@@ -211,6 +209,40 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
     const interval = setInterval(() => {
       fetchAnalyticsData()
     }, 60000) // 60 seconds
+  const errorTableColumns: ColumnsType<any> = [
+    {
+      title: 'Status Code',
+      dataIndex: 'statusCode',
+      key: 'statusCode',
+      render: (statusCode: number) => (
+        <Tag color="error" style={{ fontFamily: 'monospace' }}>
+          {statusCode}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Message',
+      dataIndex: 'message',
+      key: 'message',
+    },
+    {
+      title: 'Count',
+      dataIndex: 'count',
+      key: 'count',
+      render: (count: number) => <Text strong>{count}</Text>,
+    },
+    {
+      title: 'Percentage',
+      dataIndex: 'percentage',
+      key: 'percentage',
+      render: (percentage: number) => (
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Progress percent={percentage} size="small" status="exception" />
+          <Text>{percentage.toFixed(2)}%</Text>
+        </Space>
+      ),
+    },
+  ];
 
     return () => clearInterval(interval)
   }, [isMounted, timeRange, selectedApiKey, selectedUser, customDateStart, customDateEnd])
@@ -262,13 +294,10 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
 
       const filename = `analytics-${timeRange}-${new Date().toISOString().split('T')[0]}.json`
       await apiClient.downloadBinary(`/admin/analytics/export?${params}`, filename)
-      toast({
-        title: "Export successful",
-        description: "Analytics data has been exported"
-      })
+      message.success("Analytics data has been exported")
     } catch (error: any) {
       const { title, description } = mapApiErrorToMessage(error)
-      toast({ title: title || 'Export failed', description: description || (error?.message || 'Failed to export data'), variant: 'destructive' })
+      message.error(`${title || 'Export failed'}: ${description || (error?.message || 'Failed to export data')}`)
     }
   }
 
@@ -276,15 +305,49 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
 
   // Prevent SSR issues by not rendering until mounted
   if (!isMounted) {
+  const errorTableColumns: ColumnsType<any> = [
+    {
+      title: 'Status Code',
+      dataIndex: 'statusCode',
+      key: 'statusCode',
+      render: (statusCode: number) => (
+        <Tag color="error" style={{ fontFamily: 'monospace' }}>
+          {statusCode}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Message',
+      dataIndex: 'message',
+      key: 'message',
+    },
+    {
+      title: 'Count',
+      dataIndex: 'count',
+      key: 'count',
+      render: (count: number) => <Text strong>{count}</Text>,
+    },
+    {
+      title: 'Percentage',
+      dataIndex: 'percentage',
+      key: 'percentage',
+      render: (percentage: number) => (
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Progress percent={percentage} size="small" status="exception" />
+          <Text>{percentage.toFixed(2)}%</Text>
+        </Space>
+      ),
+    },
+  ];
     return (
       <div className="space-y-6">
         <Card>
-          <CardContent className="p-6">
+          <div className="p-6">
             <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+              <LoadingOutlined className="h-8 w-8 animate-spin text-blue-600"  />
               <span className="ml-2 text-gray-600">Initializing analytics...</span>
             </div>
-          </CardContent>
+          </div>
         </Card>
       </div>
     )
@@ -292,30 +355,98 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
 
   // Show loading or no data states
   if (isLoading) {
+  const errorTableColumns: ColumnsType<any> = [
+    {
+      title: 'Status Code',
+      dataIndex: 'statusCode',
+      key: 'statusCode',
+      render: (statusCode: number) => (
+        <Tag color="error" style={{ fontFamily: 'monospace' }}>
+          {statusCode}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Message',
+      dataIndex: 'message',
+      key: 'message',
+    },
+    {
+      title: 'Count',
+      dataIndex: 'count',
+      key: 'count',
+      render: (count: number) => <Text strong>{count}</Text>,
+    },
+    {
+      title: 'Percentage',
+      dataIndex: 'percentage',
+      key: 'percentage',
+      render: (percentage: number) => (
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Progress percent={percentage} size="small" status="exception" />
+          <Text>{percentage.toFixed(2)}%</Text>
+        </Space>
+      ),
+    },
+  ];
     return (
       <div className="space-y-6">
         <Card>
-          <CardContent className="p-6">
+          <div className="p-6">
             <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+              <LoadingOutlined className="h-8 w-8 animate-spin text-blue-600"  />
               <span className="ml-2 text-gray-600">Loading analytics data...</span>
             </div>
-          </CardContent>
+          </div>
         </Card>
       </div>
     )
   }
 
   if (!analyticsData) {
+  const errorTableColumns: ColumnsType<any> = [
+    {
+      title: 'Status Code',
+      dataIndex: 'statusCode',
+      key: 'statusCode',
+      render: (statusCode: number) => (
+        <Tag color="error" style={{ fontFamily: 'monospace' }}>
+          {statusCode}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Message',
+      dataIndex: 'message',
+      key: 'message',
+    },
+    {
+      title: 'Count',
+      dataIndex: 'count',
+      key: 'count',
+      render: (count: number) => <Text strong>{count}</Text>,
+    },
+    {
+      title: 'Percentage',
+      dataIndex: 'percentage',
+      key: 'percentage',
+      render: (percentage: number) => (
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Progress percent={percentage} size="small" status="exception" />
+          <Text>{percentage.toFixed(2)}%</Text>
+        </Space>
+      ),
+    },
+  ];
     return (
       <div className="space-y-6">
         <Card>
-          <CardContent className="p-6">
+          <div className="p-6">
             <div className="text-center py-8 text-gray-500">
-              <BarChart3 className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <BarChartOutlined className="h-12 w-12 mx-auto mb-4 text-gray-300"  />
               <p>No analytics data available</p>
             </div>
-          </CardContent>
+          </div>
         </Card>
       </div>
     )
@@ -597,6 +728,40 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
       }
     }]
   }
+  const errorTableColumns: ColumnsType<any> = [
+    {
+      title: 'Status Code',
+      dataIndex: 'statusCode',
+      key: 'statusCode',
+      render: (statusCode: number) => (
+        <Tag color="error" style={{ fontFamily: 'monospace' }}>
+          {statusCode}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Message',
+      dataIndex: 'message',
+      key: 'message',
+    },
+    {
+      title: 'Count',
+      dataIndex: 'count',
+      key: 'count',
+      render: (count: number) => <Text strong>{count}</Text>,
+    },
+    {
+      title: 'Percentage',
+      dataIndex: 'percentage',
+      key: 'percentage',
+      render: (percentage: number) => (
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Progress percent={percentage} size="small" status="exception" />
+          <Text>{percentage.toFixed(2)}%</Text>
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
@@ -605,45 +770,30 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
         <div className="flex flex-col gap-6">
           <div className="flex justify-end items-center flex-wrap gap-4">
             <div className="flex items-center gap-2 flex-wrap">
-              <Select value={timeRange} onValueChange={setTimeRange}>
-                <SelectTrigger className="w-20 h-8 bg-white border-gray-200">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="24h">24h</SelectItem>
-                  <SelectItem value="7d">7d</SelectItem>
-                  <SelectItem value="30d">30d</SelectItem>
-                  <SelectItem value="custom">Custom</SelectItem>
-                </SelectContent>
+              <Select value={timeRange} onChange={setTimeRange}>
+                <Select.Option value="24h">24h</Select.Option>
+                <Select.Option value="7d">7d</Select.Option>
+                <Select.Option value="30d">30d</Select.Option>
+                <Select.Option value="custom">Custom</Select.Option>
               </Select>
 
-              <Select value={selectedApiKey} onValueChange={setSelectedApiKey}>
-                <SelectTrigger className="w-48 h-8 bg-white border-gray-200">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Keys</SelectItem>
-                  {uniqueApiKeys.map(key => (
-                    <SelectItem key={key} value={key} title={key}>
-                      {apiKeyDisplayNames.get(key) || `Key (${key.substring(0, 8)})`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+              <Select value={selectedApiKey} onChange={setSelectedApiKey}>
+                <Select.Option value="all">All Keys</Select.Option>
+                {uniqueApiKeys.map(key => (
+                  <Select.Option key={key} value={key} title={key}>
+                    {apiKeyDisplayNames.get(key) || `Key (${key.substring(0, 8)})`}
+                  </Select.Option>
+                ))}
               </Select>
 
-              <Select value={selectedUser} onValueChange={setSelectedUser}>
-                <SelectTrigger className="w-24 h-8 bg-white border-gray-200">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Users</SelectItem>
-                  {uniqueUsers.map(user => (
-                    <SelectItem key={user} value={user}>{user}</SelectItem>
-                  ))}
-                </SelectContent>
+              <Select value={selectedUser} onChange={setSelectedUser}>
+                <Select.Option value="all">All Users</Select.Option>
+                {uniqueUsers.map(user => (
+                  <Select.Option key={user} value={user}>{user}</Select.Option>
+                ))}
               </Select>
 
-              <Button onClick={handleExportData} size="sm" variant="outline" className="h-8 px-3">
+              <Button onClick={handleExportData} size="small" type="default" icon={<DownloadOutlined />}>
                 Export
               </Button>
             </div>
@@ -652,7 +802,7 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
           {timeRange === 'custom' && (
             <div className="flex gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm">
               <div className="flex flex-col gap-2">
-                <Label className="text-sm font-medium text-gray-700">Start Date</Label>
+                <Text className="text-sm font-medium text-gray-700">Start Date</Text>
                 <Input
                   type="datetime-local"
                   value={customDateStart}
@@ -661,7 +811,7 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label className="text-sm font-medium text-gray-700">End Date</Label>
+                <Text className="text-sm font-medium text-gray-700">End Date</Text>
                 <Input
                   type="datetime-local"
                   value={customDateEnd}
@@ -676,167 +826,136 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
         {/* 概览指标卡片 */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
-            <CardContent className="p-4 text-center">
+            <div className="p-4 text-center">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Total Requests</p>
               <p className="text-xl font-bold text-gray-900">
                 {analyticsData?.overview?.totalRequests?.toLocaleString() || '0'}
               </p>
-            </CardContent>
+            </div>
           </Card>
 
           <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
-            <CardContent className="p-4 text-center">
+            <div className="p-4 text-center">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Active Users</p>
               <p className="text-xl font-bold text-gray-900">
                 {analyticsData?.overview?.activeUsers || '0'}
               </p>
-            </CardContent>
+            </div>
           </Card>
 
           <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
-            <CardContent className="p-4 text-center">
+            <div className="p-4 text-center">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Success Rate</p>
               <p className="text-xl font-bold text-gray-900">
                 {analyticsData?.overview?.successRate?.toFixed(1) || '0.0'}%
               </p>
-            </CardContent>
+            </div>
           </Card>
 
           <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
-            <CardContent className="p-4 text-center">
+            <div className="p-4 text-center">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Error Rate</p>
               <p className="text-xl font-bold text-gray-900">
                 {analyticsData?.overview?.errorRate?.toFixed(1) || '0.0'}%
               </p>
-            </CardContent>
+            </div>
           </Card>
 
           <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
-            <CardContent className="p-4 text-center">
+            <div className="p-4 text-center">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Avg Response</p>
               <p className="text-xl font-bold text-gray-900">
                 {Math.round(analyticsData?.overview?.avgResponseTime || 0)}ms
               </p>
-            </CardContent>
+            </div>
           </Card>
 
           <Card className="bg-white border shadow-sm hover:shadow-md transition-shadow">
-            <CardContent className="p-4 text-center">
+            <div className="p-4 text-center">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">API Keys</p>
               <p className="text-xl font-bold text-gray-900">
                 {analyticsData?.overview?.totalApiKeys || '0'}
               </p>
-            </CardContent>
+            </div>
           </Card>
         </div>
 
         {/* 主要趋势图表 */}
         <Card className="bg-white border shadow-sm">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-semibold text-gray-900">API Usage Trends</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
+          <div className="pb-4">
+            <Title level={4} style={{ margin: 0 }}>API Usage Trends</Title>
+          </div>
+          <div className="pt-0">
             <ReactECharts
               option={trendChartOption}
               style={{ height: '350px' }}
               theme={chartTheme}
             />
-          </CardContent>
+          </div>
         </Card>
 
         {/* 次要图表行 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* API Key使用分布 */}
           <Card className="bg-white border shadow-sm">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg font-semibold text-gray-900">API Key Usage</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
+            <div className="pb-4">
+              <Title level={4} style={{ margin: 0 }}>API Key Usage</Title>
+            </div>
+            <div className="pt-0">
               <ReactECharts
                 option={apiKeyUsageChartOption}
                 style={{ height: '300px' }}
                 theme={chartTheme}
               />
-            </CardContent>
+            </div>
           </Card>
 
           {/* 操作类型分布 */}
           <Card className="bg-white border shadow-sm">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg font-semibold text-gray-900">Operation Types</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
+            <div className="pb-4">
+              <Title level={4} style={{ margin: 0 }}>Operation Types</Title>
+            </div>
+            <div className="pt-0">
               <ReactECharts
                 option={operationPieChartOption}
                 style={{ height: '300px' }}
                 theme={chartTheme}
               />
-            </CardContent>
+            </div>
           </Card>
         </div>
 
         {/* 小时分布图表 */}
         <Card className="bg-white border shadow-sm">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-semibold text-gray-900">Hourly Distribution</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
+          <div className="pb-4">
+            <Title level={4} style={{ margin: 0 }}>Hourly Distribution</Title>
+          </div>
+          <div className="pt-0">
             <ReactECharts
               option={hourlyDistributionChartOption}
               style={{ height: '280px' }}
               theme={chartTheme}
             />
-          </CardContent>
+          </div>
         </Card>
 
         {/* 错误分析表格 */}
         {analyticsData?.errorTypes && analyticsData.errorTypes.length > 0 && (
           <Card className="bg-white border shadow-sm">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg font-semibold text-gray-900">Error Analysis</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Status Code</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Message</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Count</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Percentage</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {analyticsData.errorTypes.map((error, index) => (
-                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4">
-                          <span className="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full font-mono">
-                            {error.statusCode}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-gray-900">{error.message}</td>
-                        <td className="py-3 px-4 font-medium text-gray-900">{error.count}</td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 bg-gray-200 rounded-full h-2">
-                              <div
-                                className="bg-red-600 h-2 rounded-full"
-                                style={{
-                                  width: `${error.percentage.toFixed(1)}%`
-                                }}
-                              ></div>
-                            </div>
-                            <span className="text-sm font-medium text-gray-700">
-                              {error.percentage.toFixed(2)}%
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
+            <div className="pb-4">
+              <Title level={4} style={{ margin: 0 }}>Error Analysis</Title>
+            </div>
+            <div className="pt-0">
+              <Table
+                columns={errorTableColumns}
+                dataSource={analyticsData.errorTypes.map((error, index) => ({
+                  key: index,
+                  ...error
+                }))}
+                pagination={false}
+                size="small"
+              />
+            </div>
           </Card>
         )}
 
