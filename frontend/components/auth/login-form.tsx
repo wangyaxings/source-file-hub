@@ -1,255 +1,279 @@
-'use client'
+﻿"use client";
 
-import { useState, useRef, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { apiClient, type LoginRequest } from "@/lib/api"
-import { LogIn, Loader2 } from "lucide-react"
-import { TwoFASetupDialog } from "@/components/auth/twofa-setup-dialog"
+import { useState, useEffect } from "react";
+import { Form, Input, Button, Card, Alert, Typography, Space } from "antd";
+import { LoginOutlined, ArrowLeftOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
+import { apiClient, type LoginRequest } from "@/lib/api";
+import { TwoFASetupDialog } from "@/components/auth/twofa-setup-dialog";
 
 interface LoginFormProps {
-  onLogin: () => void
+  onLogin: () => void;
 }
 
-export function LoginForm({ onLogin }: LoginFormProps) {
-  const [formData, setFormData] = useState<LoginRequest>({
-    username: "",
-    password: ""
-  })
-  const [isLoading, setIsLoading] = useState(false)
-  const [showOtpInfo, setShowOtpInfo] = useState(true)
-  const [error, setError] = useState("")
-  const [show2FASetup, setShow2FASetup] = useState(false)
-  const [show2FAVerification, setShow2FAVerification] = useState(false)
-  const [pendingUsername, setPendingUsername] = useState("")
-  const [loginStep, setLoginStep] = useState<'login' | '2fa-setup' | '2fa-verify'>('login')
-  const [otpCode, setOtpCode] = useState("")
-  const [otpAttempts, setOtpAttempts] = useState(0)
-  const [cooldown, setCooldown] = useState(0) // seconds remaining
-  const otpInputRef = useRef<HTMLInputElement | null>(null)
-  
-  useEffect(() => {
-    if (cooldown <= 0) return
-    const t = setInterval(() => setCooldown((c) => c - 1), 1000)
-    return () => clearInterval(t)
-  }, [cooldown])
+type LoginFormValues = Pick<LoginRequest, "username" | "password">;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    setError("")
+const OTP_INPUT_ID = "twofa-otp-input";
+
+export function LoginForm({ onLogin }: LoginFormProps) {
+  const [form] = Form.useForm<LoginFormValues>();
+  const [isLoading, setIsLoading] = useState(false);
+  const [showOtpInfo, setShowOtpInfo] = useState(true);
+  const [error, setError] = useState("");
+  const [show2FASetup, setShow2FASetup] = useState(false);
+  const [loginStep, setLoginStep] = useState<'login' | '2fa-setup' | '2fa-verify'>('login');
+  const [otpCode, setOtpCode] = useState("");
+  const [cooldown, setCooldown] = useState(0);
+  const [pendingUsername, setPendingUsername] = useState("");
+  const [lastCredentials, setLastCredentials] = useState<LoginFormValues | null>(null);
+
+  useEffect(() => {
+    if (cooldown <= 0) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setCooldown((current) => {
+        if (current <= 1) {
+          return 0;
+        }
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [cooldown]);
+
+  const attemptLogin = async (credentials: LoginFormValues) => {
+    setIsLoading(true);
+    setError("");
 
     try {
-      // Ensure any existing session is cleared to avoid cross-user mixups (e.g., previous admin session)
-      try { await apiClient.logoutUser() } catch {}
+      try {
+        await apiClient.logoutUser();
+      } catch {
+        // ignore logout errors
+      }
 
-      const result = await apiClient.login(formData)
+      setLastCredentials(credentials);
+      const result = await apiClient.login(credentials);
 
       if (result.status === 'success') {
-        onLogin()
+        onLogin();
+        return;
       }
-    } catch (error: any) {
-      const errorMessage = error?.message || 'Login failed'
 
-      // 处理2FA相关错误
+      setError('Login failed');
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Login failed';
+
       if (errorMessage.includes('2FA_SETUP_REQUIRED')) {
-        setPendingUsername(formData.username)
-        setLoginStep('2fa-setup')
-        setShow2FASetup(true)
-        setError("Please complete 2FA setup")
-      } else if (errorMessage.includes('2FA_VERIFICATION_REQUIRED')) {
-        setLoginStep('2fa-verify')
-        setShow2FAVerification(true)
-        setError("Please enter your 2FA verification code")
-      } else if (errorMessage.includes('2FA_REQUIRED')) {
-        setLoginStep('2fa-verify')
-        setShow2FAVerification(true)
-        setError("Please enter your 2FA verification code")
+        setPendingUsername(credentials.username);
+        setLoginStep('2fa-setup');
+        setShow2FASetup(true);
+        setError('Please complete 2FA setup');
+      } else if (errorMessage.includes('2FA_VERIFICATION_REQUIRED') || errorMessage.includes('2FA_REQUIRED')) {
+        setPendingUsername(credentials.username);
+        setLoginStep('2fa-verify');
+        setOtpCode("");
+        setCooldown(0);
+        setError('Please enter your 2FA verification code');
       } else {
-        setError(errorMessage)
+        setError(errorMessage);
       }
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
+
+  const handleFinish = (values: LoginFormValues) => {
+    attemptLogin(values);
+  };
 
   const handle2FASetupComplete = async () => {
-    setShow2FASetup(false)
-    setError("")
-    // 2FA设置完成后，尝试重新登录
-    try {
-      await apiClient.login(formData)
-      onLogin()
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Login failed after 2FA setup")
+    setShow2FASetup(false);
+    setError("");
+
+    const credentials = lastCredentials ?? form.getFieldsValue() ?? null;
+    if (!credentials || !credentials.username || !credentials.password) {
+      setLoginStep('login');
+      return;
     }
-  }
+
+    await attemptLogin(credentials);
+  };
 
   const handle2FAVerification = async () => {
     if (!otpCode.trim()) {
-      setError("Please enter your 2FA verification code")
-      return
+      setError('Please enter your 2FA verification code');
+      return;
     }
 
-    setIsLoading(true)
+    setIsLoading(true);
     try {
-      await apiClient.verifyTOTP(otpCode)
-      setOtpAttempts(0)
-      onLogin()
-    } catch (error: any) {
-      const code = error?.code as string | undefined
-      const retryAfter = Number(error?.retry_after || 0)
+      await apiClient.verifyTOTP(otpCode);
+      setError("");
+      setCooldown(0);
+      onLogin();
+    } catch (err: any) {
+      const code = err?.code as string | undefined;
+      const retryAfter = Number(err?.retry_after || 0);
 
       if (code === '2FA_COOLDOWN') {
-        setError(error?.message || 'Too many attempts. Please wait.')
-        setCooldown(retryAfter > 0 ? retryAfter : 5)
+        setError(err?.message || 'Too many attempts. Please wait.');
+        setCooldown(retryAfter > 0 ? retryAfter : 5);
       } else if (code === '2FA_TOO_MANY_ATTEMPTS') {
-        setError('Too many 2FA failures. Please login again.')
-        // Force re-login
-        try { await apiClient.logoutUser() } catch {}
-        setLoginStep('login')
-        setShow2FAVerification(false)
-        setOtpAttempts(0)
-        setOtpCode("")
-        return
+        setError('Too many 2FA failures. Please login again.');
+        try {
+          await apiClient.logoutUser();
+        } catch {
+          // ignore
+        }
+        setLoginStep('login');
+        setOtpCode("");
+        setCooldown(0);
       } else {
-        setError(error?.message || 'Invalid 2FA code')
-        setOtpAttempts((n) => n + 1)
+        setError(err?.message || 'Invalid 2FA code');
+        setCooldown(0);
       }
 
-      // Clear and focus input for retry
-      setOtpCode("")
-      setTimeout(() => otpInputRef.current?.focus(), 50)
+      setOtpCode("");
+      window.setTimeout(() => {
+        document.getElementById(OTP_INPUT_ID)?.focus();
+      }, 50);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold">System Login</CardTitle>
-        <CardDescription>
-          Enter your credentials to access the system
-        </CardDescription>
-      </CardHeader>
-      
+    <Card
+      className="w-full max-w-md mx-auto"
+      title={
+        <div>
+          <Typography.Title level={3} className="!mb-1">
+            System Login
+          </Typography.Title>
+          <Typography.Paragraph type="secondary" className="!mb-0">
+            Enter your credentials to access the system
+          </Typography.Paragraph>
+        </div>
+      }
+    >
       {loginStep === 'login' && (
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
-            {/* Removed preset user select for production security */}
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleFinish}
+          initialValues={{ username: '', password: '' }}
+          autoComplete="off"
+        >
+          <Form.Item
+            label="Username"
+            name="username"
+            rules={[{ required: true, message: 'Please enter your username' }]}
+          >
+            <Input placeholder="admin" autoComplete="username" />
+          </Form.Item>
 
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                type="text"
-                value={formData.username}
-                onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
-                placeholder="admin"
-                required
-              />
-            </div>
+          <Form.Item
+            label="Password"
+            name="password"
+            rules={[{ required: true, message: 'Please enter your password' }]}
+          >
+            <Input.Password placeholder="Enter password" autoComplete="current-password" />
+          </Form.Item>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                placeholder="Enter password"
-                required
-              />
-            </div>
-
+          <Space direction="vertical" size="middle" className="w-full">
             {showOtpInfo && (
-              <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded">
-                If your account has 2FA enabled, you will be prompted for verification code.
-                <br />
-                <small>
-                  After login, you can manage 2FA settings in your profile.
-                </small>
-              </div>
+              <Alert
+                type="info"
+                showIcon
+                message="Two-factor authentication"
+                description={
+                  <span>
+                    If your account has 2FA enabled, you will be prompted for a verification code.
+                    <br />
+                    After login, you can manage 2FA settings in your profile.
+                  </span>
+                }
+                closable
+                onClose={() => setShowOtpInfo(false)}
+              />
             )}
 
             {error && (
-              <div className="text-sm text-red-500 bg-red-50 p-3 rounded-md border border-red-200">
-                {error}
-              </div>
+              <Alert type="error" showIcon message={error} />
             )}
-          </CardContent>
-          <CardFooter>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Logging in...
-                </>
-              ) : (
-                <>
-                  <LogIn className="mr-2 h-4 w-4" />
-                  Login
-                </>
-              )}
+
+            <Button
+              type="primary"
+              htmlType="submit"
+              block
+              icon={<LoginOutlined />}
+              loading={isLoading}
+            >
+              Login
             </Button>
-          </CardFooter>
-        </form>
+          </Space>
+        </Form>
       )}
 
       {loginStep === '2fa-verify' && (
-        <>
-          <CardContent className="space-y-4">
-            <div className="text-center">
-              <h3 className="text-lg font-semibold">2FA Verification</h3>
-              <p className="text-sm text-muted-foreground">
-                Enter the 6-digit code from your authenticator app
-              </p>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="otp">Verification Code</Label>
-              <Input
-                id="otp"
-                type="text"
-                value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="123456"
-                ref={otpInputRef}
-                className={`text-center text-lg font-mono tracking-widest ${error ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
-                maxLength={6}
-              />
-            </div>
+        <Space direction="vertical" size="large" className="w-full">
+          <div className="text-center space-y-1">
+            <Typography.Title level={4} className="!mb-0">
+              2FA Verification
+            </Typography.Title>
+            <Typography.Text type="secondary">
+              Enter the 6-digit code from your authenticator app
+            </Typography.Text>
+          </div>
 
-            {error && (
-              <div className="text-sm text-red-500 bg-red-50 p-3 rounded-md border border-red-200">
-                {error}
-              </div>
-            )}
-          </CardContent>
-          <CardFooter className="flex gap-2">
-            <Button variant="outline" onClick={() => setLoginStep('login')} className="flex-1">
+          <Space direction="vertical" size="small" className="w-full">
+            <Typography.Text strong>Verification Code</Typography.Text>
+            <Input
+              id={OTP_INPUT_ID}
+              value={otpCode}
+              inputMode="numeric"
+              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="123456"
+              maxLength={6}
+              status={error ? 'error' : ''}
+              size="large"
+              className="text-center tracking-[0.4em] font-mono"
+            />
+          </Space>
+
+          {error && (
+            <Alert type="error" showIcon message={error} />
+          )}
+
+          <div className="flex gap-2">
+            <Button
+              block
+              onClick={() => {
+                setLoginStep('login');
+                setError("");
+                setOtpCode("");
+                setCooldown(0);
+              }}
+              icon={<ArrowLeftOutlined />}
+            >
               Back
             </Button>
-            <Button onClick={handle2FAVerification} disabled={isLoading || otpCode.length !== 6 || cooldown > 0} className="flex-1">
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Verifying...
-                </>
-              ) : cooldown > 0 ? (
-                `Wait ${cooldown}s`
-              ) : (
-                'Verify'
-              )}
+            <Button
+              type="primary"
+              block
+              onClick={handle2FAVerification}
+              disabled={otpCode.length !== 6 || cooldown > 0}
+              loading={isLoading}
+              icon={<SafetyCertificateOutlined />}
+            >
+              {cooldown > 0 ? `Wait ${cooldown}s` : 'Verify'}
             </Button>
-          </CardFooter>
-        </>
+          </div>
+        </Space>
       )}
-      
-      {/* 2FA设置对话框 */}
+
       {show2FASetup && (
         <TwoFASetupDialog
           open={show2FASetup}
@@ -260,5 +284,5 @@ export function LoginForm({ onLogin }: LoginFormProps) {
         />
       )}
     </Card>
-  )
+  );
 }
