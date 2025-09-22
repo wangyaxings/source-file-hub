@@ -1,41 +1,35 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useRef } from "react"
-import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Tabs, Button, Space, Avatar, Dropdown, Badge, Spin, Card, Modal, Input, message, Typography } from "antd"
+import { 
+  UserOutlined, 
+  UploadOutlined,
+  FileOutlined,
+  DeleteOutlined,
+  SafetyOutlined,
+  DatabaseOutlined,
+  BellOutlined,
+  SettingOutlined,
+  LogoutOutlined,
+  KeyOutlined,
+  CheckCircleOutlined,
+  ExclamationCircleOutlined
+} from "@ant-design/icons"
 import { LoginForm } from "@/components/auth/login-form"
 import { TwoFASetupDialog } from "@/components/auth/twofa-setup-dialog"
 import { FileUpload } from "@/components/file/file-upload"
 import { PackagesPanel } from "@/components/packages/packages-panel"
 import { FileListPaginated as FileList } from "@/components/file/file-list-paginated"
 import { RecycleBin } from "@/components/file/recycle-bin"
-import { Toaster } from "@/components/ui/toaster"
 import { apiClient, type UserInfo } from "@/lib/api"
 import { APIKeyManagement } from "@/components/admin/api-key-management"
 import UserManagement from "@/components/admin/user-management"
 import { usePermissions } from "@/lib/permissions"
-import { useToast } from "@/lib/use-toast"
-import {
-  LogOut,
-  Key,
-  Upload,
-  Files,
-  Shield,
-  User,
-  Server,
-  CheckCircle,
-  AlertTriangle,
-  Trash2,
 
-} from "lucide-react"
+const { Title, Text } = Typography
 
 export default function HomePage() {
-  const { toast } = useToast()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
@@ -312,7 +306,7 @@ export default function HomePage() {
         const errorData = await response.json().catch(() => ({}))
         throw new Error(errorData.error || errorData.message || 'Password change failed')
       }
-      toast({ title: "Success", description: "Password changed successfully" })
+      message.success("Password changed successfully")
       setShowChangePwd(false)
       setShowReLoginPrompt(true)
       setOldPwd("")
@@ -364,16 +358,16 @@ export default function HomePage() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center py-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-primary rounded-lg">
-                  <Shield className="h-6 w-6 text-white" />
+                <div className="p-2 bg-blue-600 rounded-lg">
+                  <SafetyOutlined className="text-white text-xl" />
                 </div>
                 <div>
                   <h1 className="text-xl font-bold text-gray-900">File Management System</h1>
                   <p className="text-sm text-gray-500">Secure File Upload and Management Platform</p>
                 </div>
               </div>
-              <Button variant="outline" onClick={handleLogout}>
-                <LogOut className="mr-2 h-4 w-4" />
+              <Button onClick={handleLogout}>
+                <LogoutOutlined className="mr-2" />
                 Logout
               </Button>
             </div>
@@ -383,17 +377,18 @@ export default function HomePage() {
         {/* 2FA Setup Content */}
         <main className="flex-1 flex items-center justify-center p-4">
           <Card className="w-full max-w-2xl">
-            <CardHeader className="text-center">
-              <div className="mx-auto mb-4 p-3 bg-blue-100 rounded-full w-fit">
-                <Shield className="h-8 w-8 text-blue-600" />
+            <div className="p-6">
+              <div className="text-center mb-6">
+                <div className="mx-auto mb-4 p-3 bg-blue-100 rounded-full w-fit">
+                  <SafetyOutlined className="text-blue-600 text-2xl" />
+                </div>
+                <Title level={2}>Security Setup Required</Title>
+                <Text className="text-base mt-2 block">
+                  Your account has two-factor authentication enabled for enhanced security.
+                  Please complete the setup process to continue.
+                </Text>
               </div>
-              <CardTitle className="text-2xl">Security Setup Required</CardTitle>
-              <CardDescription className="text-base mt-2">
-                Your account has two-factor authentication enabled for enhanced security.
-                Please complete the setup process to continue.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              <div className="space-y-4">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h3 className="font-medium text-blue-800 mb-2">Why is this required?</h3>
                 <p className="text-sm text-blue-700">
@@ -406,11 +401,11 @@ export default function HomePage() {
                   Click the button below to open the 2FA setup wizard.
                 </p>
               </div>
-            </CardContent>
+              </div>
+            </div>
           </Card>
         </main>
 
-        <Toaster />
 
         {/* 2FA Setup Dialog - Always open when in 2FA setup mode */}
         <TwoFASetupDialog
@@ -443,18 +438,18 @@ export default function HomePage() {
           {/* Server Status */}
           {serverStatus && (
             <Card className={serverStatus.online ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
-              <CardContent className="pt-4">
+              <div className="p-4">
                 <div className="flex items-center gap-2">
                   {serverStatus.online ? (
-                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <CheckCircleOutlined className="text-green-600" />
                   ) : (
-                    <AlertTriangle className="h-4 w-4 text-red-600" />
+                    <ExclamationCircleOutlined className="text-red-600" />
                   )}
                   <span className={`text-sm ${serverStatus.online ? "text-green-800" : "text-red-800"}`}>
                     {serverStatus.message}
                   </span>
                 </div>
-              </CardContent>
+              </div>
             </Card>
           )}
 
@@ -471,8 +466,8 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary rounded-lg">
-                <Shield className="h-6 w-6 text-white" />
+              <div className="p-2 bg-blue-600 rounded-lg">
+                <SafetyOutlined className="text-white text-xl" />
               </div>
               <div>
                 <h1 className="text-xl font-bold text-gray-900">File Management System</h1>
@@ -484,7 +479,7 @@ export default function HomePage() {
               {/* Server Status */}
               {serverStatus && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Server className="h-4 w-4 text-gray-400" />
+                  <DatabaseOutlined className="text-gray-400" />
                   <span className={serverStatus.online ? "text-green-600" : "text-red-600"}>
                     {serverStatus.online ? "Online" : "Offline"}
                   </span>
@@ -498,11 +493,8 @@ export default function HomePage() {
                     onClick={() => setShowUserMenu(v => !v)}
                     className="flex items-center gap-3 focus:outline-none"
                   >
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src="" />
-                      <AvatarFallback className="bg-primary text-white text-sm">
-                        {currentUser.username.charAt(0).toUpperCase()}
-                      </AvatarFallback>
+                    <Avatar size="small" style={{ backgroundColor: '#1890ff' }}>
+                      {currentUser.username.charAt(0).toUpperCase()}
                     </Avatar>
                     <div className="hidden sm:block">
                       <div className="text-sm font-medium text-gray-900">
@@ -522,26 +514,26 @@ export default function HomePage() {
                         className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
                         onClick={() => { setShowUserMenu(false); setShowProfile(true) }}
                       >
-                        <User className="h-4 w-4" /> Profile
+                        <UserOutlined /> Profile
                       </button>
                       <button
                         className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
                         onClick={() => { setShowUserMenu(false); setShowAbout(true) }}
                       >
-                        <Shield className="h-4 w-4" /> About
+                        <SafetyOutlined /> About
                       </button>
                       <button
                         className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
                         onClick={() => { setShowUserMenu(false); setShowChangePwd(true) }}
                       >
-                        <Key className="h-4 w-4" /> Change Password
+                        <KeyOutlined /> Change Password
                       </button>
                       <div className="my-1 border-t border-gray-100" />
                       <button
                         className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
                         onClick={() => { setShowUserMenu(false); handleLogout() }}
                       >
-                        <LogOut className="h-4 w-4" /> Logout
+                        <LogoutOutlined /> Logout
                       </button>
                     </div>
                   )}
@@ -559,82 +551,72 @@ export default function HomePage() {
 
       {/* Main Content */}
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-        <Tabs value={mainTab} onValueChange={(v:any)=>setMainTab(v)} className="space-y-6">
-          <TabsList className={`grid w-full ${tabsColsClass} max-w-3xl`}>
-            {permissions?.canUpload && (
-              <TabsTrigger value="upload" className="flex items-center gap-2">
-                <Upload className="h-4 w-4" />
-                Upload
-              </TabsTrigger>
-            )}
-            {permissions?.canManageFiles && (
-              <TabsTrigger value="manage" className="flex items-center gap-2">
-                <Files className="h-4 w-4" />
-                Files
-              </TabsTrigger>
-            )}
-            {permissions?.canAccessRecycle && (
-              <TabsTrigger value="recycle" className="flex items-center gap-2">
-                <Trash2 className="h-4 w-4" />
-                Recycle
-              </TabsTrigger>
-            )}
-            {permissions?.canAccessPackages && (
-              <TabsTrigger value="packages" className="flex items-center gap-2">
-                <Files className="h-4 w-4" />
-                Packages
-              </TabsTrigger>
-            )}
-            {permissions?.canManageAPIKeys && (
-              <TabsTrigger value="admin" className="flex items-center gap-2">
-                <Shield className="h-4 w-4" />
-                API Keys
-              </TabsTrigger>
-            )}
-            {permissions?.canManageUsers && (
-              <TabsTrigger value="admin-users" className="flex items-center gap-2">
-                <User className="h-4 w-4" />
-                Users
-              </TabsTrigger>
-            )}
-          </TabsList>
-
-          {permissions?.canUpload && (
-            <TabsContent value="upload" className="space-y-6">
-              <FileUpload onUploadComplete={handleUploadComplete} />
-            </TabsContent>
-          )}
-
-          {permissions?.canManageFiles && (
-            <TabsContent value="manage" className="space-y-6">
-              <FileList refreshTrigger={refreshTrigger} />
-            </TabsContent>
-          )}
-
-          {permissions?.canAccessRecycle && (
-            <TabsContent value="recycle" className="space-y-6">
-              <RecycleBin />
-            </TabsContent>
-          )}
-
-          {permissions?.canAccessPackages && (
-            <TabsContent value="packages" className="space-y-6">
-              <PackagesPanel />
-            </TabsContent>
-          )}
-
-          {permissions?.canManageAPIKeys && (
-            <TabsContent value="admin" className="space-y-6">
-              <APIKeyManagement />
-            </TabsContent>
-          )}
-
-          {permissions?.canManageUsers && (
-            <TabsContent value="admin-users" className="space-y-6">
-              <UserManagement />
-            </TabsContent>
-          )}
-        </Tabs>
+        <Tabs 
+          activeKey={mainTab} 
+          onChange={(key) => setMainTab(key as any)}
+          items={[
+            ...(permissions?.canUpload ? [{
+              key: 'upload',
+              label: (
+                <Space>
+                  <UploadOutlined />
+                  Upload
+                </Space>
+              ),
+              children: <FileUpload onUploadComplete={handleUploadComplete} />
+            }] : []),
+            ...(permissions?.canManageFiles ? [{
+              key: 'manage',
+              label: (
+                <Space>
+                  <FileOutlined />
+                  Files
+                </Space>
+              ),
+              children: <FileList refreshTrigger={refreshTrigger} />
+            }] : []),
+            ...(permissions?.canAccessRecycle ? [{
+              key: 'recycle',
+              label: (
+                <Space>
+                  <DeleteOutlined />
+                  Recycle
+                </Space>
+              ),
+              children: <RecycleBin />
+            }] : []),
+            ...(permissions?.canAccessPackages ? [{
+              key: 'packages',
+              label: (
+                <Space>
+                  <FileOutlined />
+                  Packages
+                </Space>
+              ),
+              children: <PackagesPanel />
+            }] : []),
+            ...(permissions?.canManageAPIKeys ? [{
+              key: 'admin',
+              label: (
+                <Space>
+                  <SafetyOutlined />
+                  API Keys
+                </Space>
+              ),
+              children: <APIKeyManagement />
+            }] : []),
+            ...(permissions?.canManageUsers ? [{
+              key: 'admin-users',
+              label: (
+                <Space>
+                  <UserOutlined />
+                  Users
+                </Space>
+              ),
+              children: <UserManagement />
+            }] : [])
+          ]}
+        />
       </main>
 
       {/* 濡炪倓绲婚崜?- 闁搞儱鎼悾楣冨捶閵娿儳淇洪梺?*/}
@@ -647,99 +629,111 @@ export default function HomePage() {
         </div>
       </footer>
 
-      <Toaster />
 
-      {/* Change Password Dialog */}
-      <Dialog open={showChangePwd} onOpenChange={setShowChangePwd}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Change Password</DialogTitle>
-            <DialogDescription>Update your account password.</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="oldPwd">Current Password</Label>
-              <Input id="oldPwd" type="password" value={oldPwd} onChange={(e)=>setOldPwd(e.target.value)} placeholder="Enter current password" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="newPwd">New Password</Label>
-              <Input id="newPwd" type="password" value={newPwd} onChange={(e)=>setNewPwd(e.target.value)} placeholder="At least 8 characters" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirmPwd">Confirm New Password</Label>
-              <Input id="confirmPwd" type="password" value={confirmPwd} onChange={(e)=>setConfirmPwd(e.target.value)} placeholder="Re-enter new password" />
-            </div>
-            {changeErr && (
-              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">{changeErr}</div>
-            )}
+      {/* Change Password Modal */}
+      <Modal
+        title="Change Password"
+        open={showChangePwd}
+        onCancel={() => setShowChangePwd(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setShowChangePwd(false)} disabled={isChanging}>
+            Cancel
+          </Button>,
+          <Button key="submit" type="primary" onClick={doChangePassword} loading={isChanging}>
+            Update Password
+          </Button>
+        ]}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Current Password</label>
+            <Input.Password 
+              value={oldPwd} 
+              onChange={(e) => setOldPwd(e.target.value)} 
+              placeholder="Enter current password" 
+            />
           </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={()=> setShowChangePwd(false)} disabled={isChanging}>Cancel</Button>
-            <Button onClick={doChangePassword} disabled={isChanging}>
-              {isChanging ? 'Updating...' : 'Update Password'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Profile Dialog */}
-      <Dialog open={showProfile} onOpenChange={setShowProfile}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Profile</DialogTitle>
-            <DialogDescription>Your account information</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-4">
-            <Avatar className="h-10 w-10">
-              <AvatarImage src="" />
-              <AvatarFallback className="bg-primary text-white text-sm">
-                {currentUser?.username?.charAt(0)?.toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <div className="space-y-1 text-sm">
-              <div><span className="text-gray-500">Username:</span> <span className="font-medium">{currentUser?.username}</span></div>
-              <div><span className="text-gray-500">Role:</span> <span className="font-medium">{currentUser?.role || 'viewer'}</span></div>
+          <div>
+            <label className="block text-sm font-medium mb-1">New Password</label>
+            <Input.Password 
+              value={newPwd} 
+              onChange={(e) => setNewPwd(e.target.value)} 
+              placeholder="At least 8 characters" 
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Confirm New Password</label>
+            <Input.Password 
+              value={confirmPwd} 
+              onChange={(e) => setConfirmPwd(e.target.value)} 
+              placeholder="Re-enter new password" 
+            />
+          </div>
+          {changeErr && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">
+              {changeErr}
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={()=> setShowProfile(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          )}
+        </div>
+      </Modal>
 
-      {/* About Dialog */}
-      <Dialog open={showAbout} onOpenChange={setShowAbout}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>About</DialogTitle>
-            <DialogDescription>Secure File Management System</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 text-sm text-gray-700">
-            <div>Version: {apiInfo?.version || 'N/A'}</div>
+      {/* Profile Modal */}
+      <Modal
+        title="Profile"
+        open={showProfile}
+        onCancel={() => setShowProfile(false)}
+        footer={[
+          <Button key="close" onClick={() => setShowProfile(false)}>
+            Close
+          </Button>
+        ]}
+      >
+        <div className="flex items-center gap-4">
+          <Avatar size="large" style={{ backgroundColor: '#1890ff' }}>
+            {currentUser?.username?.charAt(0)?.toUpperCase()}
+          </Avatar>
+          <div className="space-y-1 text-sm">
+            <div><span className="text-gray-500">Username:</span> <span className="font-medium">{currentUser?.username}</span></div>
+            <div><span className="text-gray-500">Role:</span> <span className="font-medium">{currentUser?.role || 'viewer'}</span></div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={()=> setShowAbout(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </Modal>
 
-      {/* Re-login Prompt after password change */}
-      <Dialog open={showReLoginPrompt} onOpenChange={setShowReLoginPrompt}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Re-login Recommended</DialogTitle>
-            <DialogDescription>
-              Your password has been updated. For security, please log in again.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={()=> setShowReLoginPrompt(false)}>Later</Button>
-            <Button onClick={handleLogout}>Re-login now</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* About Modal */}
+      <Modal
+        title="About"
+        open={showAbout}
+        onCancel={() => setShowAbout(false)}
+        footer={[
+          <Button key="close" onClick={() => setShowAbout(false)}>
+            Close
+          </Button>
+        ]}
+      >
+        <div className="space-y-2 text-sm text-gray-700">
+          <Text>Secure File Management System</Text>
+          <div>Version: {apiInfo?.version || 'N/A'}</div>
+        </div>
+      </Modal>
+
+      {/* Re-login Prompt Modal */}
+      <Modal
+        title="Re-login Recommended"
+        open={showReLoginPrompt}
+        onCancel={() => setShowReLoginPrompt(false)}
+        footer={[
+          <Button key="later" onClick={() => setShowReLoginPrompt(false)}>
+            Later
+          </Button>,
+          <Button key="relogin" type="primary" onClick={handleLogout}>
+            Re-login now
+          </Button>
+        ]}
+      >
+        <Text>
+          Your password has been updated. For security, please log in again.
+        </Text>
+      </Modal>
 
       {/* 2FA Setup Dialog */}
       <TwoFASetupDialog

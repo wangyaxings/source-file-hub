@@ -1,33 +1,29 @@
 'use client'
 
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { useToast } from "@/lib/use-toast"
+import { Modal, Button, Input, Alert, Typography, Space, Card, Spin, message } from "antd"
+import { 
+  SafetyOutlined, 
+  MobileOutlined, 
+  CopyOutlined, 
+  CheckCircleOutlined, 
+  ExclamationCircleOutlined,
+  QrcodeOutlined,
+  LoadingOutlined
+} from "@ant-design/icons"
 import { apiClient } from "@/lib/api"
-import {
-  Shield,
-  Smartphone,
-  Copy,
-  CheckCircle,
-  AlertTriangle,
-  Loader2,
-  QrCode
-} from "lucide-react"
+
+const { Title, Text, Paragraph } = Typography
 
 interface TwoFASetupDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSetupComplete: () => void
   isRequired?: boolean
-  username?: string // 用于记住该账户已确认“已添加账户”，避免再次显示二维码
+  username?: string // 用于记住该账户已确认"已添加账户"，避免再次显示二维码
 }
 
 export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequired = false, username }: TwoFASetupDialogProps) {
-  const { toast } = useToast()
   const [step, setStep] = useState<'setup' | 'qrcode' | 'verify'>('setup')
   const [secret, setSecret] = useState('')
   const [qrCodeUrl, setQrCodeUrl] = useState('')
@@ -82,13 +78,9 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
         setStep('qrcode')
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to start 2FA setup'
-      setSetupError(message)
-      toast({
-        variant: "destructive",
-        title: "Setup Failed",
-        description: message
-      })
+      const errorMessage = error instanceof Error ? error.message : 'Failed to start 2FA setup'
+      setSetupError(errorMessage)
+      message.error(`Setup Failed: ${errorMessage}`)
       // Do NOT auto-retry when required; avoid infinite request loops
       // Keep dialog open and show a Retry button instead.
     } finally {
@@ -98,21 +90,14 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
 
   const verifyAndEnable = async () => {
     if (!verificationCode.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Verification Required",
-        description: "Please enter the verification code from your authenticator app"
-      })
+      message.error('Please enter the verification code from your authenticator app')
       return
     }
 
     setIsVerifying(true)
     try {
       await apiClient.confirmTOTP(verificationCode)
-      toast({
-        title: "2FA Enabled",
-        description: "Two-factor authentication has been successfully enabled for your account"
-      })
+      message.success('Two-factor authentication has been successfully enabled for your account')
       onSetupComplete()
       onOpenChange(false)
       // Reset state
@@ -130,11 +115,7 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
         // ignore
       }
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Verification Failed",
-        description: error instanceof Error ? error.message : 'Failed to verify and enable 2FA'
-      })
+      message.error(error instanceof Error ? error.message : 'Failed to verify and enable 2FA')
     } finally {
       setIsVerifying(false)
     }
@@ -142,18 +123,12 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
 
   const copySecret = () => {
     navigator.clipboard.writeText(secret)
-    toast({
-      title: "Copied",
-      description: "Secret key copied to clipboard"
-    })
+    message.success('Secret key copied to clipboard')
   }
 
   const copyQrUrl = () => {
     navigator.clipboard.writeText(qrCodeUrl)
-    toast({
-      title: "Copied",
-      description: "QR code URL copied to clipboard"
-    })
+    message.success('QR code URL copied to clipboard')
   }
 
   const proceedToVerify = () => {
@@ -169,33 +144,39 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
   }
 
   return (
-    <Dialog open={open} onOpenChange={isRequired ? () => {} : onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-blue-600" />
-            {isRequired ? "Complete Required Security Setup" : "Enable Two-Factor Authentication"}
-          </DialogTitle>
-          <DialogDescription>
-            {isRequired 
-              ? "Your administrator requires two-factor authentication for your account. Please complete the setup to continue."
-              : "Secure your account with two-factor authentication using an authenticator app"
-            }
-          </DialogDescription>
-        </DialogHeader>
+    <Modal
+      title={
+        <Space>
+          <SafetyOutlined style={{ color: '#1890ff' }} />
+          {isRequired ? "Complete Required Security Setup" : "Enable Two-Factor Authentication"}
+        </Space>
+      }
+      open={open}
+      onCancel={isRequired ? undefined : () => onOpenChange(false)}
+      footer={null}
+      width={600}
+      maskClosable={!isRequired}
+    >
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Text type="secondary">
+          {isRequired 
+            ? "Your administrator requires two-factor authentication for your account. Please complete the setup to continue."
+            : "Secure your account with two-factor authentication using an authenticator app"
+          }
+        </Text>
 
         {step === 'setup' && (
-          <div className="space-y-6">
+          <div>
             {setupError ? (
-              <div className="space-y-4">
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="h-4 w-4 text-red-600" />
-                    <span className="font-medium text-red-800">Setup failed</span>
-                  </div>
-                  <p className="text-sm text-red-700 break-words">{setupError}</p>
-                </div>
-                <div className="flex items-center gap-3">
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Alert
+                  type="error"
+                  showIcon
+                  icon={<ExclamationCircleOutlined />}
+                  message="Setup failed"
+                  description={setupError}
+                />
+                <Space>
                   <Button
                     onClick={() => { setHasStartedSetup(false); setSetupError(null); setStep('setup') }}
                     disabled={isLoading}
@@ -203,138 +184,129 @@ export function TwoFASetupDialog({ open, onOpenChange, onSetupComplete, isRequir
                     Retry
                   </Button>
                   {!isRequired && (
-                    <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
+                    <Button onClick={() => onOpenChange(false)} disabled={isLoading}>
                       Cancel
                     </Button>
                   )}
-                </div>
-              </div>
+                </Space>
+              </Space>
             ) : (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-                <span className="ml-2">Setting up 2FA...</span>
+              <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
+                <div style={{ marginTop: 16 }}>Setting up 2FA...</div>
               </div>
             )}
           </div>
         )}
 
         {step === 'qrcode' && (
-          <div className="space-y-6">
-            <div className="space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Smartphone className="h-4 w-4 text-blue-600" />
-                  <span className="font-medium text-blue-800">Step 1: Install an Authenticator App</span>
-                </div>
-                <p className="text-sm text-blue-700">
-                  Download and install an authenticator app like Google Authenticator, Authy, or Microsoft Authenticator on your mobile device.
-                </p>
-              </div>
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Card size="small">
+              <Space>
+                <MobileOutlined style={{ color: '#1890ff' }} />
+                <Text strong>Step 1: Install an Authenticator App</Text>
+              </Space>
+              <Paragraph style={{ marginTop: 8, marginBottom: 0 }}>
+                Download and install an authenticator app like Google Authenticator, Authy, or Microsoft Authenticator on your mobile device.
+              </Paragraph>
+            </Card>
 
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <QrCode className="h-4 w-4 text-green-600" />
-                  <span className="font-medium text-green-800">Step 2: Scan QR Code</span>
-                </div>
-                <p className="text-sm text-green-700 mb-3">
-                  Open your authenticator app and scan the QR code below, or manually enter the secret key.
-                </p>
+            <Card size="small">
+              <Space>
+                <QrcodeOutlined style={{ color: '#52c41a' }} />
+                <Text strong>Step 2: Scan QR Code</Text>
+              </Space>
+              <Paragraph style={{ marginTop: 8 }}>
+                Open your authenticator app and scan the QR code below, or manually enter the secret key.
+              </Paragraph>
 
-                {qrCodeUrl && (
-                  <div className="flex items-center gap-4">
-                    <div className="bg-white p-2 rounded border">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrCodeUrl)}`}
-                        alt="2FA QR Code"
-                        className="w-32 h-32"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Button variant="outline" size="sm" onClick={copyQrUrl}>
-                        <Copy className="h-4 w-4 mr-2" />
-                        Copy QR URL
-                      </Button>
-                      <div className="text-xs text-gray-600">
-                        <p className="font-medium">Or enter this secret key manually:</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <code className="bg-gray-100 px-2 py-1 rounded text-xs font-mono">
-                            {secret}
-                          </code>
-                          <Button variant="ghost" size="sm" onClick={copySecret}>
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                        </div>
+              {qrCodeUrl && (
+                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                  <div style={{ padding: 8, background: 'white', border: '1px solid #d9d9d9', borderRadius: 4 }}>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrCodeUrl)}`}
+                      alt="2FA QR Code"
+                      style={{ width: 128, height: 128 }}
+                    />
+                  </div>
+                  <Space direction="vertical">
+                    <Button icon={<CopyOutlined />} onClick={copyQrUrl}>
+                      Copy QR URL
+                    </Button>
+                    <div>
+                      <Text strong style={{ fontSize: 12 }}>Or enter this secret key manually:</Text>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                        <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: 2, fontSize: 11, fontFamily: 'monospace' }}>
+                          {secret}
+                        </code>
+                        <Button size="small" type="text" icon={<CopyOutlined />} onClick={copySecret} />
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                  <span className="font-medium text-yellow-800">Important</span>
+                  </Space>
                 </div>
-                <p className="text-sm text-yellow-700">
-                  Save the secret key in a secure location. You'll need it to recover your account if you lose access to your authenticator app.
-                </p>
-              </div>
+              )}
+            </Card>
+
+            <Alert
+              type="warning"
+              showIcon
+              icon={<ExclamationCircleOutlined />}
+              message="Important"
+              description="Save the secret key in a secure location. You'll need it to recover your account if you lose access to your authenticator app."
+            />
+
+            <div style={{ textAlign: 'right' }}>
+              <Button type="primary" onClick={proceedToVerify}>
+                I've Added the Account
+              </Button>
             </div>
-          </div>
+          </Space>
         )}
 
         {step === 'verify' && (
-          <div className="space-y-6">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <span className="font-medium text-green-800">Step 3: Verify Setup</span>
-              </div>
-              <p className="text-sm text-green-700 mb-4">
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Card size="small">
+              <Space>
+                <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                <Text strong>Step 3: Verify Setup</Text>
+              </Space>
+              <Paragraph style={{ marginTop: 8 }}>
                 Enter the 6-digit code from your authenticator app to complete the setup.
-              </p>
+              </Paragraph>
 
-              <div className="space-y-2">
-                <Label htmlFor="verificationCode">Verification Code</Label>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Text strong>Verification Code</Text>
                 <Input
-                  id="verificationCode"
-                  type="text"
                   value={verificationCode}
                   onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="123456"
-                  className="text-center text-lg font-mono tracking-widest"
+                  style={{ textAlign: 'center', fontSize: 18, fontFamily: 'monospace', letterSpacing: '0.4em' }}
                   maxLength={6}
+                  size="large"
                 />
-              </div>
-            </div>
-          </div>
-        )}
+              </Space>
+            </Card>
 
-        <DialogFooter>
-          {!isRequired && (
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-          )}
-          {step === 'qrcode' && (
-            <Button onClick={proceedToVerify}>
-              I've Added the Account
-            </Button>
-          )}
-          {step === 'verify' && (
-            <Button onClick={verifyAndEnable} disabled={isVerifying || verificationCode.length !== 6}>
-              {isVerifying ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Verifying...
-                </>
-              ) : (
-                'Verify'
-              )}
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <div style={{ textAlign: 'right' }}>
+              <Space>
+                {!isRequired && (
+                  <Button onClick={() => onOpenChange(false)}>
+                    Cancel
+                  </Button>
+                )}
+                <Button 
+                  type="primary" 
+                  onClick={verifyAndEnable} 
+                  disabled={isVerifying || verificationCode.length !== 6}
+                  loading={isVerifying}
+                >
+                  {isVerifying ? 'Verifying...' : 'Verify'}
+                </Button>
+              </Space>
+            </div>
+          </Space>
+        )}
+      </Space>
+    </Modal>
   )
 }
