@@ -297,7 +297,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
     - Roadmap → `roadmap.tsv`
     - Recommendation → `recommendation.xlsx`
   - Versioned filenames are created as `roadmap_vN.tsv` and `recommendation_vN.xlsx`.
-  - The original uploaded filename is appended to the description as `Original filename: <name>`.
+  
 
 - Web UI upload endpoint:
   - `POST /api/v1/web/upload`
