@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 )
@@ -140,11 +141,52 @@ func GenerateRandomBytes(length int) ([]byte, error) {
 	return bytes, nil
 }
 
-// GenerateRandomString generates a random hex string of specified length
+// GenerateRandomString generates a secure random string of specified length
+// Uses a mix of lowercase, uppercase, digits, and special characters for strong passwords
 func GenerateRandomString(length int) (string, error) {
-	bytes, err := GenerateRandomBytes(length / 2)
-	if err != nil {
-		return "", err
+	if length < 8 {
+		length = 8 // Minimum secure length
 	}
-	return hex.EncodeToString(bytes), nil
+
+	// Character sets for strong passwords
+	lowercase := "abcdefghijklmnopqrstuvwxyz"
+	uppercase := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	digits := "0123456789"
+	special := "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+	// All characters combined
+	allChars := lowercase + uppercase + digits + special
+
+	// Ensure at least one character from each set
+	password := make([]byte, length)
+
+	// First, add one character from each required set
+	sets := []string{lowercase, uppercase, digits, special}
+	for i, set := range sets {
+		charIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(set))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random character: %v", err)
+		}
+		password[i] = set[charIndex.Int64()]
+	}
+
+	// Fill the rest with random characters from all sets
+	for i := len(sets); i < length; i++ {
+		charIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(allChars))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random character: %v", err)
+		}
+		password[i] = allChars[charIndex.Int64()]
+	}
+
+	// Shuffle the password to randomize positions
+	for i := len(password) - 1; i > 0; i-- {
+		j, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return "", fmt.Errorf("failed to shuffle password: %v", err)
+		}
+		password[i], password[j.Int64()] = password[j.Int64()], password[i]
+	}
+
+	return string(password), nil
 }
