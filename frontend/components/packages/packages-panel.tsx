@@ -7,9 +7,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { apiClient } from "@/lib/api"
 import { formatDate } from "@/lib/utils"
-import { Search, Loader2, Edit, Copy, MoreVertical } from "lucide-react"
+import { Search, Loader2, Edit, Copy, MoreVertical, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react"
 
 type PackageItem = {
   id: string
@@ -83,35 +86,50 @@ export function PackagesPanel() {
           <CardTitle>Uploaded Packages</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-3 items-end">
-            <div className="space-y-1">
-              <Label>Tenant ID</Label>
-              <Input placeholder="tenant id" value={tenant} onChange={e=>setTenant(e.target.value)} className="w-48" />
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="space-y-2">
+              <Label htmlFor="tenant-filter" className="text-sm font-medium">Tenant ID</Label>
+              <Input 
+                id="tenant-filter"
+                placeholder="Enter tenant ID" 
+                value={tenant} 
+                onChange={e=>setTenant(e.target.value)} 
+                className="w-48" 
+              />
             </div>
-            <div className="space-y-1">
-              <Label>Type</Label>
+            <div className="space-y-2">
+              <Label htmlFor="type-filter" className="text-sm font-medium">Type</Label>
               <Select value={typeFilter} onValueChange={(v)=>setTypeFilter(v)}>
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-40" id="type-filter">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="assets">assets</SelectItem>
-                  <SelectItem value="others">others</SelectItem>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="assets">Assets</SelectItem>
+                  <SelectItem value="others">Others</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
-              <Label>Search</Label>
+            <div className="space-y-2">
+              <Label htmlFor="search-filter" className="text-sm font-medium">Search</Label>
               <div className="flex gap-2">
-                <Input placeholder="filename / path / remark" value={q} onChange={e=>setQ(e.target.value)} className="w-64" />
-                <Button variant="outline" onClick={handleSearch}><Search className="h-4 w-4 mr-2"/>Search</Button>
+                <Input 
+                  id="search-filter"
+                  placeholder="Search filename, path, or remark" 
+                  value={q} 
+                  onChange={e=>setQ(e.target.value)} 
+                  className="w-64" 
+                />
+                <Button variant="outline" onClick={handleSearch} size="sm">
+                  <Search className="h-4 w-4 mr-2"/>
+                  Search
+                </Button>
               </div>
             </div>
-            <div className="space-y-1">
-              <Label>Page Size</Label>
+            <div className="space-y-2">
+              <Label htmlFor="page-size" className="text-sm font-medium">Rows per page</Label>
               <Select value={String(limit)} onValueChange={(v)=>{ setLimit(Number(v)); setPage(1); }}>
-                <SelectTrigger className="w-28">
+                <SelectTrigger className="w-28" id="page-size" size="sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -121,47 +139,105 @@ export function PackagesPanel() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
-              <Label>&nbsp;</Label>
-              <Button variant="outline" onClick={fetchList}>Refresh</Button>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium opacity-0">Actions</Label>
+              <Button variant="outline" onClick={fetchList} size="sm">
+                <RefreshCw className="h-4 w-4 mr-2"/>
+                Refresh
+              </Button>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm table-fixed">
-              <thead>
-                <tr className="text-left border-b text-gray-600 bg-gray-50">
-                  <th className="py-3 px-2 w-24 font-medium text-xs uppercase tracking-wide">Tenant</th>
-                  <th className="py-3 px-2 w-20 font-medium text-xs uppercase tracking-wide">IP</th>
-                  <th className="py-3 px-2 w-32 font-medium text-xs uppercase tracking-wide">Timestamp</th>
-                  <th className="py-3 px-2 w-16 font-medium text-xs uppercase tracking-wide">Type</th>
-                  <th className="py-3 px-2 w-40 font-medium text-xs uppercase tracking-wide">Filename</th>
-                  <th className="py-3 px-2 w-20 font-medium text-xs uppercase tracking-wide">Size</th>
-                  <th className="py-3 px-2 flex-1 font-medium text-xs uppercase tracking-wide">Path</th>
-                  <th className="py-3 px-2 w-48 font-medium text-xs uppercase tracking-wide">Remark</th>
-                  <th className="py-3 px-2 w-12 font-medium text-xs uppercase tracking-wide"></th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="overflow-hidden rounded-lg border">
+            <Table>
+              <TableHeader className="bg-muted">
+                <TableRow>
+                  <TableHead className="w-24">Tenant</TableHead>
+                  <TableHead className="w-20">IP</TableHead>
+                  <TableHead className="w-32">Timestamp</TableHead>
+                  <TableHead className="w-16">Type</TableHead>
+                  <TableHead className="w-40">Filename</TableHead>
+                  <TableHead className="w-20">Size</TableHead>
+                  <TableHead className="flex-1">Path</TableHead>
+                  <TableHead className="w-48">Remark</TableHead>
+                  <TableHead className="w-12"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {loadingList ? (
-                  <tr><td colSpan={9} className="py-6 text-center text-gray-500">Loading...</td></tr>
+                  <TableRow>
+                    <TableCell colSpan={9} className="h-24 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading...
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ) : (items?.length ?? 0) === 0 ? (
-                  <tr><td colSpan={9} className="py-6 text-center text-gray-500">No data</td></tr>
+                  <TableRow>
+                    <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                      No packages found.
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   (items || []).map(item => (
-                    <Row key={item.id} item={item} onEdit={() => openRemark(item)} />
+                    <PackageRow key={item.id} item={item} onEdit={() => openRemark(item)} />
                   ))
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
 
-          <div className="flex items-center justify-between pt-2">
-            <div className="text-xs text-gray-500">Total: {count}</div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>Prev</Button>
-              <span className="text-sm">Page {page} / {totalPages}</span>
-              <Button variant="outline" disabled={page>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>Next</Button>
+          <div className="flex items-center justify-between px-4">
+            <div className="text-muted-foreground hidden flex-1 text-sm lg:flex">
+              Showing {Math.min((page - 1) * limit + 1, count)} to {Math.min(page * limit, count)} of {count} results
+            </div>
+            <div className="flex w-full items-center gap-8 lg:w-fit">
+              <div className="flex w-fit items-center justify-center text-sm font-medium">
+                Page {page} of {totalPages}
+              </div>
+              <div className="ml-auto flex items-center gap-2 lg:ml-0">
+                <Button
+                  variant="outline"
+                  className="hidden h-8 w-8 p-0 lg:flex"
+                  onClick={() => setPage(1)}
+                  disabled={page <= 1}
+                  size="icon"
+                >
+                  <span className="sr-only">Go to first page</span>
+                  <ChevronsLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  size="icon"
+                >
+                  <span className="sr-only">Go to previous page</span>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  size="icon"
+                >
+                  <span className="sr-only">Go to next page</span>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  className="hidden h-8 w-8 p-0 lg:flex"
+                  onClick={() => setPage(totalPages)}
+                  disabled={page >= totalPages}
+                  size="icon"
+                >
+                  <span className="sr-only">Go to last page</span>
+                  <ChevronsRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -186,7 +262,7 @@ export function PackagesPanel() {
   )
 }
 
-function Row({ item, onEdit }: { item: PackageItem, onEdit: () => void }) {
+function PackageRow({ item, onEdit }: { item: PackageItem, onEdit: () => void }) {
   const sizeFmt = useMemo(() => `${(item.size/1024/1024).toFixed(2)} MB`, [item.size])
   const dirPath = useMemo(() => {
     const p = (item.path || '').replace(/\\/g, '/');
@@ -195,40 +271,68 @@ function Row({ item, onEdit }: { item: PackageItem, onEdit: () => void }) {
   }, [item.path])
 
   return (
-    <tr className="border-b hover:bg-gray-50">
-      <td className="py-3 px-2 w-24 truncate" title={item.tenantId}>
-        <span className="text-xs">{item.tenantId}</span>
-      </td>
-      <td className="py-3 px-2 w-20 truncate" title={item.ip}>
-        <span className="text-xs font-mono">{item.ip}</span>
-      </td>
-      <td className="py-3 px-2 w-32 truncate" title={formatDate(item.timestamp)}>
-        <span className="text-xs">{formatDate(item.timestamp)}</span>
-      </td>
-      <td className="py-3 px-2 w-16 truncate">
-        <span className={`px-2 py-1 rounded text-xs ${
-          item.type === 'assets' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
-        }`}>
+    <TableRow>
+      <TableCell className="w-24 font-medium">
+        <div className="truncate" title={item.tenantId}>
+          {item.tenantId}
+        </div>
+      </TableCell>
+      <TableCell className="w-20">
+        <div className="truncate font-mono text-sm" title={item.ip}>
+          {item.ip}
+        </div>
+      </TableCell>
+      <TableCell className="w-32">
+        <div className="truncate text-sm" title={formatDate(item.timestamp)}>
+          {formatDate(item.timestamp)}
+        </div>
+      </TableCell>
+      <TableCell className="w-16">
+        <Badge 
+          variant={item.type === 'assets' ? 'default' : 'secondary'}
+          className="text-xs"
+        >
           {item.type}
-        </span>
-      </td>
-      <td className="py-3 px-2 w-40 truncate" title={item.fileName}>
-        <span className="text-xs">{item.fileName}</span>
-      </td>
-      <td className="py-3 px-2 w-20 text-xs">
+        </Badge>
+      </TableCell>
+      <TableCell className="w-40">
+        <div className="truncate text-sm" title={item.fileName}>
+          {item.fileName}
+        </div>
+      </TableCell>
+      <TableCell className="w-20 text-sm">
         {sizeFmt}
-      </td>
-      <td className="py-3 px-2 flex-1 truncate font-mono text-xs" title={item.path}>
-        {dirPath}
-      </td>
-      <td className="py-3 px-2 w-48 truncate" title={item.remark || ''}>
-        <span className="text-xs">{item.remark || <span className="text-gray-400">No remark</span>}</span>
-      </td>
-      <td className="py-3 px-2 w-12">
-        <Button size="sm" variant="ghost" onClick={onEdit} className="p-1 h-8 w-8" title="Edit remark">
-          <Edit className="h-4 w-4" />
-        </Button>
-      </td>
-    </tr>
+      </TableCell>
+      <TableCell className="flex-1">
+        <div className="truncate font-mono text-sm" title={item.path}>
+          {dirPath}
+        </div>
+      </TableCell>
+      <TableCell className="w-48">
+        <div className="truncate text-sm" title={item.remark || ''}>
+          {item.remark || <span className="text-muted-foreground">No remark</span>}
+        </div>
+      </TableCell>
+      <TableCell className="w-12">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              className="data-[state=open]:bg-muted flex h-8 w-8 p-0"
+              size="icon"
+            >
+              <MoreVertical className="h-4 w-4" />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-32">
+            <DropdownMenuItem onClick={onEdit}>
+              <Edit className="mr-2 h-4 w-4" />
+              Edit Remark
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
   )
 }
