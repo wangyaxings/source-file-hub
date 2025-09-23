@@ -51,7 +51,29 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
       const res = await apiClient.getFilesPaginated({ type: type === 'all' ? undefined : type, page, limit })
       // 只显示最新版本的文件
       const latestFiles = res.files.filter(file => file.isLatest)
-      setItems(latestFiles)
+
+      // 定义文件类型显示顺序，roadmap 始终在 recommendation 之前
+      const fileTypeOrder = ['roadmap', 'recommendation']
+
+      // 对文件按类型排序，确保 roadmap 始终在 recommendation 之前
+      const sortedFiles = latestFiles.sort((a, b) => {
+        const aIndex = fileTypeOrder.indexOf(a.fileType)
+        const bIndex = fileTypeOrder.indexOf(b.fileType)
+
+        // 如果两个文件类型都在排序数组中，按顺序排序
+        if (aIndex !== -1 && bIndex !== -1) {
+          return aIndex - bIndex
+        }
+
+        // 如果一个文件类型在排序数组中，另一个不在，在排序数组中的排在前面
+        if (aIndex !== -1) return -1
+        if (bIndex !== -1) return 1
+
+        // 如果都不在排序数组中，保持原顺序
+        return 0
+      })
+
+      setItems(sortedFiles)
       setCount(res.count)
     } catch (e: any) {
       const { title, description } = mapApiErrorToMessage(e)
@@ -188,7 +210,7 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
               Confirm Delete
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "<strong>{deleteDialog.file?.originalName}</strong>"?
+              Are you sure you want to delete "<strong>{deleteDialog.file?.fileName}</strong>"?
               The file will be moved to the recycle bin and can be restored later.
             </DialogDescription>
           </DialogHeader>
@@ -203,7 +225,7 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
       <Dialog open={versionsDialog.isOpen} onOpenChange={(open)=> setVersionsDialog(prev => ({ ...prev, isOpen: open }))}>
         <DialogContent className="max-w-6xl max-h-[80vh]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><History className="h-5 w-5"/> Version History - {versionsDialog.file?.originalName || versionsDialog.file?.fileName}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><History className="h-5 w-5"/> Version History - {versionsDialog.file?.fileName}</DialogTitle>
             <DialogDescription>View and download all versions of this file</DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto">
@@ -335,7 +357,7 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
                 <div className="flex items-center gap-3">
                   <div className="flex-shrink-0"><FileText className="h-5 w-5 text-gray-400" /></div>
                   <div>
-                    <div className="font-medium text-gray-900">{file.originalName || file.fileName}</div>
+                    <div className="font-medium text-gray-900">{file.fileName}</div>
                     {file.description && (<div className="text-sm text-gray-500 mt-1">{file.description}</div>)}
                   </div>
                 </div>

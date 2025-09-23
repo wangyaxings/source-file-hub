@@ -206,6 +206,9 @@ export function FileList({ refreshTrigger }: FileListProps) {
     return acc
   }, {} as Record<string, FileInfo[]>)
 
+  // 定义文件类型显示顺序，roadmap 始终在 recommendation 之前
+  const fileTypeOrder = ['roadmap', 'recommendation']
+
   return (
     <div className="space-y-6">
       {/* 澶撮儴鎺у埗 */}
@@ -245,9 +248,12 @@ export function FileList({ refreshTrigger }: FileListProps) {
 
       {/* 鏂囦欢鍒楄〃 */}
       {selectedType === "all" ? (
-        // 鍒嗙粍鏄剧ず
+        // 鍒嗙粍鏄剧ず - 按固定顺序显示
         <div className="space-y-6">
-          {Object.entries(groupedFiles).map(([type, typeFiles]) => {
+          {fileTypeOrder.map((type) => {
+            const typeFiles = groupedFiles[type]
+            if (!typeFiles || typeFiles.length === 0) return null
+
             const Icon = (fileTypeIcons as any)[type] || FileText
             const label = (fileTypeLabels as any)[type] || type
             return (
@@ -298,7 +304,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
-              Version History - {versionsDialog.file?.originalName || versionsDialog.file?.fileName}
+              Version History - {versionsDialog.file?.fileName}
             </DialogTitle>
             <DialogDescription>
               View and download all versions of this file, {versionsDialog.versions.length} versions total
@@ -433,7 +439,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
               Confirm Delete
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "<strong>{deleteDialog.file?.originalName}</strong>"?
+              Are you sure you want to delete "<strong>{deleteDialog.file?.fileName}</strong>"?
               The file will be moved to the recycle bin and can be restored later.
             </DialogDescription>
           </DialogHeader>
@@ -500,8 +506,8 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
                     <FileText className="h-5 w-5 text-gray-400" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium text-gray-900 truncate" title={file.originalName || file.fileName}>
-                      {file.originalName || file.fileName}
+                    <div className="font-medium text-gray-900 truncate" title={file.fileName}>
+                      {file.fileName}
                     </div>
                     {file.description && (
                       <div className="text-sm text-gray-500 mt-1 truncate" title={file.description}>{file.description}</div>

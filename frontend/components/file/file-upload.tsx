@@ -197,8 +197,9 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
             <Input
               id="description"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Enter file description"
+              onChange={(e) => setDescription(e.target.value.slice(0, 200))}
+              placeholder="Enter file description (max 200 characters)"
+              maxLength={200}
             />
           </div>
 
@@ -267,7 +268,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
               </div>
               <div className="flex justify-between">
                 <strong>Description:</strong>
-                <span className="text-right flex-1 ml-2">{description || "None"}</span>
+                <span className="text-right max-w-48 truncate" title={description || "None"}>{description || "None"}</span>
               </div>
             </div>
           </div>

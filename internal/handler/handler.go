@@ -753,14 +753,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 灏嗕笂浼犵殑鍘熷鏂囦欢鍚嶈褰曞湪鎻忚堪涓紝渚夸簬杩芥函
-	if header.Filename != "" {
-		if strings.TrimSpace(description) == "" {
-			description = "Original filename: " + header.Filename
-		} else if !strings.Contains(description, "Original filename:") {
-			description = description + " | Original filename: " + header.Filename
-		}
-	}
+	// Description 保持用户输入的内容，不自动添加原始文件名
 
 	// 鑾峰彇鐢ㄦ埛淇℃伅锛堜粠璁よ瘉涓棿浠惰缃殑涓婁笅鏂囦腑鑾峰彇锛?
 	var uploader string
