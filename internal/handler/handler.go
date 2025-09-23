@@ -1441,6 +1441,16 @@ func writeWebVersionArtifacts(fileType, versionID, storedName, targetPath, check
 	if err := writeJSONFileGeneric(manifestPath, manifest); err != nil {
 		return err
 	}
+
+	// Also save tags to database
+	db := database.GetDatabase()
+	if db != nil {
+		if err := db.UpsertVersionTags(fileType, versionID, tags); err != nil {
+			// Log error but don't fail the operation
+			log.Printf("Warning: Failed to save version tags to database: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -1523,9 +1533,20 @@ func webGetVersionsListHandler(w http.ResponseWriter, r *http.Request) {
 					date = t
 				}
 			}
+
+			// Get tags from database first, fallback to manifest
+			var tags interface{} = m["version_tags"]
+			if db := database.GetDatabase(); db != nil {
+				if versionID, ok := m["version_id"].(string); ok {
+					if dbTags, err := db.GetVersionTags(ft, versionID); err == nil && len(dbTags) > 0 {
+						tags = dbTags
+					}
+				}
+			}
+
 			list = append(list, map[string]interface{}{
 				"version_id": m["version_id"],
-				"tags":       m["version_tags"],
+				"tags":       tags,
 				"status":     "active",
 				"date":       date,
 			})
@@ -1562,9 +1583,46 @@ func webUpdateVersionTagsHandler(w http.ResponseWriter, r *http.Request) {
 		body.Tags[i] = strings.TrimSpace(body.Tags[i])
 	}
 
-	// Remove empty tags (placeholder - tags are not actually used in this implementation)
-	// In a real implementation, you would save these tags to the database
-	_ = body.Tags // Prevent unused variable warning
+	// Remove empty tags
+	filteredTags := []string{}
+	for _, tag := range body.Tags {
+		if strings.TrimSpace(tag) != "" {
+			filteredTags = append(filteredTags, strings.TrimSpace(tag))
+		}
+	}
+
+	// Update tags in database
+	db := database.GetDatabase()
+	if db != nil {
+		if err := db.UpsertVersionTags(ft, vid, filteredTags); err != nil {
+			// Log error but continue with manifest update
+			if l := logger.GetLogger(); l != nil {
+				l.ErrorCtx(logger.EventError, "update_version_tags_db_failed",
+					map[string]interface{}{"error": err.Error(), "file_type": ft, "version_id": vid},
+					"INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
+			}
+		}
+	}
+
+	// Update tags in manifest.json file
+	baseDir := filepath.Join("downloads", ft+"s", vid)
+	manifestPath := filepath.Join(baseDir, "manifest.json")
+
+	// Read existing manifest
+	manifest, err := readJSONFileGeneric(manifestPath)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "Version manifest not found")
+		return
+	}
+
+	// Update tags in manifest
+	manifest["version_tags"] = filteredTags
+
+	// Write updated manifest back to file
+	if err := writeJSONFileGeneric(manifestPath, manifest); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update version tags")
+		return
+	}
 
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Version tags updated successfully"})
 }

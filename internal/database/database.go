@@ -501,6 +501,23 @@ func (d *Database) createTables() error {
     CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_logs(created_at);
     `
 
+	// Version tags table for roadmap/recommendation versions
+	createVersionTagsTable := `
+	CREATE TABLE IF NOT EXISTS version_tags (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		file_type TEXT NOT NULL,
+		version_id TEXT NOT NULL,
+		tags TEXT NOT NULL, -- JSON array of tags
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(file_type, version_id)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_version_tags_file_type ON version_tags(file_type);
+	CREATE INDEX IF NOT EXISTS idx_version_tags_version_id ON version_tags(version_id);
+	CREATE INDEX IF NOT EXISTS idx_version_tags_created ON version_tags(created_at);
+	`
+
 	// Casbin policy section
 	createCasbinTable := `
 	CREATE TABLE IF NOT EXISTS casbin_policies (
@@ -520,7 +537,7 @@ func (d *Database) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_casbin_v1 ON casbin_policies(v1);
 	`
 
-	tables := []string{createFilesTable, createLogsTable, createAuditTable, createAPIKeysTable, createAPIUsageTable, createUserRolesTable, createUsersTable, createPackagesTable, createAdminAuditTable, createCasbinTable}
+	tables := []string{createFilesTable, createLogsTable, createAuditTable, createAPIKeysTable, createAPIUsageTable, createUserRolesTable, createUsersTable, createPackagesTable, createAdminAuditTable, createVersionTagsTable, createCasbinTable}
 	for _, table := range tables {
 		if _, err := d.db.Exec(table); err != nil {
 			return fmt.Errorf("failed to create table: %v", err)
@@ -2404,4 +2421,89 @@ func (d *Database) GetAdminAuditLogs(actor, target, action, since, until string,
 		items = append(items, it)
 	}
 	return items, total, nil
+}
+
+// VersionTags represents version tags in database
+type VersionTags struct {
+	ID        int       `json:"id"`
+	FileType  string    `json:"file_type"`
+	VersionID string    `json:"version_id"`
+	Tags      []string  `json:"tags"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// UpsertVersionTags inserts or updates version tags
+func (d *Database) UpsertVersionTags(fileType, versionID string, tags []string) error {
+	// Convert tags to JSON
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tags: %v", err)
+	}
+
+	query := `
+	INSERT INTO version_tags (file_type, version_id, tags, created_at, updated_at)
+	VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	ON CONFLICT(file_type, version_id) DO UPDATE SET
+		tags = excluded.tags,
+		updated_at = CURRENT_TIMESTAMP
+	`
+
+	_, err = d.db.Exec(query, fileType, versionID, string(tagsJSON))
+	return err
+}
+
+// GetVersionTags retrieves tags for a specific version
+func (d *Database) GetVersionTags(fileType, versionID string) ([]string, error) {
+	query := "SELECT tags FROM version_tags WHERE file_type = ? AND version_id = ?"
+	var tagsJSON string
+
+	err := d.db.QueryRow(query, fileType, versionID).Scan(&tagsJSON)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return []string{}, nil // Return empty slice if no tags found
+		}
+		return nil, err
+	}
+
+	var tags []string
+	if err := json.Unmarshal([]byte(tagsJSON), &tags); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tags: %v", err)
+	}
+
+	return tags, nil
+}
+
+// GetVersionsByTag retrieves versions that have a specific tag
+func (d *Database) GetVersionsByTag(fileType, tag string) ([]string, error) {
+	query := `
+	SELECT version_id
+	FROM version_tags
+	WHERE file_type = ?
+	AND json_extract(tags, '$') LIKE ?
+	`
+
+	rows, err := d.db.Query(query, fileType, "%\""+tag+"\"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var versions []string
+	for rows.Next() {
+		var versionID string
+		if err := rows.Scan(&versionID); err != nil {
+			continue
+		}
+		versions = append(versions, versionID)
+	}
+
+	return versions, nil
+}
+
+// DeleteVersionTags deletes tags for a specific version
+func (d *Database) DeleteVersionTags(fileType, versionID string) error {
+	query := "DELETE FROM version_tags WHERE file_type = ? AND version_id = ?"
+	_, err := d.db.Exec(query, fileType, versionID)
+	return err
 }

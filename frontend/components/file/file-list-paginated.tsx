@@ -287,10 +287,10 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
                         <td className="p-3 w-20">
                           <div className="flex items-center gap-1">
                             {v.path && (
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                onClick={() => apiClient.downloadFile(v.path!)} 
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => apiClient.downloadFile(v.path!)}
                                 title="Download"
                                 className="h-7 px-2"
                               >
@@ -298,9 +298,9 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
                               </Button>
                             )}
                             {permissions?.canManageFiles && (
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 onClick={() => {
                                   const fileType = versionsDialog.file?.fileType as 'roadmap' | 'recommendation'
                                   setEditTagsDialog({
@@ -353,23 +353,23 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
             <Button variant="outline" onClick={() => setEditTagsDialog(prev => ({ ...prev, isOpen: false }))}>
               Cancel
             </Button>
-            <Button 
+            <Button
               onClick={async () => {
                 if (!editTagsDialog.fileType || !editTagsDialog.versionId) return
-                
+
                 setEditTagsDialog(prev => ({ ...prev, loading: true }))
                 try {
                   const tags = editTagsDialog.currentTags.split(',').map(t => t.trim()).filter(Boolean)
                   await apiClient.updateVersionTagsWeb(editTagsDialog.fileType, editTagsDialog.versionId, tags)
-                  
+
                   // Refresh the versions dialog to show updated tags
                   if (versionsDialog.file) {
                     await handleViewVersions(versionsDialog.file)
                   }
-                  
+
                   // Force refresh the main file list to show updated tags
                   load()
-                  
+
                   setEditTagsDialog(prev => ({ ...prev, isOpen: false, loading: false }))
                   toast({ title: 'Success', description: 'Tags updated successfully' })
                 } catch (e: any) {
