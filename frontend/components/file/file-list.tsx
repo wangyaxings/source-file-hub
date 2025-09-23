@@ -70,7 +70,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
   const [editTags, setEditTags] = useState<{ open: boolean; fileType: 'roadmap'|'recommendation'|null; versionId: string; text: string }>({ open: false, fileType: null, versionId: '', text: '' })
 
   const currentUser = apiClient.getCurrentUser()
-  // 浣跨敤鏉冮檺绯荤粺鏇夸唬纭紪鐮佺殑瑙掕壊妫€鏌?
+
   const { permissions } = usePermissions()
 
   const loadFiles = async () => {
@@ -104,9 +104,9 @@ export function FileList({ refreshTrigger }: FileListProps) {
     try {
       const list = await apiClient.getVersionsListWeb(type)
       const items = Array.isArray((list as any).versions) ? (list as any).versions : []
-      // sort desc by date
+
       items.sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''))
-      // fetch manifests for sha256/path/size/file_name
+
       const rows: VersionRow[] = await Promise.all(items.map(async (it: any) => {
         let sha256: string | undefined
         let size: number | undefined
@@ -196,7 +196,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
     )
   }
 
-  // 鎸夌被鍨嬪垎缁勬枃浠讹紝鍙樉绀烘渶鏂扮増鏈?
+
   const latestFiles = files.filter(file => file.isLatest)
   const groupedFiles = latestFiles.reduce((acc, file) => {
     if (!acc[file.fileType]) {
@@ -206,12 +206,12 @@ export function FileList({ refreshTrigger }: FileListProps) {
     return acc
   }, {} as Record<string, FileInfo[]>)
 
-  // 定义文件类型显示顺序，roadmap 始终在 recommendation 之前
+
   const fileTypeOrder = ['roadmap', 'recommendation']
 
   return (
     <div className="space-y-6">
-      {/* 澶撮儴鎺у埗 */}
+      {/* Header controls */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -246,9 +246,9 @@ export function FileList({ refreshTrigger }: FileListProps) {
         </CardHeader>
       </Card>
 
-      {/* 鏂囦欢鍒楄〃 */}
+      {/* File list */}
       {selectedType === "all" ? (
-        // 鍒嗙粍鏄剧ず - 按固定顺序显示
+
         <div className="space-y-6">
           {fileTypeOrder.map((type) => {
             const typeFiles = groupedFiles[type]
@@ -281,7 +281,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
           })}
         </div>
       ) : (
-        // 鍗曠被鍨嬫樉绀?
+
         <Card>
           <CardContent className="pt-6">
             <FileTable
@@ -295,7 +295,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
         </Card>
       )}
 
-      {/* 鐗堟湰鍘嗗彶瀵硅瘽妗?*/}
+      {/* Version history dialog*/}
       <Dialog
         open={versionsDialog.isOpen}
         onOpenChange={(open) => setVersionsDialog(prev => ({ ...prev, isOpen: open }))}
@@ -417,12 +417,12 @@ export function FileList({ refreshTrigger }: FileListProps) {
               const tags = editTags.text.split(',').map(t=>t.trim()).filter(Boolean)
               try{
                 await apiClient.updateVersionTagsWeb(editTags.fileType, editTags.versionId, tags)
-                // refresh current list and main file list
+
                 if (versionsDialog.file) {
                   await handleViewVersions(versionsDialog.file)
                 }
 
-                // Force refresh the main file list to show updated tags
+
                 loadFiles()
                 setEditTags(prev => ({ ...prev, open: false }))
               }catch(e){

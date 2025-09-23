@@ -82,7 +82,6 @@ class ApiClient {
       console.log(`Request config:`, config);
       const response = await fetch(url, config);
 
-      // 妫€鏌ュ搷搴旂姸鎬?
       if (!response.ok) {
         if (response.status === 401) {
           const wasAuthenticated = this.isAuthenticated();
@@ -787,9 +786,7 @@ class ApiClient {
   }
 
   // Web versioning (roadmap/recommendation) no channels
-  async getVersionsListWeb(
-    type: "roadmap" | "recommendation"
-  ): Promise<{
+  async getVersionsListWeb(type: "roadmap" | "recommendation"): Promise<{
     versions: {
       version_id: string;
       tags?: string[];
@@ -830,10 +827,8 @@ class ApiClient {
     );
   }
 
-  // 鍋ュ悍妫€鏌?- 浣跨敤姝ｇ‘鐨勭鐐?
   async healthCheck(): Promise<any> {
     try {
-      // 浣跨敤鍚庣鐨勫仴搴锋鏌ョ鐐?
       const response = await fetch("/api/v1/health");
 
       if (!response.ok) {
