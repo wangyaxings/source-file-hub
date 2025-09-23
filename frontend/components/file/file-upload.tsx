@@ -209,7 +209,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
               id="tags"
               value={versionTags}
               onChange={(e) => setVersionTags(e.target.value)}
-              placeholder="comma separated, e.g. v1.2.3, Q3-Final"
+              placeholder="comma separated tags"
             />
           </div>
 
@@ -255,11 +255,11 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <strong>File Name:</strong>
-                <span className="text-right flex-1 ml-2">{selectedFile?.name}</span>
+                <span className="text-right max-w-64 truncate" title={selectedFile?.name}>{selectedFile?.name}</span>
               </div>
               <div className="flex justify-between">
                 <strong>File Size:</strong>
-                <span className="text-right flex-1 ml-2">{selectedFile && formatFileSize(selectedFile.size)}</span>
+                <span className="text-right max-w-20 truncate" title={selectedFile ? formatFileSize(selectedFile.size) : undefined}>{selectedFile ? formatFileSize(selectedFile.size) : ''}</span>
               </div>
               <div className="flex justify-between">
                 <strong>File Type:</strong>

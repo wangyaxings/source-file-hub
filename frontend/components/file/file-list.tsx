@@ -315,7 +315,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
                 <table className="w-full text-sm">
                   <thead className="bg-muted">
                     <tr>
-                      <th className="text-left p-3 w-40">Version</th>
+                      <th className="text-left p-3 w-48">Version</th>
                       <th className="text-left p-3 w-44">Date</th>
                       <th className="text-left p-3 w-32">SHA256</th>
                       <th className="text-left p-3 w-48">Tags</th>
@@ -326,7 +326,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
                   <tbody>
                     {versionsDialog.versions.map((v, index) => (
                       <tr key={v.versionId} className="border-t hover:bg-muted/50">
-                        <td className="p-3 w-40">
+                        <td className="p-3 w-48">
                           <div className="flex items-center gap-2">
                             {index === 0 && (
                               <Badge variant="default" className="text-xs bg-green-600 hover:bg-green-700">
@@ -334,7 +334,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
                               </Badge>
                             )}
                             <div className="font-mono text-sm truncate" title={v.versionId}>
-                              {v.versionId.slice(0, 12)}
+                              {v.versionId}
                             </div>
                           </div>
                         </td>
@@ -402,7 +402,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
             <DialogDescription>Comma-separated tags for {editTags.versionId}</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <input className="w-full border rounded px-3 py-2 text-sm" value={editTags.text} onChange={(e)=> setEditTags(prev => ({ ...prev, text: e.target.value }))} placeholder="v1.2.3, Q3-Final" />
+            <input className="w-full border rounded px-3 py-2 text-sm" value={editTags.text} onChange={(e)=> setEditTags(prev => ({ ...prev, text: e.target.value }))} placeholder="comma separated tags" />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={()=> setEditTags(prev => ({ ...prev, open: false }))}>Cancel</Button>
