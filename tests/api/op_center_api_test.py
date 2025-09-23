@@ -44,6 +44,7 @@ def parse_args():
 
     # 动作
     p.add_argument("--do-health", action="store_true", help="仅健康检查")
+    p.add_argument("--do-status-check", action="store_true", help="健康检查和API key验证合并接口")
     p.add_argument("--do-info", action="store_true", help="查询最新信息（roadmap/recommendation）")
     p.add_argument("--do-download", action="store_true", help="下载最新文件（roadmap/recommendation）")
     p.add_argument("--do-upload-assets", nargs="?", const="AUTO", metavar="ZIP", help="上传 assets ZIP（省略路径或传 AUTO 则自动生成）")
@@ -67,6 +68,18 @@ def health(base: str, verify: bool):
     r = requests.get(url, timeout=20, verify=verify)
     r.raise_for_status()
     logging.info("health response: %s", r.text)
+    return r.json()
+
+
+def status_check(base: str, api_key: str, verify: bool):
+    """测试健康检查和API key验证合并接口"""
+    url = f"{base}/api/v1/status-check"
+    if api_key:
+        url += f"?api_key={api_key}"
+    logging.info("GET %s", url)
+    r = requests.get(url, timeout=20, verify=verify)
+    r.raise_for_status()
+    logging.info("status-check response: %s", r.text)
     return r.json()
 
 
@@ -177,6 +190,7 @@ def main():
     verify = args.verify  # 默认 False，关闭 TLS 校验
     if args.do_all:
         args.do_health = True
+        args.do_status_check = True
         args.do_info = True
         args.do_download = True
         # do-all 同时包含上传用例；AUTO 表示自动生成 ZIP 后上传
@@ -199,6 +213,10 @@ def main():
     cases: List[Case] = []
     if args.do_health:
         cases.append(Case("Health: /api/v1/healthz", lambda: health(args.base, verify)))
+    if args.do_status_check:
+        cases.append(Case("Status Check: /api/v1/status-check (no API key)", lambda: status_check(args.base, None, verify)))
+        if args.api_key:
+            cases.append(Case("Status Check: /api/v1/status-check (with API key)", lambda: status_check(args.base, args.api_key, verify)))
     if args.do_info:
         cases.append(Case("Info: roadmap", lambda: latest_info(args.base, args.api_key, "roadmap", verify)))
         cases.append(Case("Info: recommendation", lambda: latest_info(args.base, args.api_key, "recommendation", verify)))

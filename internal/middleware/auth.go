@@ -77,6 +77,7 @@ func isPublicEndpoint(path string) bool {
 	// 精确匹配的公开路径
 	publicPaths := []string{
 		"/api/v1/health", "/api/v1/healthz",
+		"/api/v1/status-check", // 健康检查和API key验证合并接口
 		"/api/v1/web/health", "/api/v1/web/healthz",
 		"/api/v1/web/auth/users", // 默认用户列表
 		"/api/v1/web/auth/me",    // 用户信息端点 - 需要特殊处理

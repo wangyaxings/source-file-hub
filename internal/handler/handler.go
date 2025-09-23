@@ -394,6 +394,120 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, response)
 }
 
+// healthAPIKeyCheckHandler 检查服务状态和API key有效性的合并接口
+func healthAPIKeyCheckHandler(w http.ResponseWriter, r *http.Request) {
+	// 首先检查health状态
+	// 这里可以添加更复杂的健康检查逻辑，比如数据库连接、磁盘空间等
+	// 目前使用简单的响应检查
+
+	// 获取API key参数
+	apiKey := r.URL.Query().Get("api_key")
+	if apiKey == "" {
+		// 如果没有提供API key，只返回health状态
+		response := Response{
+			Success: true,
+			Message: "Service is healthy, but no API key provided",
+			Data: map[string]interface{}{
+				"healthy":   true,
+				"api_key_valid": false,
+				"timestamp": fmt.Sprintf("%d", time.Now().Unix()),
+			},
+		}
+		writeJSONResponse(w, http.StatusOK, response)
+		return
+	}
+
+	// 验证API key格式
+	if !apikey.ValidateAPIKeyFormat(apiKey) {
+		response := Response{
+			Success: true,
+			Message: "Service is healthy, but API key format is invalid",
+			Data: map[string]interface{}{
+				"healthy":   true,
+				"api_key_valid": false,
+				"timestamp": fmt.Sprintf("%d", time.Now().Unix()),
+			},
+		}
+		writeJSONResponse(w, http.StatusOK, response)
+		return
+	}
+
+	// 获取数据库实例
+	db := database.GetDatabase()
+	if db == nil {
+		response := Response{
+			Success: false,
+			Message: "Service is unhealthy - database not available",
+			Data: map[string]interface{}{
+				"healthy":   false,
+				"api_key_valid": false,
+				"timestamp": fmt.Sprintf("%d", time.Now().Unix()),
+			},
+		}
+		writeJSONResponse(w, http.StatusServiceUnavailable, response)
+		return
+	}
+
+	// 验证API key
+	keyHash := apikey.HashAPIKey(apiKey)
+	apiKeyRecord, err := db.GetAPIKeyByHash(keyHash)
+	if err != nil {
+		response := Response{
+			Success: true,
+			Message: "Service is healthy, but API key is invalid",
+			Data: map[string]interface{}{
+				"healthy":   true,
+				"api_key_valid": false,
+				"timestamp": fmt.Sprintf("%d", time.Now().Unix()),
+			},
+		}
+		writeJSONResponse(w, http.StatusOK, response)
+		return
+	}
+
+	// 检查API key状态
+	if apiKeyRecord.Status != "active" {
+		response := Response{
+			Success: true,
+			Message: "Service is healthy, but API key is disabled",
+			Data: map[string]interface{}{
+				"healthy":   true,
+				"api_key_valid": false,
+				"timestamp": fmt.Sprintf("%d", time.Now().Unix()),
+			},
+		}
+		writeJSONResponse(w, http.StatusOK, response)
+		return
+	}
+
+	// 检查API key是否过期
+	if apiKeyRecord.ExpiresAt != nil && apiKeyRecord.ExpiresAt.Before(time.Now()) {
+		response := Response{
+			Success: true,
+			Message: "Service is healthy, but API key has expired",
+			Data: map[string]interface{}{
+				"healthy":   true,
+				"api_key_valid": false,
+				"timestamp": fmt.Sprintf("%d", time.Now().Unix()),
+			},
+		}
+		writeJSONResponse(w, http.StatusOK, response)
+		return
+	}
+
+	// 所有检查都通过
+	response := Response{
+		Success: true,
+		Message: "Service is healthy and API key is valid",
+		Data: map[string]interface{}{
+			"healthy":   true,
+			"api_key_valid": true,
+			"timestamp": fmt.Sprintf("%d", time.Now().Unix()),
+		},
+	}
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
 // writeJSONResponse 鍐欏叆JSON鍝嶅簲
 func writeJSONResponse(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -2467,6 +2581,9 @@ func RegisterAPIRoutes(router *mux.Router) {
 	// Health check for API (no authentication required) - 对外暴露
 	apiRouter.HandleFunc("/health", healthCheckHandler).Methods("GET")
 	apiRouter.HandleFunc("/healthz", healthCheckHandler).Methods("GET")
+
+	// Health and API key validation combined endpoint (no authentication required)
+	apiRouter.HandleFunc("/status-check", healthAPIKeyCheckHandler).Methods("GET")
 
 	// Public API routes with API key authentication
 	publicAPI := apiRouter.PathPrefix("/public").Subrouter()
