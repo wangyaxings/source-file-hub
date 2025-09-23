@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
@@ -333,7 +333,7 @@ export default function HomePage() {
 
   const { permissions, loading: permissionsLoading } = usePermissions(permissionsRefreshTrigger)
 
-  const baseTabs = 2 // manage + recycle
+  const baseTabs = 1 // manage only (recycle hidden)
   const totalTabs = baseTabs +
     (permissions?.canUpload ? 1 : 0) +
     (permissions?.canAccessPackages ? 1 : 0) +
@@ -573,7 +573,7 @@ export default function HomePage() {
                 Files
               </TabsTrigger>
             )}
-            {permissions?.canAccessRecycle && (
+            {permissions?.canAccessRecycle && false && (
               <TabsTrigger value="recycle" className="flex items-center gap-2">
                 <Trash2 className="h-4 w-4" />
                 Recycle
@@ -611,7 +611,7 @@ export default function HomePage() {
             </TabsContent>
           )}
 
-          {permissions?.canAccessRecycle && (
+          {permissions?.canAccessRecycle && false && (
             <TabsContent value="recycle" className="space-y-6">
               <RecycleBin />
             </TabsContent>

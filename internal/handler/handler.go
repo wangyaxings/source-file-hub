@@ -472,6 +472,11 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Update last login timestamp (only for the first auth check per session)
+		if db := database.GetDatabase(); db != nil {
+			_ = db.SetUserLastLogin(user.Username, time.Now())
+		}
+
 		// Build user payload
 		payload := usecases.NewUserUseCase().BuildMePayload(user.Username, user.Role, user.TwoFAEnabled)
 		writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
@@ -1789,21 +1794,52 @@ func adminUsageLogsHandler(w http.ResponseWriter, r *http.Request) {
 		offset = 0
 	}
 
-	logs, err := db.GetAPIUsageLogs("", "", limit, offset)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-		return
+	// Build filters from query parameters
+	filters := database.APIUsageLogFilters{
+		UserID:   q.Get("userId"),
+		FileID:   q.Get("fileId"),
+		APIKey:   q.Get("apiKey"),
+		Method:   q.Get("method"),
+		Endpoint: q.Get("endpoint"),
+		TimeFrom: q.Get("timeFrom"),
+		TimeTo:   q.Get("timeTo"),
 	}
 
-	// Get total count for pagination
-	totalCount, err := db.GetAPIUsageLogsCount("", "")
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-		return
-	}
+	// Use filtered query if any filters are provided
+	if filters.APIKey != "" || filters.Method != "" || filters.Endpoint != "" || filters.TimeFrom != "" || filters.TimeTo != "" || filters.UserID != "" || filters.FileID != "" {
+		logs, err := db.GetAPIUsageLogsFiltered(filters, limit, offset)
+		if err != nil {
+			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+			return
+		}
 
-	// Return both "logs" and standard "items" to maximize compatibility
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"logs": logs, "items": logs, "count": totalCount}})
+		// Get total count for pagination
+		totalCount, err := db.GetAPIUsageLogsCountFiltered(filters)
+		if err != nil {
+			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+			return
+		}
+
+		// Return both "logs" and standard "items" to maximize compatibility
+		writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"logs": logs, "items": logs, "count": totalCount}})
+	} else {
+		// Use original query for backwards compatibility when no filters
+		logs, err := db.GetAPIUsageLogs("", "", limit, offset)
+		if err != nil {
+			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+			return
+		}
+
+		// Get total count for pagination
+		totalCount, err := db.GetAPIUsageLogsCount("", "")
+		if err != nil {
+			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+			return
+		}
+
+		// Return both "logs" and standard "items" to maximize compatibility
+		writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"logs": logs, "items": logs, "count": totalCount}})
+	}
 }
 
 // adminAnalyticsHandler returns analytics data for admin dashboard

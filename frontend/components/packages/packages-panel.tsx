@@ -7,12 +7,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+// Removed Table imports - now using native HTML table
 import { Badge } from "@/components/ui/badge"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+// Removed DropdownMenu imports - now using direct button
 import { apiClient } from "@/lib/api"
 import { formatDate } from "@/lib/utils"
-import { Search, Loader2, Edit, Copy, MoreVertical, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react"
+import { Search, Loader2, Edit, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react"
 
 type PackageItem = {
   id: string
@@ -31,7 +31,7 @@ export function PackagesPanel() {
   const [count, setCount] = useState(0)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
-  const [tenant, setTenant] = useState("")
+  // Removed tenant state - now use general search
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [q, setQ] = useState("")
   const [loadingList, setLoadingList] = useState(false)
@@ -41,7 +41,6 @@ export function PackagesPanel() {
     setLoadingList(true)
     try {
       const params: any = { page, limit }
-      if (tenant) params.tenant = tenant
       if (typeFilter !== "all") params.type = typeFilter
       if (q) params.q = q
       const res = await apiClient.listPackages(params)
@@ -86,50 +85,31 @@ export function PackagesPanel() {
           <CardTitle>Uploaded Packages</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-4 items-end">
-            <div className="space-y-2">
-              <Label htmlFor="tenant-filter" className="text-sm font-medium">Tenant ID</Label>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
               <Input 
-                id="tenant-filter"
-                placeholder="Enter tenant ID" 
-                value={tenant} 
-                onChange={e=>setTenant(e.target.value)} 
-                className="w-48" 
+                placeholder="Search by tenant, filename, or path..." 
+                value={q} 
+                onChange={e=>setQ(e.target.value)} 
+                className="w-80" 
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="type-filter" className="text-sm font-medium">Type</Label>
+              <Button variant="outline" onClick={handleSearch} size="sm" title="Search">
+                <Search className="h-4 w-4" />
+              </Button>
               <Select value={typeFilter} onValueChange={(v)=>setTypeFilter(v)}>
-                <SelectTrigger className="w-40" id="type-filter">
-                  <SelectValue />
+                <SelectTrigger className="w-28">
+                  <SelectValue placeholder="Type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
                   <SelectItem value="assets">Assets</SelectItem>
                   <SelectItem value="others">Others</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="search-filter" className="text-sm font-medium">Search</Label>
-              <div className="flex gap-2">
-                <Input 
-                  id="search-filter"
-                  placeholder="Search filename, path, or remark" 
-                  value={q} 
-                  onChange={e=>setQ(e.target.value)} 
-                  className="w-64" 
-                />
-                <Button variant="outline" onClick={handleSearch} size="sm">
-                  <Search className="h-4 w-4 mr-2"/>
-                  Search
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="page-size" className="text-sm font-medium">Rows per page</Label>
+            <div className="flex items-center gap-2">
               <Select value={String(limit)} onValueChange={(v)=>{ setLimit(Number(v)); setPage(1); }}>
-                <SelectTrigger className="w-28" id="page-size" size="sm">
+                <SelectTrigger className="w-20">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -138,54 +118,51 @@ export function PackagesPanel() {
                   <SelectItem value="50">50</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-medium opacity-0">Actions</Label>
-              <Button variant="outline" onClick={fetchList} size="sm">
-                <RefreshCw className="h-4 w-4 mr-2"/>
-                Refresh
+              <Button variant="outline" onClick={fetchList} size="sm" title="Refresh">
+                <RefreshCw className="h-4 w-4" />
               </Button>
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-lg border">
-            <Table>
-              <TableHeader className="bg-muted">
-                <TableRow>
-                  <TableHead className="w-24">Tenant</TableHead>
-                  <TableHead className="w-20">IP</TableHead>
-                  <TableHead className="w-32">Timestamp</TableHead>
-                  <TableHead className="w-16">Type</TableHead>
-                  <TableHead className="w-40">Filename</TableHead>
-                  <TableHead className="w-20">Size</TableHead>
-                  <TableHead className="flex-1">Path</TableHead>
-                  <TableHead className="w-48">Remark</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          <div className="border rounded-md">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[1000px]">
+              <thead className="bg-muted">
+                <tr>
+                  <th className="text-left p-3 w-32 max-w-32">Tenant</th>
+                  <th className="text-left p-3 w-28 max-w-28">IP</th>
+                  <th className="text-left p-3 w-44 max-w-44">Timestamp</th>
+                  <th className="text-left p-3 w-20 max-w-20">Type</th>
+                  <th className="text-left p-3 w-24 max-w-24">Size</th>
+                  <th className="text-left p-3 w-64 max-w-64">File Path</th>
+                  <th className="text-left p-3 w-40 max-w-40">Remark</th>
+                  <th className="text-left p-3 w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
                 {loadingList ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="h-24 text-center">
+                  <tr>
+                    <td colSpan={8} className="p-6 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Loading...
                       </div>
-                    </TableCell>
-                  </TableRow>
+                    </td>
+                  </tr>
                 ) : (items?.length ?? 0) === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                  <tr>
+                    <td colSpan={8} className="p-6 text-center text-muted-foreground">
                       No packages found.
-                    </TableCell>
-                  </TableRow>
+                    </td>
+                  </tr>
                 ) : (
                   (items || []).map(item => (
                     <PackageRow key={item.id} item={item} onEdit={() => openRemark(item)} />
                   ))
                 )}
-              </TableBody>
-            </Table>
+              </tbody>
+            </table>
+            </div>
           </div>
 
           <div className="flex items-center justify-between px-4">
@@ -263,76 +240,79 @@ export function PackagesPanel() {
 }
 
 function PackageRow({ item, onEdit }: { item: PackageItem, onEdit: () => void }) {
-  const sizeFmt = useMemo(() => `${(item.size/1024/1024).toFixed(2)} MB`, [item.size])
-  const dirPath = useMemo(() => {
+  const sizeFmt = useMemo(() => {
+    const bytes = item.size
+    if (bytes === 0) return '0 B'
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+  }, [item.size])
+  
+  const fullPath = useMemo(() => {
     const p = (item.path || '').replace(/\\/g, '/');
-    const idx = p.lastIndexOf('/');
-    return idx >= 0 ? p.slice(0, idx) : p;
+    return p
   }, [item.path])
+  
+  const displayPath = useMemo(() => {
+    // Remove downloads/packages prefix for display
+    const prefix = 'downloads/packages/'
+    return fullPath.startsWith(prefix) ? fullPath.slice(prefix.length) : fullPath
+  }, [fullPath])
 
   return (
-    <TableRow>
-      <TableCell className="w-24 font-medium">
-        <div className="truncate" title={item.tenantId}>
+    <tr className="border-t hover:bg-muted/50">
+      <td className="p-3 w-32 max-w-32">
+        <div className="truncate text-sm font-medium" title={item.tenantId}>
           {item.tenantId}
         </div>
-      </TableCell>
-      <TableCell className="w-20">
-        <div className="truncate font-mono text-sm" title={item.ip}>
+      </td>
+      <td className="p-3 w-28 max-w-28">
+        <div className="truncate text-sm font-mono" title={item.ip}>
           {item.ip}
         </div>
-      </TableCell>
-      <TableCell className="w-32">
-        <div className="truncate text-sm" title={formatDate(item.timestamp)}>
+      </td>
+      <td className="p-3 w-44 max-w-44">
+        <div className="text-sm truncate" title={formatDate(item.timestamp)}>
           {formatDate(item.timestamp)}
         </div>
-      </TableCell>
-      <TableCell className="w-16">
-        <Badge 
+      </td>
+      <td className="p-3 w-20 max-w-20">
+        <Badge
           variant={item.type === 'assets' ? 'default' : 'secondary'}
           className="text-xs"
+          title={item.type}
         >
           {item.type}
         </Badge>
-      </TableCell>
-      <TableCell className="w-40">
-        <div className="truncate text-sm" title={item.fileName}>
-          {item.fileName}
+      </td>
+      <td className="p-3 w-24 max-w-24">
+        <div className="text-sm truncate" title={sizeFmt}>{sizeFmt}</div>
+      </td>
+      <td className="p-3 w-64 max-w-64">
+        <div className="text-sm overflow-hidden" title={fullPath}>
+          <span className="font-mono truncate">
+            {displayPath}
+          </span>
         </div>
-      </TableCell>
-      <TableCell className="w-20 text-sm">
-        {sizeFmt}
-      </TableCell>
-      <TableCell className="flex-1">
-        <div className="truncate font-mono text-sm" title={item.path}>
-          {dirPath}
-        </div>
-      </TableCell>
-      <TableCell className="w-48">
+      </td>
+      <td className="p-3 w-40 max-w-40">
         <div className="truncate text-sm" title={item.remark || ''}>
-          {item.remark || <span className="text-muted-foreground">No remark</span>}
+          {item.remark || ''}
         </div>
-      </TableCell>
-      <TableCell className="w-12">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              className="data-[state=open]:bg-muted flex h-8 w-8 p-0"
-              size="icon"
-            >
-              <MoreVertical className="h-4 w-4" />
-              <span className="sr-only">Open menu</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-32">
-            <DropdownMenuItem onClick={onEdit}>
-              <Edit className="mr-2 h-4 w-4" />
-              Edit Remark
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </TableCell>
-    </TableRow>
+      </td>
+      <td className="p-3 w-10 max-w-10">
+        <Button
+          variant="ghost"
+          className="h-8 w-8 p-0"
+          size="icon"
+          onClick={onEdit}
+          title="Edit Remark"
+        >
+          <Edit className="h-4 w-4" />
+          <span className="sr-only">Edit Remark</span>
+        </Button>
+      </td>
+    </tr>
   )
 }

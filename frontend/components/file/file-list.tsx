@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Badge } from "@/components/ui/badge"
 import { apiClient, type FileInfo } from "@/lib/api"
 import { formatFileSize, formatDate } from "@/lib/utils"
 import { useToast } from "@/lib/use-toast"
@@ -26,7 +27,8 @@ import {
   RefreshCw,
   History,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Edit
 } from "lucide-react"
 
 const fileTypeIcons = {
@@ -220,16 +222,18 @@ export function FileList({ refreshTrigger }: FileListProps) {
               </CardDescription>
             </div>
             <div className="flex items-center gap-4">
-              <Select value={selectedType} onValueChange={handleTypeChange}>
-                <SelectTrigger className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Files</SelectItem>
-                  <SelectItem value="roadmap">Roadmaps</SelectItem>
-                  <SelectItem value="recommendation">Recommendations</SelectItem>
-                </SelectContent>
-              </Select>
+              {false && (
+                <Select value={selectedType} onValueChange={handleTypeChange}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Files</SelectItem>
+                    <SelectItem value="roadmap">Roadmaps</SelectItem>
+                    <SelectItem value="recommendation">Recommendations</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
               <Button variant="outline" size="sm" onClick={loadFiles}>
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
@@ -307,49 +311,84 @@ export function FileList({ refreshTrigger }: FileListProps) {
             ) : (versionsDialog.versions.length === 0 ? (
               <div className="p-6 text-sm text-gray-500">No versions</div>
             ) : (
-              <table className="w-full table-fixed text-sm">
-                <thead>
-                  <tr className="text-left border-b text-gray-600 bg-gray-50">
-                    <th className="py-3 px-4 w-64 font-medium text-xs uppercase tracking-wide">Version ID</th>
-                    <th className="py-3 px-4 w-40 font-medium text-xs uppercase tracking-wide">Tags</th>
-                    <th className="py-3 px-4 w-44 font-medium text-xs uppercase tracking-wide">Date</th>
-                    <th className="py-3 px-4 w-52 font-medium text-xs uppercase tracking-wide">SHA256</th>
-                    <th className="py-3 px-4 w-24 font-medium text-xs uppercase tracking-wide">Size</th>
-                    <th className="py-3 px-4 w-48 font-medium text-xs uppercase tracking-wide">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {versionsDialog.versions.map(v => (
-                    <tr key={v.versionId} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="py-3 px-4 font-mono text-sm truncate" title={v.versionId}>{v.versionId}</td>
-                      <td className="py-3 px-4 text-sm truncate" title={(v.tags||[]).join(', ')}>
-                        {(v.tags || []).length === 0 ? (
-                          <span className="text-gray-400">-</span>
-                        ) : (
-                          <span>{v.tags.join(', ')}</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-gray-600 truncate" title={v.date || ''}>{v.date ? formatDate(v.date) : ''}</td>
-                      <td className="py-3 px-4 font-mono text-sm truncate" title={v.sha256 || ''}>{v.sha256 ? v.sha256.slice(0, 12) : ''}</td>
-                      <td className="py-3 px-4 text-sm">{typeof v.size === 'number' ? formatFileSize(v.size) : ''}</td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          {v.path && (
-                            <Button variant="outline" size="sm" onClick={() => apiClient.downloadFile(v.path!)} title="Download file">
-                              <Download className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {permissions?.canManageFiles && (
-                            <Button variant="ghost" size="sm" onClick={() => setEditTags({ open: true, fileType: versionsDialog.fileType, versionId: v.versionId, text: (v.tags||[]).join(', ') })} title="Edit tags">
-                              <Settings className="h-4 w-4" /> Edit Tags
-                            </Button>
-                          )}
-                        </div>
-                      </td>
+              <div className="border rounded-md">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="text-left p-3 w-40">Version</th>
+                      <th className="text-left p-3 w-44">Date</th>
+                      <th className="text-left p-3 w-32">SHA256</th>
+                      <th className="text-left p-3 w-48">Tags</th>
+                      <th className="text-left p-3 w-20">Size</th>
+                      <th className="text-left p-3 w-20">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {versionsDialog.versions.map((v, index) => (
+                      <tr key={v.versionId} className="border-t hover:bg-muted/50">
+                        <td className="p-3 w-40">
+                          <div className="flex items-center gap-2">
+                            {index === 0 && (
+                              <Badge variant="default" className="text-xs bg-green-600 hover:bg-green-700">
+                                Latest
+                              </Badge>
+                            )}
+                            <div className="font-mono text-sm truncate" title={v.versionId}>
+                              {v.versionId.slice(0, 12)}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3 w-44">
+                          <div className="text-sm whitespace-nowrap">
+                            {v.date ? formatDate(v.date) : ''}
+                          </div>
+                        </td>
+                        <td className="p-3 w-32">
+                          <div className="font-mono text-sm truncate" title={v.sha256 || ''}>
+                            {v.sha256 ? v.sha256.slice(0, 12) : ''}
+                          </div>
+                        </td>
+                        <td className="p-3 w-48">
+                          <div className="text-sm truncate" title={(v.tags||[]).join(', ')}>
+                            {(v.tags||[]).length ? v.tags.join(', ') : <span className="text-muted-foreground">-</span>}
+                          </div>
+                        </td>
+                        <td className="p-3 w-20">
+                          <div className="text-sm">
+                            {typeof v.size === 'number' ? formatFileSize(v.size) : ''}
+                          </div>
+                        </td>
+                        <td className="p-3 w-20">
+                          <div className="flex items-center gap-1">
+                            {v.path && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => apiClient.downloadFile(v.path!)} 
+                                title="Download"
+                                className="h-7 px-2"
+                              >
+                                <Download className="h-3 w-3" />
+                              </Button>
+                            )}
+                            {permissions?.canManageFiles && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => setEditTags({ open: true, fileType: versionsDialog.fileType, versionId: v.versionId, text: (v.tags||[]).join(', ') })} 
+                                title="Edit tags"
+                                className="h-7 px-2"
+                              >
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ))}
           </div>
         </DialogContent>
@@ -441,62 +480,65 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full">
+      <table className="w-full min-w-[800px]">
         <thead>
           <tr className="border-b text-left text-sm text-gray-500">
-            <th className="pb-4 font-medium w-1/3">File Name</th>
-            <th className="pb-4 font-medium w-20">Size</th>
-            <th className="pb-4 font-medium w-32">Upload Time</th>
-            <th className="pb-4 font-medium w-24">Uploader</th>
-            {showVersions && <th className="pb-4 font-medium w-16">Version</th>}
-            <th className="pb-4 font-medium w-32">Actions</th>
+            <th className="pb-4 font-medium w-80 max-w-80">File Name</th>
+            <th className="pb-4 font-medium w-20 max-w-20">Size</th>
+            <th className="pb-4 font-medium w-36 max-w-36">Upload Time</th>
+            <th className="pb-4 font-medium w-24 max-w-24">Uploader</th>
+            {showVersions && <th className="pb-4 font-medium w-16 max-w-16">Version</th>}
+            <th className="pb-4 font-medium w-32 max-w-32">Actions</th>
           </tr>
         </thead>
         <tbody>
           {files.map((file) => (
             <tr key={file.id || file.path} className="border-b last:border-0 hover:bg-gray-50">
-              <td className="py-4">
+              <td className="py-4 w-80 max-w-80">
                 <div className="flex items-center gap-3">
                   <div className="flex-shrink-0">
                     <FileText className="h-5 w-5 text-gray-400" />
                   </div>
-                  <div>
-                    <div className="font-medium text-gray-900">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-gray-900 truncate" title={file.originalName || file.fileName}>
                       {file.originalName || file.fileName}
                     </div>
                     {file.description && (
-                      <div className="text-sm text-gray-500 mt-1">{file.description}</div>
+                      <div className="text-sm text-gray-500 mt-1 truncate" title={file.description}>{file.description}</div>
                     )}
                   </div>
                 </div>
               </td>
-              <td className="py-4 text-sm text-gray-600">
-                {formatFileSize(file.size)}
-              </td>
-              <td className="py-4 text-sm text-gray-600">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-3 w-3" />
-                  <span>{formatDate(file.uploadTime)}</span>
+              <td className="py-4 w-20 max-w-20 text-sm text-gray-600">
+                <div className="truncate" title={formatFileSize(file.size)}>
+                  {formatFileSize(file.size)}
                 </div>
               </td>
-              <td className="py-4 text-sm text-gray-600">
+              <td className="py-4 w-36 max-w-36 text-sm text-gray-600">
                 <div className="flex items-center gap-2">
-                  <User className="h-3 w-3" />
-                  <span>{file.uploader || "unknown"}</span>
+                  <Clock className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate" title={formatDate(file.uploadTime)}>{formatDate(file.uploadTime)}</span>
+                </div>
+              </td>
+              <td className="py-4 w-24 max-w-24 text-sm text-gray-600">
+                <div className="flex items-center gap-2">
+                  <User className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate" title={file.uploader || "unknown"}>{file.uploader || "unknown"}</span>
                 </div>
               </td>
               {showVersions && (
-                <td className="py-4 text-sm text-gray-600 font-mono">
+                <td className="py-4 w-16 max-w-16 text-sm text-gray-600 font-mono">
                   v{file.version}
                 </td>
               )}
-              <td className="py-4">
+              <td className="py-4 w-32 max-w-32">
                 <div className="flex items-center gap-2">
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={() => onDownload(file)}
                     disabled={downloadingFile === file.path}
+                    title="Download File"
                   >
                     {downloadingFile === file.path ? (
                       <Loader2 className="h-4 w-4 animate-spin" />

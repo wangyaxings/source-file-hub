@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
 import { apiClient, type FileInfo } from '@/lib/api'
 import { useToast } from '@/lib/use-toast'
 import { mapApiErrorToMessage } from '@/lib/errors'
 import { usePermissions } from '@/lib/permissions'
 import { formatDate, formatFileSize } from '@/lib/utils'
-import { Files, Loader2, RefreshCw, FileText, Download, Clock, User, History, Trash2, Settings, AlertTriangle } from 'lucide-react'
+import { Files, Loader2, RefreshCw, FileText, Download, Clock, User, History, Trash2, Settings, AlertTriangle, Edit } from 'lucide-react'
 
 type VersionRow = { versionId: string; tags: string[]; date?: string; sha256?: string; size?: number; fileName?: string; path?: string }
 
@@ -133,23 +134,27 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
               <CardDescription>Manage uploaded Roadmaps (.tsv) and Recommendations (.xlsx)</CardDescription>
             </div>
             <div className="flex items-center gap-3">
-              <Select value={type} onValueChange={changeType}>
-                <SelectTrigger className="w-40"><SelectValue placeholder="Filter by type"/></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Files</SelectItem>
-                  <SelectItem value="roadmap">Roadmaps</SelectItem>
-                  <SelectItem value="recommendation">Recommendations</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={String(limit)} onValueChange={(v)=> changeLimit(parseInt(v,10))}>
-                <SelectTrigger className="w-32"><SelectValue placeholder="Page size"/></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="10">10 / page</SelectItem>
-                  <SelectItem value="20">20 / page</SelectItem>
-                  <SelectItem value="50">50 / page</SelectItem>
-                  <SelectItem value="100">100 / page</SelectItem>
-                </SelectContent>
-              </Select>
+              {false && (
+                <Select value={type} onValueChange={changeType}>
+                  <SelectTrigger className="w-40"><SelectValue placeholder="Filter by type"/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Files</SelectItem>
+                    <SelectItem value="roadmap">Roadmaps</SelectItem>
+                    <SelectItem value="recommendation">Recommendations</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+              {false && (
+                <Select value={String(limit)} onValueChange={(v)=> changeLimit(parseInt(v,10))}>
+                  <SelectTrigger className="w-32"><SelectValue placeholder="Page size"/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10 / page</SelectItem>
+                    <SelectItem value="20">20 / page</SelectItem>
+                    <SelectItem value="50">50 / page</SelectItem>
+                    <SelectItem value="100">100 / page</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
               <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
             </div>
           </div>
@@ -207,37 +212,83 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
             ) : (versionsDialog.versions.length === 0 ? (
               <div className="p-6 text-sm text-gray-500">No versions</div>
             ) : (
-              <table className="w-full table-fixed text-sm">
-                <thead>
-                  <tr className="text-left border-b text-gray-600 bg-gray-50">
-                    <th className="py-3 px-4 w-64 font-medium text-xs uppercase tracking-wide">Version ID</th>
-                    <th className="py-3 px-4 w-40 font-medium text-xs uppercase tracking-wide">Tags</th>
-                    <th className="py-3 px-4 w-44 font-medium text-xs uppercase tracking-wide">Date</th>
-                    <th className="py-3 px-4 w-52 font-medium text-xs uppercase tracking-wide">SHA256</th>
-                    <th className="py-3 px-4 w-24 font-medium text-xs uppercase tracking-wide">Size</th>
-                    <th className="py-3 px-4 w-48 font-medium text-xs uppercase tracking-wide">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {versionsDialog.versions.map(v => (
-                    <tr key={v.versionId} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="py-3 px-4 font-mono text-sm truncate" title={v.versionId}>{v.versionId}</td>
-                      <td className="py-3 px-4 text-sm truncate" title={(v.tags||[]).join(', ')}>{(v.tags||[]).length ? v.tags.join(', ') : <span className="text-gray-400">-</span>}</td>
-                      <td className="py-3 px-4 text-sm text-gray-600 truncate" title={v.date || ''}>{v.date ? formatDate(v.date) : ''}</td>
-                      <td className="py-3 px-4 font-mono text-sm truncate" title={v.sha256 || ''}>{v.sha256 ? v.sha256.slice(0, 12) : ''}</td>
-                      <td className="py-3 px-4 text-sm">{typeof v.size === 'number' ? formatFileSize(v.size) : ''}</td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          {v.path && (<Button variant="outline" size="sm" onClick={() => apiClient.downloadFile(v.path!)} title="Download file"><Download className="h-4 w-4" /></Button>)}
-                          {permissions?.canManageFiles && (
-                            <Button variant="ghost" size="sm" title="Edit tags"><Settings className="h-4 w-4" /> Edit Tags</Button>
-                          )}
-                        </div>
-                      </td>
+              <div className="border rounded-md">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="text-left p-3 w-40">Version</th>
+                      <th className="text-left p-3 w-44">Date</th>
+                      <th className="text-left p-3 w-32">SHA256</th>
+                      <th className="text-left p-3 w-48">Tags</th>
+                      <th className="text-left p-3 w-20">Size</th>
+                      <th className="text-left p-3 w-20">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {versionsDialog.versions.map((v, index) => (
+                      <tr key={v.versionId} className="border-t hover:bg-muted/50">
+                        <td className="p-3 w-40">
+                          <div className="flex items-center gap-2">
+                            {index === 0 && (
+                              <Badge variant="default" className="text-xs bg-green-600 hover:bg-green-700">
+                                Latest
+                              </Badge>
+                            )}
+                            <div className="font-mono text-sm truncate" title={v.versionId}>
+                              {v.versionId.slice(0, 12)}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3 w-44">
+                          <div className="text-sm whitespace-nowrap">
+                            {v.date ? formatDate(v.date) : ''}
+                          </div>
+                        </td>
+                        <td className="p-3 w-32">
+                          <div className="font-mono text-sm truncate" title={v.sha256 || ''}>
+                            {v.sha256 ? v.sha256.slice(0, 12) : ''}
+                          </div>
+                        </td>
+                        <td className="p-3 w-48">
+                          <div className="text-sm truncate" title={(v.tags||[]).join(', ')}>
+                            {(v.tags||[]).length ? v.tags.join(', ') : <span className="text-muted-foreground">-</span>}
+                          </div>
+                        </td>
+                        <td className="p-3 w-20">
+                          <div className="text-sm">
+                            {typeof v.size === 'number' ? formatFileSize(v.size) : ''}
+                          </div>
+                        </td>
+                        <td className="p-3 w-20">
+                          <div className="flex items-center gap-1">
+                            {v.path && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => apiClient.downloadFile(v.path!)} 
+                                title="Download"
+                                className="h-7 px-2"
+                              >
+                                <Download className="h-3 w-3" />
+                              </Button>
+                            )}
+                            {permissions?.canManageFiles && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                title="Edit tags"
+                                className="h-7 px-2"
+                              >
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ))}
           </div>
         </DialogContent>
@@ -295,7 +346,7 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
               {showVersions && (<td className="py-4 text-sm text-gray-600 font-mono">v{file.version}</td>)}
               <td className="py-4">
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => onDownload(file)} disabled={downloadingFile === file.path}>{downloadingFile === file.path ? (<Loader2 className="h-4 w-4 animate-spin" />) : (<Download className="h-4 w-4" />)}</Button>
+                  <Button variant="ghost" size="sm" onClick={() => onDownload(file)} disabled={downloadingFile === file.path} title="Download File">{downloadingFile === file.path ? (<Loader2 className="h-4 w-4 animate-spin" />) : (<Download className="h-4 w-4" />)}</Button>
                   {!showVersions && onViewVersions && (<Button variant="ghost" size="sm" onClick={() => onViewVersions(file)} title="View Version History"><History className="h-4 w-4" /></Button>)}
                   {!showVersions && onDelete && (<Button variant="ghost" size="sm" onClick={() => onDelete(file)} className="text-red-600 hover:text-red-700 hover:bg-red-50" title="Delete File"><Trash2 className="h-4 w-4" /></Button>)}
                 </div>

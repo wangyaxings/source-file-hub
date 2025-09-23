@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/lib/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { usePermissions } from "@/lib/permissions"
+import { UserPlus, Search, Filter, ChevronUp, ChevronDown, Check, X, Edit, Key, Shield } from "lucide-react"
 
 type UserRow = {
   user_id: string
@@ -124,78 +125,108 @@ export default function UserManagement() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">User Management</h1>
-        <div className="flex gap-2 items-center">
-          <Input placeholder="Filter by username/email" value={filter} onChange={(e) => setFilter(e.target.value)} className="w-64" />
-          <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1) }}>
-            <SelectTrigger className="w-[140px]"><SelectValue placeholder="All statuses" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="active">active</SelectItem>
-              <SelectItem value="pending">pending</SelectItem>
-              <SelectItem value="suspended">suspended</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="secondary" onClick={() => { setPage(1); load() }} disabled={loading}>{loading ? 'Loading...' : 'Search'}</Button>
-        </div>
       </div>
-
-      <CreateUserModal onCreated={(u, pwd) => {
-        toast({ title: 'User created', description: u })
-        setCred({ username: u, password: pwd })
-        setCredOpen(true)
-        load()
-      }} />
 
       <CredentialsModal open={credOpen} onOpenChange={setCredOpen} creds={cred} />
 
-      <div className="overflow-x-auto border rounded-md">
-        <table className="min-w-full text-sm">
+      {/* 筛选和搜索工具栏 */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <Input 
+              placeholder="Search users..." 
+              value={filter} 
+              onChange={(e) => setFilter(e.target.value)} 
+              className="w-64 h-9" 
+            />
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-9 px-3" 
+              onClick={() => { setPage(1); load() }} 
+              disabled={loading}
+              title="Search"
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+          </div>
+          <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1) }}>
+            <SelectTrigger className="w-32 h-9" title="Filter by status">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="suspended">Suspended</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <CreateUserModal onCreated={(u, pwd) => {
+          toast({ title: 'User created', description: u })
+          setCred({ username: u, password: pwd })
+          setCredOpen(true)
+          load()
+        }} />
+      </div>
+
+      <div className="border rounded-md">
+        <table className="w-full text-sm">
           <thead className="bg-muted">
             <tr>
-              <th className="text-left p-2">Username</th>
-              <th className="text-left p-2">Email</th>
-              <th className="text-left p-2">Role</th>
-              <th className="text-left p-2">Status</th>
-              <th className="text-left p-2">2FA</th>
-              <th className="text-left p-2">Last Login</th>
-              <th className="text-left p-2">Actions</th>
+              <th className="text-left p-3 w-1/6">Username</th>
+              <th className="text-left p-3 w-1/6">Email</th>
+              <th className="text-left p-3 w-1/8">Role</th>
+              <th className="text-left p-3 w-1/8">Status</th>
+              <th className="text-left p-3 w-1/8">2FA</th>
+              <th className="text-left p-3 w-1/6">Last Login</th>
+              <th className="text-left p-3 w-1/6">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map(u => (
-              <tr key={u.user_id} className="border-t">
-                <td className="p-2 font-medium">{u.user_id}</td>
-                <td className="p-2">{u.email || '-'}</td>
-                <td className="p-2">
+              <tr key={u.user_id} className="border-t hover:bg-muted/50">
+                <td className="p-3 font-medium truncate">{u.user_id}</td>
+                <td className="p-3 truncate">{u.email || '-'}</td>
+                <td className="p-3">
                   <Select defaultValue={u.role} onValueChange={(v) => onChangeRole(u, v)}>
-                    <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-24 h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="viewer">viewer</SelectItem>
-                      <SelectItem value="administrator">administrator</SelectItem>
+                      <SelectItem value="administrator">admin</SelectItem>
                     </SelectContent>
                   </Select>
                 </td>
-                <td className="p-2">
+                <td className="p-3">
                   <span className={`px-2 py-0.5 rounded text-xs ${u.status==='active'?'bg-green-100 text-green-700':u.status==='pending'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700'}`}>{u.status}</span>
                 </td>
-                <td className="p-2">
-                  <Button size="sm" variant={u.two_fa ? 'secondary' : 'outline'} onClick={() => onToggle2FA(u)}>
-                    {u.two_fa ? 'Disable 2FA' : 'Enable 2FA'}
+                <td className="p-3">
+                  <Button size="sm" variant={u.two_fa ? 'secondary' : 'outline'} onClick={() => onToggle2FA(u)} className="h-7 px-2">
+                    <Shield className={`h-3 w-3 ${u.two_fa ? 'text-green-600' : ''}`} />
                   </Button>
                 </td>
-                <td className="p-2">{u.last_login ? new Date(u.last_login).toLocaleString() : '-'}</td>
-                <td className="p-2 flex gap-2">
-                  {u.status !== 'active' && (
-                    <Button size="sm" onClick={() => onApprove(u)}>Approve</Button>
-                  )}
-                  {u.status !== 'suspended' && (
-                    <Button size="sm" variant="destructive" onClick={() => onSuspend(u)}>Suspend</Button>
-                  )}
-                  <EditRoleButton user={u} onSaved={load} />
-                  <ResetPasswordButton user={u} onDone={(pwd) => {
-                    setCred({ username: u.user_id, password: pwd })
-                    setCredOpen(true)
-                  }} />
+                <td className="p-3 text-xs truncate">{u.last_login ? new Date(u.last_login).toLocaleString() : '-'}</td>
+                <td className="p-3">
+                  <div className="flex gap-1">
+                    {u.status !== 'active' && (
+                      <Button size="sm" onClick={() => onApprove(u)} className="h-7 px-2" title="Approve">
+                        <Check className="h-3 w-3" />
+                      </Button>
+                    )}
+                    {u.status !== 'suspended' && (
+                      <Button size="sm" variant="destructive" onClick={() => onSuspend(u)} className="h-7 px-2" title="Suspend">
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                    <EditRoleButton user={u} onSaved={load} />
+                    <ResetPasswordButton user={u} onDone={(pwd) => {
+                      setCred({ username: u.user_id, password: pwd })
+                      setCredOpen(true)
+                    }} />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -279,7 +310,9 @@ function EditRoleButton({ user, onSaved }: { user: UserRow; onSaved: () => void 
       }
     }}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">Edit</Button>
+        <Button size="sm" variant="outline" className="h-7 px-2" title="Edit Role">
+          <Edit className="h-3 w-3" />
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -371,11 +404,12 @@ function CreateUserModal({ onCreated }: { onCreated: (username: string, password
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <div className="flex items-center justify-between">
-        <DialogTrigger asChild>
-          <Button>Create User</Button>
-        </DialogTrigger>
-      </div>
+      <DialogTrigger asChild>
+        <Button size="sm" className="flex items-center gap-2">
+          <UserPlus className="h-4 w-4" />
+          Create User
+        </Button>
+      </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create User</DialogTitle>
@@ -432,7 +466,9 @@ function ResetPasswordButton({ user, onDone }: { user: UserRow; onDone: (passwor
   return (
     <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">Reset Password</Button>
+        <Button size="sm" variant="outline" className="h-7 px-2" title="Reset Password">
+          <Key className="h-3 w-3" />
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

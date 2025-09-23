@@ -1790,6 +1790,17 @@ func (d *Database) LogAPIUsage(log *APIUsageLog) error {
 	return err
 }
 
+// APIUsageLogFilters represents filters for API usage logs
+type APIUsageLogFilters struct {
+	UserID   string
+	FileID   string
+	APIKey   string
+	Method   string
+	Endpoint string
+	TimeFrom string
+	TimeTo   string
+}
+
 // GetAPIUsageLogs retrieves API usage logs with filters
 func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]APIUsageLog, error) {
 	query := `
@@ -1868,6 +1879,163 @@ func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]
 	}
 
 	return logs, nil
+}
+
+// GetAPIUsageLogsFiltered retrieves API usage logs with enhanced filters
+func (d *Database) GetAPIUsageLogsFiltered(filters APIUsageLogFilters, limit, offset int) ([]APIUsageLog, error) {
+	query := `
+    SELECT l.id, l.api_key_id, l.user_id, l.endpoint, l.method, l.file_id, l.file_path,
+           l.ip_address, l.user_agent, l.status_code, l.response_size, l.response_time_ms,
+           l.error_message, l.request_time, l.created_at,
+           CASE
+             WHEN l.api_key_id = 'web_session' THEN 'Web Session'
+             ELSE COALESCE(l.api_key_name, k.name, 'Unknown')
+           END as api_key_name
+    FROM api_usage_logs l
+    LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
+    WHERE 1=1
+    `
+	args := []interface{}{}
+
+	if filters.UserID != "" {
+		query += " AND l.user_id = ?"
+		args = append(args, filters.UserID)
+	}
+
+	if filters.FileID != "" {
+		query += " AND l.file_id = ?"
+		args = append(args, filters.FileID)
+	}
+
+	if filters.APIKey != "" {
+		query += " AND (l.api_key_name LIKE ? OR k.name LIKE ? OR l.api_key_id LIKE ?)"
+		likePattern := "%" + filters.APIKey + "%"
+		args = append(args, likePattern, likePattern, likePattern)
+	}
+
+	if filters.Method != "" {
+		query += " AND l.method = ?"
+		args = append(args, filters.Method)
+	}
+
+	if filters.Endpoint != "" {
+		query += " AND l.endpoint LIKE ?"
+		args = append(args, "%"+filters.Endpoint+"%")
+	}
+
+	if filters.TimeFrom != "" {
+		query += " AND l.request_time >= ?"
+		args = append(args, filters.TimeFrom)
+	}
+
+	if filters.TimeTo != "" {
+		query += " AND l.request_time <= ?"
+		args = append(args, filters.TimeTo)
+	}
+
+	query += " ORDER BY l.request_time DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []APIUsageLog
+	for rows.Next() {
+		var logEntry APIUsageLog
+		var requestTimeStr, createdAtStr string
+		var fileID, filePath, userAgent, errorMessage sql.NullString
+
+		err := rows.Scan(
+			&logEntry.ID, &logEntry.APIKeyID, &logEntry.UserID, &logEntry.Endpoint,
+			&logEntry.Method, &fileID, &filePath, &logEntry.IPAddress, &userAgent,
+			&logEntry.StatusCode, &logEntry.ResponseSize, &logEntry.ResponseTimeMs,
+			&errorMessage, &requestTimeStr, &createdAtStr, &logEntry.APIKeyName,
+		)
+
+		if err != nil {
+			continue
+		}
+
+		// Handle nullable fields
+		if fileID.Valid {
+			logEntry.FileID = fileID.String
+		}
+		if filePath.Valid {
+			logEntry.FilePath = filePath.String
+		}
+		if userAgent.Valid {
+			logEntry.UserAgent = userAgent.String
+		}
+		if errorMessage.Valid {
+			logEntry.ErrorMessage = errorMessage.String
+		}
+
+		// Parse time strings
+		if requestTime, parseErr := time.Parse(time.RFC3339, requestTimeStr); parseErr == nil {
+			logEntry.RequestTime = requestTime
+		}
+		if createdAt, parseErr := time.Parse(time.RFC3339, createdAtStr); parseErr == nil {
+			logEntry.CreatedAt = createdAt
+		}
+
+		logs = append(logs, logEntry)
+	}
+
+	return logs, nil
+}
+
+// GetAPIUsageLogsCountFiltered retrieves the total count of API usage logs with filters
+func (d *Database) GetAPIUsageLogsCountFiltered(filters APIUsageLogFilters) (int, error) {
+	query := `
+	SELECT COUNT(*)
+	FROM api_usage_logs l
+	LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
+	WHERE 1=1
+	`
+	args := []interface{}{}
+
+	if filters.UserID != "" {
+		query += " AND l.user_id = ?"
+		args = append(args, filters.UserID)
+	}
+
+	if filters.FileID != "" {
+		query += " AND l.file_id = ?"
+		args = append(args, filters.FileID)
+	}
+
+	if filters.APIKey != "" {
+		query += " AND (l.api_key_name LIKE ? OR k.name LIKE ? OR l.api_key_id LIKE ?)"
+		likePattern := "%" + filters.APIKey + "%"
+		args = append(args, likePattern, likePattern, likePattern)
+	}
+
+	if filters.Method != "" {
+		query += " AND l.method = ?"
+		args = append(args, filters.Method)
+	}
+
+	if filters.Endpoint != "" {
+		query += " AND l.endpoint LIKE ?"
+		args = append(args, "%"+filters.Endpoint+"%")
+	}
+
+	if filters.TimeFrom != "" {
+		query += " AND l.request_time >= ?"
+		args = append(args, filters.TimeFrom)
+	}
+
+	if filters.TimeTo != "" {
+		query += " AND l.request_time <= ?"
+		args = append(args, filters.TimeTo)
+	}
+
+	var count int
+	err := d.db.QueryRow(query, args...).Scan(&count)
+	return count, err
 }
 
 // GetAPIUsageLogsCount retrieves the total count of API usage logs

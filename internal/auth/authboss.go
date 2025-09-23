@@ -44,23 +44,27 @@ func InitAuthboss() (*ab.Authboss, error) {
 	a.Config.Core.Responder = defaults.NewResponder(renderer)
 	a.Config.Core.Redirector = defaults.NewRedirector(renderer, ab.FormValueRedirect)
 	a.Config.Core.ErrorHandler = defaults.NewErrorHandler(defaults.NewLogger(os.Stdout))
-    a.Config.Core.BodyReader = defaults.NewHTTPBodyReader(true, true) // username, JSON
-    a.Config.Core.Logger = defaults.NewLogger(os.Stdout)
-    a.Config.Core.Hasher = ab.NewBCryptHasher(12)
+	a.Config.Core.BodyReader = defaults.NewHTTPBodyReader(true, true) // username, JSON
+	a.Config.Core.Logger = defaults.NewLogger(os.Stdout)
+	a.Config.Core.Hasher = ab.NewBCryptHasher(12)
 
-    // OTP / TOTP
-    a.Config.Modules.TOTP2FAIssuer = "Secure File Hub"
-    // Use POST for logout to be friendlier to SPAs
-    a.Config.Modules.LogoutMethod = "POST"
+	// OTP / TOTP
+	a.Config.Modules.TOTP2FAIssuer = "Secure File Hub"
+	// Use POST for logout to be friendlier to SPAs
+	a.Config.Modules.LogoutMethod = "POST"
 	// Configure TOTP to handle setup required flow
 	a.Config.Modules.TwoFactorEmailAuthRequired = false
-    // Note: Authboss v3.5.x does not expose TOTP2FARequired / TOTP2FASetupRequired
-    // TOTP behavior is managed by the totp2fa module and TwoFactorEmailAuthRequired
+	// Note: Authboss v3.5.x does not expose TOTP2FARequired / TOTP2FASetupRequired
+	// TOTP behavior is managed by the totp2fa module and TwoFactorEmailAuthRequired
 
 	// Initialize only imported modules (auth, logout, totp2fa)
 	if err := a.Init(); err != nil {
 		return nil, err
 	}
+
+	// Note: Authboss v3 event handling might be different
+	// For now, we'll update login timestamp in the auth middleware
+	// or create a separate endpoint to track login activity
 
 	// Setup TOTP module for 2FA verification
 	t := &totp2fa.TOTP{Authboss: a}

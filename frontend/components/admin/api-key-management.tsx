@@ -576,30 +576,30 @@ export function APIKeyManagement() {
                 </div>
               ) : (
                 <>
-                  <div className="overflow-x-auto">
-                    <table className="w-full table-fixed">
-                      <thead>
-                        <tr className="border-b text-left text-sm text-gray-500">
-                          <th className="pb-2 w-36 font-medium">Time</th>
-                          <th className="pb-2 w-32 font-medium">API Key</th>
-                          <th className="pb-2 w-20 font-medium">Method</th>
-                          <th className="pb-2 flex-1 font-medium">Endpoint</th>
-                          <th className="pb-2 w-20 font-medium">Status</th>
-                          <th className="pb-2 w-24 font-medium">Response</th>
-                          <th className="pb-2 w-28 font-medium">IP Address</th>
+                  <div className="border rounded-md">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted">
+                        <tr>
+                          <th className="text-left p-3 w-1/6">Time</th>
+                          <th className="text-left p-3 w-1/6">API Key</th>
+                          <th className="text-left p-3 w-1/12">Method</th>
+                          <th className="text-left p-3 w-1/3">Endpoint</th>
+                          <th className="text-left p-3 w-1/12">Status</th>
+                          <th className="text-left p-3 w-1/12">Response</th>
+                          <th className="text-left p-3 w-1/6">IP Address</th>
                         </tr>
                       </thead>
                       <tbody>
                         {usageLogs.map((log) => (
-                          <tr key={log.id} className="border-b text-sm hover:bg-gray-50">
-                            <td className="py-2 w-36 truncate text-xs" title={formatDate(log.requestTime)}>
+                          <tr key={log.id} className="border-t hover:bg-muted/50">
+                            <td className="p-3 text-xs truncate" title={formatDate(log.requestTime)}>
                               {formatDate(log.requestTime)}
                             </td>
-                            <td className="py-2 w-32 truncate" title={getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)}>
+                            <td className="p-3 truncate" title={getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)}>
                               {getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)}
                             </td>
-                            <td className="py-2 w-20">
-                              <span className={`px-2 py-1 rounded text-xs ${
+                            <td className="p-3">
+                              <span className={`px-2 py-0.5 rounded text-xs ${
                                 log.method === 'GET' ? 'bg-blue-100 text-blue-800' :
                                 log.method === 'POST' ? 'bg-green-100 text-green-800' :
                                 log.method === 'DELETE' ? 'bg-red-100 text-red-800' :
@@ -609,11 +609,13 @@ export function APIKeyManagement() {
                                 {log.method}
                               </span>
                             </td>
-                            <td className="py-2 flex-1 font-mono text-xs truncate" title={log.endpoint}>
-                              {log.endpoint}
+                            <td className="p-3">
+                              <code className="text-xs bg-gray-100 px-1 py-0.5 rounded font-mono truncate block" title={log.endpoint}>
+                                {log.endpoint}
+                              </code>
                             </td>
-                            <td className="py-2 w-20">
-                              <span className={`px-2 py-1 rounded text-xs ${
+                            <td className="p-3">
+                              <span className={`px-2 py-0.5 rounded text-xs ${
                                 log.statusCode >= 200 && log.statusCode < 300
                                   ? 'bg-green-100 text-green-800'
                                   : log.statusCode >= 400
@@ -623,8 +625,8 @@ export function APIKeyManagement() {
                                 {log.statusCode}
                               </span>
                             </td>
-                            <td className="py-2 w-24 text-xs">{log.responseTimeMs}ms</td>
-                            <td className="py-2 w-28 font-mono text-xs truncate" title={log.ipAddress}>
+                            <td className="p-3 text-xs">{log.responseTimeMs}ms</td>
+                            <td className="p-3 text-xs font-mono truncate" title={log.ipAddress}>
                               {log.ipAddress}
                             </td>
                           </tr>
