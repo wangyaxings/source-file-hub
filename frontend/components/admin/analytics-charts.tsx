@@ -492,52 +492,131 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
     }]
   }
 
+  // Helper function to create operation abbreviations
+  const getOperationAbbreviation = (operation: string): string => {
+    const abbreviations: Record<string, string> = {
+      'GET /api/v1/files': 'Files',
+      'POST /api/v1/upload': 'Upload',
+      'DELETE /api/v1/files': 'Delete',
+      'GET /api/v1/admin': 'Admin',
+      'POST /api/v1/auth': 'Auth',
+      'GET /api/v1/packages': 'Packages',
+      'POST /api/v1/packages': 'Pkg Up',
+      'PUT /api/v1/versions': 'Versions',
+      'GET /api/v1/versions': 'Ver List',
+      'PATCH /api/v1/packages': 'Pkg Patch',
+      'GET /api/v1/web': 'Web API',
+      'POST /api/v1/web/upload': 'Web Upload',
+      'GET /api/v1/web/files': 'Web Files',
+      'DELETE /api/v1/web/files': 'Web Delete'
+    }
+
+    // Try exact match first
+    if (abbreviations[operation]) {
+      return abbreviations[operation]
+    }
+
+    // Create smart abbreviation for unknown operations
+    const parts = operation.split('/')
+    if (parts.length >= 3) {
+      const method = parts[0] || 'REQ'
+      const resource = parts[parts.length - 1] || 'API'
+      return `${method.slice(0, 4)} ${resource.slice(0, 8)}`
+    }
+
+    return operation.length > 12 ? operation.substring(0, 10) + '..' : operation
+  }
+
   // 操作类型分布饼图配置 - 环形图
   const operationPieChartOption = {
     tooltip: {
       trigger: 'item',
-      formatter: '{a} <br/>{b}: {c} ({d}%)',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      formatter: function(params: any) {
+        const fullName = analyticsData?.operationTypes?.find(item =>
+          getOperationAbbreviation(item.operation) === params.name
+        )?.operation || params.name
+        return `<div style="font-weight: bold; margin-bottom: 4px;">${params.seriesName}</div>
+                <div style="margin-bottom: 2px;">API: <code style="background: #f1f5f9; padding: 2px 4px; border-radius: 3px;">${fullName}</code></div>
+                <div style="margin-bottom: 2px;">Requests: <strong>${params.value}</strong></div>
+                <div>Percentage: <strong>${params.percent}%</strong></div>`
+      },
+      backgroundColor: 'rgba(255, 255, 255, 0.98)',
       borderColor: '#e2e8f0',
-      textStyle: { color: '#0f172a', fontSize: 12 }
+      textStyle: { color: '#0f172a', fontSize: 12 },
+      borderWidth: 1,
+      shadowBlur: 8,
+      shadowColor: 'rgba(0, 0, 0, 0.1)'
     },
     legend: {
       bottom: 0,
-      textStyle: { fontSize: 12 }
+      textStyle: { fontSize: 10 },
+      type: 'scroll',
+      orient: 'horizontal',
+      itemWidth: 12,
+      itemHeight: 12,
+      itemGap: 8,
+      pageButtonPosition: 'end',
+      formatter: function(name: string) {
+        return name.length > 15 ? name.substring(0, 13) + '..' : name;
+      },
+      pageIconColor: '#3b82f6',
+      pageIconInactiveColor: '#d1d5db',
+      pageIconSize: 12,
+      pageTextStyle: { color: '#64748b', fontSize: 10 }
     },
     series: [{
-      name: 'Operations',
+      name: 'API Operations',
       type: 'pie',
-      radius: ['40%', '70%'],
-      center: ['50%', '45%'],
-      avoidLabelOverlap: false,
-      label: { show: false, position: 'center' },
+      radius: ['35%', '65%'],
+      center: ['50%', '40%'],
+      avoidLabelOverlap: true,
+      label: {
+        show: false,
+        position: 'center',
+        fontSize: 12,
+        color: '#64748b'
+      },
       emphasis: {
-        label: { show: true, fontSize: 14, fontWeight: 'bold' },
+        label: {
+          show: true,
+          fontSize: 16,
+          fontWeight: 'bold',
+          color: '#0f172a',
+          formatter: function(params: any) {
+            return `${params.value}\n${params.percent}%`
+          }
+        },
         itemStyle: {
-          shadowBlur: 10,
+          shadowBlur: 12,
           shadowOffsetX: 0,
-          shadowColor: 'rgba(0, 0, 0, 0.5)'
+          shadowColor: 'rgba(0, 0, 0, 0.4)',
+          borderWidth: 2,
+          borderColor: 'rgba(255, 255, 255, 0.8)'
         }
       },
       labelLine: { show: false },
-      data: analyticsData?.operationTypes?.slice(0, 8).map((item, index) => ({
-        value: item.count,
-        name: item.operation,
-        itemStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 1,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: chartTheme.color[index % chartTheme.color.length] },
-              { offset: 1, color: adjustColorBrightness(chartTheme.color[index % chartTheme.color.length], -20) }
-            ]
+      data: analyticsData?.operationTypes?.slice(0, 12).map((item, index) => {
+        const total = analyticsData?.operationTypes?.reduce((sum, op) => sum + op.count, 0) || 1
+        const percentage = ((item.count / total) * 100).toFixed(1)
+        return {
+          value: item.count,
+          name: getOperationAbbreviation(item.operation),
+          percentage: parseFloat(percentage),
+          itemStyle: {
+            color: {
+              type: 'linear',
+              x: 0,
+              y: 0,
+              x2: 1,
+              y2: 1,
+              colorStops: [
+                { offset: 0, color: chartTheme.color[index % chartTheme.color.length] },
+                { offset: 1, color: adjustColorBrightness(chartTheme.color[index % chartTheme.color.length], -30) }
+              ]
+            }
           }
         }
-      })) || []
+      }) || []
     }]
   }
 

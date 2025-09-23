@@ -577,16 +577,17 @@ export function APIKeyManagement() {
               ) : (
                 <>
                   <div className="border rounded-md">
-                    <table className="w-full text-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm min-w-[800px]">
                       <thead className="bg-muted">
                         <tr>
-                          <th className="text-left p-3 w-1/6">Time</th>
-                          <th className="text-left p-3 w-1/6">API Key</th>
-                          <th className="text-left p-3 w-1/12">Method</th>
-                          <th className="text-left p-3 w-1/3">Endpoint</th>
-                          <th className="text-left p-3 w-1/12">Status</th>
-                          <th className="text-left p-3 w-1/12">Response</th>
-                          <th className="text-left p-3 w-1/6">IP Address</th>
+                          <th className="text-left p-3 w-32">Time</th>
+                          <th className="text-left p-3 w-32">API Key</th>
+                          <th className="text-left p-3 w-20">Method</th>
+                          <th className="text-left p-3 w-48">Endpoint</th>
+                          <th className="text-left p-3 w-20">Status</th>
+                          <th className="text-left p-3 w-24">Response</th>
+                          <th className="text-left p-3 w-32">IP Address</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -595,8 +596,13 @@ export function APIKeyManagement() {
                             <td className="p-3 text-xs truncate" title={formatDate(log.requestTime)}>
                               {formatDate(log.requestTime)}
                             </td>
-                            <td className="p-3 truncate" title={getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)}>
-                              {getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)}
+                            <td className="p-3 w-32">
+                              <div className="truncate" title={getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)}>
+                                {(() => {
+                                  const displayName = getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)
+                                  return displayName.length > 20 ? `${displayName.slice(0, 17)}...` : displayName
+                                })()}
+                              </div>
                             </td>
                             <td className="p-3">
                               <span className={`px-2 py-0.5 rounded text-xs ${
@@ -609,10 +615,12 @@ export function APIKeyManagement() {
                                 {log.method}
                               </span>
                             </td>
-                            <td className="p-3">
-                              <code className="text-xs bg-gray-100 px-1 py-0.5 rounded font-mono truncate block" title={log.endpoint}>
-                                {log.endpoint}
-                              </code>
+                            <td className="p-3 w-48">
+                              <div className="truncate" title={log.endpoint}>
+                                <code className="text-xs bg-gray-100 px-1 py-0.5 rounded font-mono">
+                                  {log.endpoint.length > 40 ? `${log.endpoint.slice(0, 37)}...` : log.endpoint}
+                                </code>
+                              </div>
                             </td>
                             <td className="p-3">
                               <span className={`px-2 py-0.5 rounded text-xs ${
@@ -632,7 +640,8 @@ export function APIKeyManagement() {
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                      </table>
+                    </div>
                   </div>
 
                   {/* Pagination */}

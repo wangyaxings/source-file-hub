@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 
 import { useSearchParams, useRouter } from "next/navigation"
@@ -339,7 +339,7 @@ export function FileList({ refreshTrigger }: FileListProps) {
                                 Latest
                               </Badge>
                             )}
-                            <div className="font-mono text-sm truncate" title={v.versionId}>
+                            <div className="font-mono text-sm" title={v.versionId}>
                               {v.versionId}
                             </div>
                           </div>
@@ -367,10 +367,10 @@ export function FileList({ refreshTrigger }: FileListProps) {
                         <td className="p-3 w-20">
                           <div className="flex items-center gap-1">
                             {v.path && (
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                onClick={() => apiClient.downloadFile(v.path!)} 
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => apiClient.downloadFile(v.path!)}
                                 title="Download"
                                 className="h-7 px-2"
                               >
@@ -378,10 +378,10 @@ export function FileList({ refreshTrigger }: FileListProps) {
                               </Button>
                             )}
                             {permissions?.canManageFiles && (
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                onClick={() => setEditTags({ open: true, fileType: versionsDialog.fileType, versionId: v.versionId, text: (v.tags||[]).join(', ') })} 
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setEditTags({ open: true, fileType: versionsDialog.fileType, versionId: v.versionId, text: (v.tags||[]).join(', ') })}
                                 title="Edit tags"
                                 className="h-7 px-2"
                               >
@@ -417,10 +417,13 @@ export function FileList({ refreshTrigger }: FileListProps) {
               const tags = editTags.text.split(',').map(t=>t.trim()).filter(Boolean)
               try{
                 await apiClient.updateVersionTagsWeb(editTags.fileType, editTags.versionId, tags)
-                // refresh current list
+                // refresh current list and main file list
                 if (versionsDialog.file) {
                   await handleViewVersions(versionsDialog.file)
                 }
+
+                // Force refresh the main file list to show updated tags
+                loadFiles()
                 setEditTags(prev => ({ ...prev, open: false }))
               }catch(e){
                 toast({ variant:'destructive', title:'Update failed', description: e instanceof Error ? e.message : 'Failed' })
@@ -521,8 +524,8 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
                 </div>
               </td>
               <td className="py-4 w-36 max-w-36 text-sm text-gray-600">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-3 w-3 flex-shrink-0" />
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                  <Clock className="h-2 w-2 flex-shrink-0" />
                   <span className="truncate" title={formatDate(file.uploadTime)}>{formatDate(file.uploadTime)}</span>
                 </div>
               </td>

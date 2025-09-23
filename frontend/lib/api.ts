@@ -560,7 +560,7 @@ class ApiClient {
   }
 
   async adminSetUserRole(userId: string, payload: { role: string; permissions?: string[]; quota_daily?: number; quota_monthly?: number; status?: string }): Promise<void> {
-    const resp = await this.request(`/admin/users/${encodeURIComponent(userId)}/role`, { method: 'PUT', body: JSON.stringify(payload) })
+    const resp = await this.request(`/admin/users/${encodeURIComponent(userId)}`, { method: 'PATCH', body: JSON.stringify(payload) })
     if (!resp.success) throw new Error(resp.error || 'Set role failed')
   }
 
@@ -648,7 +648,7 @@ class ApiClient {
 
   async updateVersionTagsWeb(type: 'roadmap'|'recommendation', versionId: string, tags: string[]): Promise<void> {
     await this.request(`/versions/${type}/${encodeURIComponent(versionId)}/tags`, {
-      method: 'PATCH',
+      method: 'PUT',
       body: JSON.stringify({ tags })
     })
   }

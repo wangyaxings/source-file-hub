@@ -240,11 +240,11 @@ export default function UserManagement() {
         <div className="text-sm text-muted-foreground">Page {page}, total {total}</div>
         <div className="flex items-center gap-2">
           <Select value={String(limit)} onValueChange={(v) => { setLimit(parseInt(v || '20', 10)); setPage(1) }}>
-            <SelectTrigger className="w-[100px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="10">10 / page</SelectItem>
-              <SelectItem value="20">20 / page</SelectItem>
-              <SelectItem value="50">50 / page</SelectItem>
+              <SelectItem value="10">10 / Page</SelectItem>
+              <SelectItem value="20">20 / Page</SelectItem>
+              <SelectItem value="50">50 / Page</SelectItem>
             </SelectContent>
           </Select>
           <div className="flex gap-2">

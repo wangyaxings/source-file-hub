@@ -13,6 +13,8 @@ import { mapApiErrorToMessage } from '@/lib/errors'
 import { usePermissions } from '@/lib/permissions'
 import { formatDate, formatFileSize } from '@/lib/utils'
 import { Files, Loader2, RefreshCw, FileText, Download, Clock, User, History, Trash2, Settings, AlertTriangle, Edit } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 type VersionRow = { versionId: string; tags: string[]; date?: string; sha256?: string; size?: number; fileName?: string; path?: string }
 
@@ -34,6 +36,7 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
 
   const [deleteDialog, setDeleteDialog] = useState<{ isOpen: boolean; file: FileInfo | null }>({ isOpen: false, file: null })
   const [versionsDialog, setVersionsDialog] = useState<{ isOpen: boolean; file: FileInfo | null; versions: VersionRow[]; loading: boolean }>({ isOpen: false, file: null, versions: [], loading: false })
+  const [editTagsDialog, setEditTagsDialog] = useState<{ isOpen: boolean; versionId: string; fileType: 'roadmap' | 'recommendation' | null; currentTags: string; loading: boolean }>({ isOpen: false, versionId: '', fileType: null, currentTags: '', loading: false })
 
   // URL -> local state
   useEffect(() => {
@@ -256,8 +259,8 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
                                 Latest
                               </Badge>
                             )}
-                            <div className="font-mono text-sm truncate" title={v.versionId}>
-                              {v.versionId.slice(0, 12)}
+                            <div className="font-mono text-sm" title={v.versionId}>
+                              {v.versionId}
                             </div>
                           </div>
                         </td>
@@ -298,6 +301,16 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
                               <Button 
                                 variant="ghost" 
                                 size="sm" 
+                                onClick={() => {
+                                  const fileType = versionsDialog.file?.fileType as 'roadmap' | 'recommendation'
+                                  setEditTagsDialog({
+                                    isOpen: true,
+                                    versionId: v.versionId,
+                                    fileType: fileType,
+                                    currentTags: (v.tags || []).join(', '),
+                                    loading: false
+                                  })
+                                }}
                                 title="Edit tags"
                                 className="h-7 px-2"
                               >
@@ -313,6 +326,64 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
               </div>
             ))}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Tags Dialog */}
+      <Dialog open={editTagsDialog.isOpen} onOpenChange={(open) => setEditTagsDialog(prev => ({ ...prev, isOpen: open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Version Tags</DialogTitle>
+            <DialogDescription>
+              Edit tags for version {editTagsDialog.versionId}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="tags">Tags (comma-separated)</Label>
+              <Input
+                id="tags"
+                value={editTagsDialog.currentTags}
+                onChange={(e) => setEditTagsDialog(prev => ({ ...prev, currentTags: e.target.value }))}
+                placeholder="Enter tags separated by commas"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTagsDialog(prev => ({ ...prev, isOpen: false }))}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={async () => {
+                if (!editTagsDialog.fileType || !editTagsDialog.versionId) return
+                
+                setEditTagsDialog(prev => ({ ...prev, loading: true }))
+                try {
+                  const tags = editTagsDialog.currentTags.split(',').map(t => t.trim()).filter(Boolean)
+                  await apiClient.updateVersionTagsWeb(editTagsDialog.fileType, editTagsDialog.versionId, tags)
+                  
+                  // Refresh the versions dialog to show updated tags
+                  if (versionsDialog.file) {
+                    await handleViewVersions(versionsDialog.file)
+                  }
+                  
+                  // Force refresh the main file list to show updated tags
+                  load()
+                  
+                  setEditTagsDialog(prev => ({ ...prev, isOpen: false, loading: false }))
+                  toast({ title: 'Success', description: 'Tags updated successfully' })
+                } catch (e: any) {
+                  const { title, description } = mapApiErrorToMessage(e)
+                  toast({ variant: 'destructive', title, description })
+                  setEditTagsDialog(prev => ({ ...prev, loading: false }))
+                }
+              }}
+              disabled={editTagsDialog.loading}
+            >
+              {editTagsDialog.loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Save
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -338,22 +409,22 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
     )
   }
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr className="border-b text-left text-sm text-gray-500">
-            <th className="pb-4 font-medium w-1/3">File Name</th>
-            <th className="pb-4 font-medium w-20">Size</th>
-            <th className="pb-4 font-medium w-32">Upload Time</th>
-            <th className="pb-4 font-medium w-24">Uploader</th>
-            {showVersions && <th className="pb-4 font-medium w-16">Version</th>}
-            <th className="pb-4 font-medium w-32">Actions</th>
+    <div className="border rounded-md">
+      <table className="w-full text-sm">
+        <thead className="bg-muted">
+          <tr>
+            <th className="text-left p-3 font-medium">File Name</th>
+            <th className="text-left p-3 font-medium w-20">Size</th>
+            <th className="text-left p-3 font-medium w-32">Upload Time</th>
+            <th className="text-left p-3 font-medium w-24">Uploader</th>
+            {showVersions && <th className="text-left p-3 font-medium w-16">Version</th>}
+            <th className="text-left p-3 font-medium w-32">Actions</th>
           </tr>
         </thead>
         <tbody>
           {files.map((file) => (
-            <tr key={file.id || file.path} className="border-b last:border-0 hover:bg-gray-50">
-              <td className="py-4">
+            <tr key={file.id || file.path} className="border-t hover:bg-muted/50">
+              <td className="p-3">
                 <div className="flex items-center gap-3">
                   <div className="flex-shrink-0"><FileText className="h-5 w-5 text-gray-400" /></div>
                   <div>
@@ -362,11 +433,11 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
                   </div>
                 </div>
               </td>
-              <td className="py-4 text-sm text-gray-600">{formatFileSize(file.size)}</td>
-              <td className="py-4 text-sm text-gray-600"><div className="flex items-center gap-2"><Clock className="h-3 w-3" /><span>{formatDate(file.uploadTime)}</span></div></td>
-              <td className="py-4 text-sm text-gray-600"><div className="flex items-center gap-2"><User className="h-3 w-3" /><span>{file.uploader || 'unknown'}</span></div></td>
-              {showVersions && (<td className="py-4 text-sm text-gray-600 font-mono">v{file.version}</td>)}
-              <td className="py-4">
+              <td className="p-3 text-sm text-gray-600">{formatFileSize(file.size)}</td>
+              <td className="p-3 text-sm text-gray-600"><div className="flex items-center gap-2 whitespace-nowrap"><Clock className="h-3 w-3 flex-shrink-0" /><span>{formatDate(file.uploadTime)}</span></div></td>
+              <td className="p-3 text-sm text-gray-600"><div className="flex items-center gap-2"><User className="h-3 w-3" /><span>{file.uploader || 'unknown'}</span></div></td>
+              {showVersions && (<td className="p-3 text-sm text-gray-600 font-mono">v{file.version}</td>)}
+              <td className="p-3">
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" size="sm" onClick={() => onDownload(file)} disabled={downloadingFile === file.path} title="Download File">{downloadingFile === file.path ? (<Loader2 className="h-4 w-4 animate-spin" />) : (<Download className="h-4 w-4" />)}</Button>
                   {!showVersions && onViewVersions && (<Button variant="ghost" size="sm" onClick={() => onViewVersions(file)} title="View Version History"><History className="h-4 w-4" /></Button>)}

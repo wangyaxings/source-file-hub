@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge"
 // Removed DropdownMenu imports - now using direct button
 import { apiClient } from "@/lib/api"
 import { formatDate } from "@/lib/utils"
-import { Search, Loader2, Edit, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react"
+import { Search, Loader2, Edit, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter } from "lucide-react"
 
 type PackageItem = {
   id: string
@@ -87,14 +87,8 @@ export function PackagesPanel() {
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Input 
-                placeholder="Search by tenant, filename, or path..." 
-                value={q} 
-                onChange={e=>setQ(e.target.value)} 
-                className="w-80" 
-              />
-              <Button variant="outline" onClick={handleSearch} size="sm" title="Search">
-                <Search className="h-4 w-4" />
+              <Button variant="outline" onClick={handleSearch} size="sm" title="Search and Filter">
+                <Filter className="h-4 w-4" />
               </Button>
               <Select value={typeFilter} onValueChange={(v)=>setTypeFilter(v)}>
                 <SelectTrigger className="w-28">
@@ -106,8 +100,15 @@ export function PackagesPanel() {
                   <SelectItem value="others">Others</SelectItem>
                 </SelectContent>
               </Select>
+              <Input
+                placeholder="Search by tenant, filename, or path..."
+                value={q}
+                onChange={e=>setQ(e.target.value)}
+                className="w-80"
+              />
             </div>
             <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">{limit} per page</span>
               <Select value={String(limit)} onValueChange={(v)=>{ setLimit(Number(v)); setPage(1); }}>
                 <SelectTrigger className="w-20">
                   <SelectValue />
@@ -248,12 +249,12 @@ function PackageRow({ item, onEdit }: { item: PackageItem, onEdit: () => void })
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
     return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
   }, [item.size])
-  
+
   const fullPath = useMemo(() => {
     const p = (item.path || '').replace(/\\/g, '/');
     return p
   }, [item.path])
-  
+
   const displayPath = useMemo(() => {
     // Remove downloads/packages prefix for display
     const prefix = 'downloads/packages/'

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -295,6 +297,7 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	buildTime := os.Getenv("BUILD_TIME")
 	gitCommit := os.Getenv("GIT_COMMIT")
+	gitTag := os.Getenv("GIT_TAG") // Add git tag support
 
 	response := Response{
 		Success: true,
@@ -308,6 +311,7 @@ func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
 			"build": map[string]interface{}{
 				"time":   buildTime,
 				"commit": gitCommit,
+				"tag":    gitTag,
 			},
 			"endpoints": map[string]interface{}{
 				"api_info":     baseURL,
@@ -804,9 +808,14 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 鐢熸垚鏈€缁堟枃浠跺悕锛?type>_<versionID>.<ext>
+	// 鐢熸垚鏈€缁堟枃浠跺悕锛屽彧浣跨敤 versionID 閬垮厤閲嶅
 	ext = strings.ToLower(filepath.Ext(fixedOriginalName))
-	finalFileName := fmt.Sprintf("%s_%s%s", fileType, versionID, ext)
+	finalFileName := fmt.Sprintf("%s%s", versionID, ext)
+
+	// 确保文件名不包含文件类型前缀，避免重复
+	if strings.HasPrefix(finalFileName, fileType + "_") {
+		finalFileName = strings.TrimPrefix(finalFileName, fileType + "_")
+	}
 
 	// 鍒涘缓鐗堟湰鐩綍
 	versionDir := filepath.Join(targetDir, versionID)
@@ -1265,6 +1274,61 @@ func clearRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
 
 // 杈呭姪鍑芥暟
 
+// generateSecurePassword generates a secure password with the following characteristics:
+// - At least 12 characters long
+// - Contains uppercase letters (A-Z)
+// - Contains lowercase letters (a-z)
+// - Contains digits (0-9)
+// - Contains special characters (!@#$%^&*()_+-=[]{}|;:,.<>?)
+// This follows security best practices for temporary passwords
+func generateSecurePassword(length int) (string, error) {
+	if length < 12 {
+		length = 12 // Minimum secure length
+	}
+
+	// Character sets
+	lowercase := "abcdefghijklmnopqrstuvwxyz"
+	uppercase := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	digits := "0123456789"
+	special := "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+	// All characters combined
+	allChars := lowercase + uppercase + digits + special
+
+	// Ensure at least one character from each set
+	password := make([]byte, length)
+
+	// First, add one character from each required set
+	sets := []string{lowercase, uppercase, digits, special}
+	for i, set := range sets {
+		charIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(set))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random character: %v", err)
+		}
+		password[i] = set[charIndex.Int64()]
+	}
+
+	// Fill the rest with random characters from all sets
+	for i := len(sets); i < length; i++ {
+		charIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(allChars))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random character: %v", err)
+		}
+		password[i] = allChars[charIndex.Int64()]
+	}
+
+	// Shuffle the password to randomize positions
+	for i := len(password) - 1; i > 0; i-- {
+		j, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return "", fmt.Errorf("failed to shuffle password: %v", err)
+		}
+		password[i], password[j.Int64()] = password[j.Int64()], password[i]
+	}
+
+	return string(password), nil
+}
+
 // generateFileID 鐢熸垚鏂囦欢ID
 func generateFileID() string {
 	return fmt.Sprintf("file_%d_%d", time.Now().UnixNano(), os.Getpid())
@@ -1549,6 +1613,7 @@ func RegisterWebAdminRoutes(router *mux.Router) {
 
 	// Users
 	admin.HandleFunc("/users", adminListUsersHandler).Methods("GET")
+	admin.HandleFunc("/users/{id}", adminGetUserHandler).Methods("GET")
 	admin.HandleFunc("/users", adminCreateUserHandler).Methods("POST")
 	admin.HandleFunc("/users/{id}", adminPatchUserHandler).Methods("PATCH")
 	admin.HandleFunc("/users/{id}/approve", adminApproveUserHandler).Methods("POST")
@@ -1893,6 +1958,55 @@ func firstNonEmpty(vals ...string) string {
 // ======================
 // Admin: Users Handlers
 // ======================
+
+func adminGetUserHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userID := vars["id"]
+
+	// Get user from database
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+		return
+	}
+
+	user, err := db.GetUser(userID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			writeErrorWithCode(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+		} else {
+			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get user: "+err.Error())
+		}
+		return
+	}
+
+	// Get user role information
+	userRole, err := db.GetUserRole(userID)
+	if err != nil {
+		// Create default role if not exists
+		userRole = &database.UserRole{
+			UserID: userID,
+			Role:   "viewer",
+			Status: "active",
+		}
+	}
+
+	response := Response{
+		Success: true,
+		Data: map[string]interface{}{
+			"id":           user.Username,
+			"username":     user.Username,
+			"email":        user.Email,
+			"role":         userRole.Role,
+			"status":       userRole.Status,
+			"twofa_enabled": user.TwoFAEnabled,
+			"last_login":   user.LastLoginAt,
+			"created_at":   user.CreatedAt,
+		},
+	}
+
+	writeJSONResponse(w, http.StatusOK, response)
+}
 
 func adminListUsersHandler(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
