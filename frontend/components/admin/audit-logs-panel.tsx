@@ -177,13 +177,13 @@ export function AuditLogsPanel() {
 
           <div className="border rounded-md">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[1200px]">
+              <table className="w-full text-sm min-w-[1400px]">
                 <thead className="bg-muted">
                   <tr>
                     <th className="text-left p-3 w-36 max-w-36">Request Time</th>
                     <th className="text-left p-3 w-40 max-w-40">API Key</th>
                     <th className="text-left p-3 w-20 max-w-20">Method</th>
-                    <th className="text-left p-3 w-48 max-w-48">Endpoint</th>
+                    <th className="text-left p-3 w-64 max-w-64">Endpoint</th>
                     <th className="text-left p-3 w-20 max-w-20">Status</th>
                     <th className="text-left p-3 w-24 max-w-24">Response Size</th>
                     <th className="text-left p-3 w-24 max-w-24">Response Time</th>
@@ -246,7 +246,7 @@ export function AuditLogsPanel() {
                           {item.method}
                         </span>
                       </td>
-                      <td className="p-3 w-48 max-w-48">
+                      <td className="p-3 w-64 max-w-64">
                         <code className="text-xs font-mono truncate block" title={item.endpoint}>
                           {item.endpoint}
                         </code>
@@ -284,6 +284,7 @@ export function AuditLogsPanel() {
                 )}
               </tbody>
             </table>
+            </div>
           </div>
 
           <div className="flex items-center justify-between px-4">
