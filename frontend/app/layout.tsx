@@ -5,8 +5,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'File Manager - Secure File Management',
-  description: 'Secure file upload and management system with support for configuration files, certificates, and documents.',
+  title: 'FileHub',
+  description: 'Operation Center File Version Management for MONA',
 }
 
 export default function RootLayout({

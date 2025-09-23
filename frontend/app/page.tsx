@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
@@ -368,8 +368,8 @@ export default function HomePage() {
                   <Shield className="h-6 w-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900">File Management System</h1>
-                  <p className="text-sm text-gray-500">Secure File Upload and Management Platform</p>
+                  <h1 className="text-xl font-bold text-gray-900">FileHub</h1>
+                  <p className="text-sm text-gray-500">Operation Center File Version Management for MONA</p>
                 </div>
               </div>
               <Button variant="outline" onClick={handleLogout}>
@@ -475,8 +475,8 @@ export default function HomePage() {
                 <Shield className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">File Management System</h1>
-                <p className="text-sm text-gray-500">Secure File Upload and Management Platform</p>
+                <h1 className="text-xl font-bold text-gray-900">FileHub</h1>
+                <p className="text-sm text-gray-500">Operation Center File Version Management for MONA</p>
               </div>
             </div>
 
@@ -637,12 +637,10 @@ export default function HomePage() {
         </Tabs>
       </main>
 
-      {/* 濡炪倓绲婚崜?- 闁搞儱鎼悾楣冨捶閵娿儳淇洪梺?*/}
       <footer className="bg-white border-t border-gray-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-sm text-gray-500">
-            <p>File Manager. Secure File Management System</p>
-            <p className="mt-2">Supports versioned management of configuration files, certificates and documents</p>
+            <p>FileHub - Operation Center File Version Management for MONA</p>
           </div>
         </div>
       </footer>

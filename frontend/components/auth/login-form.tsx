@@ -19,7 +19,6 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     password: ""
   })
   const [isLoading, setIsLoading] = useState(false)
-  const [showOtpInfo, setShowOtpInfo] = useState(true)
   const [error, setError] = useState("")
   const [show2FASetup, setShow2FASetup] = useState(false)
   const [show2FAVerification, setShow2FAVerification] = useState(false)
@@ -130,9 +129,9 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold">System Login</CardTitle>
+        <CardTitle className="text-2xl font-bold">FileHub</CardTitle>
         <CardDescription>
-          Enter your credentials to access the system
+          Enter your credentials to login
         </CardDescription>
       </CardHeader>
       
@@ -148,7 +147,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
                 type="text"
                 value={formData.username}
                 onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
-                placeholder="admin"
+                placeholder="Enter username"
                 required
               />
             </div>
@@ -165,15 +164,6 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               />
             </div>
 
-            {showOtpInfo && (
-              <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded">
-                If your account has 2FA enabled, you will be prompted for verification code.
-                <br />
-                <small>
-                  After login, you can manage 2FA settings in your profile.
-                </small>
-              </div>
-            )}
 
             {error && (
               <div className="text-sm text-red-500 bg-red-50 p-3 rounded-md border border-red-200">
