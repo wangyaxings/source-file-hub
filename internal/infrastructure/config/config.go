@@ -36,11 +36,16 @@ type StorageConfig struct {
     // reserved for future
 }
 
+type ApplicationConfig struct {
+    Version string `yaml:"version"`
+}
+
 type Config struct {
     Server   ServerConfig   `yaml:"server"`
     Database DatabaseConfig `yaml:"database"`
     Security SecurityConfig `yaml:"security"`
     Storage  StorageConfig  `yaml:"storage"`
+    Application ApplicationConfig `yaml:"application"`
 }
 
 // Default returns a config populated with sensible defaults matching current behavior
@@ -57,6 +62,9 @@ func Default() *Config {
         Database: DatabaseConfig{
             Driver:   "sqlite",
             Database: "data/fileserver.db",
+        },
+        Application: ApplicationConfig{
+            Version: "v1.0.0",
         },
     }
 }

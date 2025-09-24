@@ -12,3 +12,5 @@ database:
 security: {}
 storage: {}
 
+application:
+  version: v1.0.0

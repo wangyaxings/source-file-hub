@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
@@ -723,52 +723,7 @@ export default function HomePage() {
                 <span className="text-gray-600 font-medium">Version:</span>
                 <span className="font-mono text-blue-600">{apiInfo?.version || 'N/A'}</span>
               </div>
-            </div>
-
-            {apiInfo?.build && (
-              <div className="bg-gray-50 p-3 rounded-lg space-y-2">
-                {apiInfo.build.tag && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600 font-medium">Git Tag:</span>
-                    <span className="font-mono text-sm text-green-600 bg-green-100 px-2 py-1 rounded border border-green-200">
-                      {apiInfo.build.tag}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600 font-medium">Build Time:</span>
-                  <span className="font-mono text-sm text-gray-700">
-                    {apiInfo.build.time ? new Date(apiInfo.build.time).toLocaleString('zh-CN') : 'N/A'}
-                  </span>
-                </div>
-                {apiInfo.build.commit && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600 font-medium">Git Commit:</span>
-                    <span className="font-mono text-xs text-gray-700 bg-gray-200 px-2 py-1 rounded">
-                      {apiInfo.build.commit.substring(0, 8)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="bg-gray-50 p-3 rounded-lg">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600 font-medium">Server:</span>
-                <span className="text-sm text-gray-700">{apiInfo?.name || 'Secure File Management System'}</span>
-              </div>
-            </div>
-
-            <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
-              <div className="text-xs text-blue-800">
-                <p className="font-medium mb-1">System Information:</p>
-                <p>• HTTPS专用架构</p>
-                <p>• 统一认证文件下载</p>
-                <p>• 基于Casbin的RBAC权限管理</p>
-                <p>• 文件版本控制和回收站</p>
-                <p>• 结构化日志记录</p>
-              </div>
-            </div>
+            </div>          
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={()=> setShowAbout(false)}>Close</Button>

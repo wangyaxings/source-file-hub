@@ -1,0 +1,16 @@
+server:
+  host: 0.0.0.0
+  port: 8443
+  tls:
+    cert_file: certs/server.crt
+    key_file: certs/server.key
+
+database:
+  driver: sqlite
+  database: data/fileserver.db
+
+security: {}
+storage: {}
+
+application:
+  version: v1.0.0

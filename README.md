@@ -1,5 +1,48 @@
 # FileServer
 
+## Versioning and Builds
+
+- Single source of truth
+  - The unified version is stored in `configs/app.yaml` under `application.version`.
+  - Backend API (`/api/v1/web`) reads this value and returns it as `version` in the API response.
+  - Frontend About 弹窗直接从该 API 读取并展示，保证前后端一致。
+
+- How to update version
+  - Edit `configs/app.yaml` (or `configs/app.yaml.example` for reference):
+    application:
+      version: v1.2.3
+  - Rebuild/redeploy（Docker 镜像发布无需额外环境变量）。
+
+- Notes
+  - 若需要记录构建信息（时间/commit/tag），可在 API 层按需补充，但版本号以 `application.version` 为准。
+
+## Versioning and Builds
+
+- Version source
+  - Frontend shows version from `NEXT_PUBLIC_APP_VERSION` baked at build time.
+  - Backend API (`/api/v1/web`) reports `version` from env `APP_VERSION` (fallback to `v1.0.0`).
+
+- Docker build args (recommended)
+  - Inject version metadata at build time so the final Docker image contains the correct version without requiring Git at runtime.
+  - Linux/macOS example:
+    - `docker build -t filehub:$(git describe --tags --always) \
+       --build-arg VERSION=$(git describe --tags --always --dirty) \
+       --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+       --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) \
+       --build-arg GIT_TAG=$(git describe --tags --always) \
+       .`
+  - Windows PowerShell example:
+    - `$ver = git describe --tags --always --dirty; \
+       $bt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); \
+       $commit = git rev-parse --short HEAD; \
+       $tag = git describe --tags --always; \
+       docker build -t filehub:$ver --build-arg VERSION=$ver --build-arg BUILD_TIME=$bt --build-arg GIT_COMMIT=$commit --build-arg GIT_TAG=$tag .`
+
+- Implementation
+  - `frontend/next.config.js`: Injects `NEXT_PUBLIC_APP_VERSION` from `--build-arg VERSION` and falls back to Git, then `'dev'` if unavailable.
+  - `internal/handler/handler.go`: Reads `APP_VERSION`, `BUILD_TIME`, `GIT_COMMIT`, `GIT_TAG` from environment to populate API info.
+  - `Dockerfile`: Propagates `VERSION`, `BUILD_TIME`, `GIT_COMMIT`, `GIT_TAG` to runtime env, and sets `NEXT_PUBLIC_APP_VERSION` during the frontend build stage.
+
 A secure REST API file server implemented in Go with HTTPS support and unified authenticated file download service. Provides enterprise-grade file management, user authentication, and structured logging capabilities.
 
 **🌏 Language**: [English](README.md) | [中文](docs/README-CN.md)

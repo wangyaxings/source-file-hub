@@ -24,7 +24,8 @@ import (
 	"secure-file-hub/internal/database"
 	"secure-file-hub/internal/domain/entities"
 	repo "secure-file-hub/internal/infrastructure/repository/sqlite"
-	"secure-file-hub/internal/logger"
+    "secure-file-hub/internal/logger"
+    cfgpkg "secure-file-hub/internal/infrastructure/config"
 	"secure-file-hub/internal/middleware"
 	fc "secure-file-hub/internal/presentation/http/controllers"
 
@@ -244,12 +245,12 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
-	baseURL := "https://localhost:8443/api/v1"
+    baseURL := "https://localhost:8443/api/v1"
 
-	appVersion := os.Getenv("APP_VERSION")
-	if appVersion == "" {
-		appVersion = "v1.0.0"
-	}
+    // Prefer unified version from configs/app.yaml
+    appCfg := cfgpkg.Load()
+    appVersion := appCfg.Application.Version
+    if appVersion == "" { appVersion = "v1.0.0" }
 	buildTime := os.Getenv("BUILD_TIME")
 	gitCommit := os.Getenv("GIT_COMMIT")
 	gitTag := os.Getenv("GIT_TAG") // Add git tag support
