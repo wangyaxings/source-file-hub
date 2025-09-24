@@ -24,7 +24,7 @@ alwaysApply: true
 
 ## 项目概览
 
-Secure File Hub 是一个企业级安全文件管理系统，采用 Go + Next.js 技术栈，支持：
+File Hub 是一个企业级安全文件管理系统，采用 Go + Next.js 技术栈，支持：
 - HTTPS 专用架构
 - 统一认证文件下载
 - 基于 Casbin 的 RBAC 权限管理

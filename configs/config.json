@@ -1,54 +1,6 @@
 {
-  "server": {
-    "host": "0.0.0.0",
-    "https_port": 8443,
-    "read_timeout": "30s",
-    "write_timeout": "30s",
-    "ssl_enabled": true,
-    "cert_file": "certs/server.crt",
-    "key_file": "certs/server.key"
-  },
-  "application": {
-    "name": "FileServer",
-    "version": "4.0.0",
-    "environment": "production",
-    "protocol": "https"
-  },
-  "logging": {
-    "level": "info",
-    "format": "json"
-  },
-  "features": {
-    "download_enabled": true,
-    "cors_enabled": true,
-    "auth_enabled": true,
-    "ssl_enabled": true,
-    "unified_file_download": true,
-    "authenticated_downloads": true
-  },
-  "auth": {
-    "token_expiry": "24h",
-    "require_auth": true,
-    "default_users": [
-      {
-        "tenant_id": "demo",
-        "username": "admin",
-        "description": "Administrator Account"
-      },
-      {
-        "tenant_id": "demo",
-        "username": "user1",
-        "description": "Regular User Account"
-      }
-    ]
-  },
-  "downloads": {
-    "base_directory": "downloads",
-    "allowed_paths": [
-      "configs/",
-      "certificates/",
-      "docs/"
-    ],
-    "supported_types": [".json", ".crt", ".key", ".txt", ".log", ".pem"]
+  "session": {
+    "auth_key": "",
+    "enc_key": ""
   }
 }

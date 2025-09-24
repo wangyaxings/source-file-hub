@@ -7,8 +7,8 @@
     "locality": ["Beijing"]
   },
   "validity": {
-    "not_before": "2025-09-15T22:38:52+08:00",
-    "not_after": "2026-09-15T22:38:52+08:00"
+    "not_before": "2025-09-24T16:57:43+08:00",
+    "not_after": "2026-09-24T16:57:43+08:00"
   },
   "key_usage": ["Digital Signature", "Key Encipherment"],
   "ext_key_usage": ["Server Authentication"],

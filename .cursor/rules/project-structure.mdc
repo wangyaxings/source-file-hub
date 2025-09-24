@@ -2,7 +2,7 @@
 alwaysApply: true
 ---
 
-# Secure File Hub 项目结构指南
+# File Hub 项目结构指南
 
 这是一个基于 Go + Next.js 的企业级安全文件管理系统，采用清洁架构设计。
 

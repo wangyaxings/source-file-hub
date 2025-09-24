@@ -1,8 +1,8 @@
-Secure File Hub - Offline Bundle
+File Hub - Offline Bundle
 ================================
 
 This folder contains prebuilt images (as tar) and a compose file to run
-Secure File Hub on any machine with Docker + Docker Compose.
+File Hub on any machine with Docker + Docker Compose.
 
 Contents
 - images/backend.tar            Prebuilt backend image (tag: secure-file-hub-backend:bundle)

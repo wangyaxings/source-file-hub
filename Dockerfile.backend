@@ -1,12 +1,12 @@
 # ================================
-# Secure File Hub - Backend Image (Go)
+# File Hub - Backend Image (Go)
 # Best-practice multi-stage build, HTTPS-only backend
 # ================================
 
 FROM golang:1.23-alpine AS builder
 
-LABEL maintainer="Secure File Hub Team"
-LABEL description="Secure File Hub - Backend Builder"
+LABEL maintainer="File Hub Team"
+LABEL description="File Hub - Backend Builder"
 
 WORKDIR /build
 
@@ -38,8 +38,8 @@ RUN apk del .build-deps || true
 # ================================
 FROM alpine:3.18 AS runtime
 
-LABEL maintainer="Secure File Hub Team"
-LABEL description="Secure File Hub - Backend Runtime"
+LABEL maintainer="File Hub Team"
+LABEL description="File Hub - Backend Runtime"
 
 WORKDIR /app
 

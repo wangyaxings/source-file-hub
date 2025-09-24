@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # ========================================
-# Secure File Hub - Database Initialization Script
+# File Hub - Database Initialization Script
 # ========================================
 # This script initializes a clean database with only the admin user
 
@@ -36,7 +36,7 @@ INIT_SCRIPT="${INIT_SCRIPT:-/app/scripts/init-clean-db.sql}"
 BACKUP_DIR="${BACKUP_DIR:-/app/data/backups}"
 
 log_info "======================================="
-log_info "Secure File Hub Database Initialization"
+log_info "File Hub Database Initialization"
 log_info "======================================="
 
 # Check if database file exists

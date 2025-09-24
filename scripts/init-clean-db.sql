@@ -1,5 +1,5 @@
 -- ========================================
--- Secure File Hub - Clean Database Initialization
+-- File Hub - Clean Database Initialization
 -- ========================================
 -- This script creates a clean database with only the initial admin account
 -- All other data (files, packages, etc.) will be empty

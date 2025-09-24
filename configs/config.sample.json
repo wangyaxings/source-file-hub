@@ -1,0 +1,7 @@
+{
+  "session": {
+    "auth_key": "CHANGE_ME_TO_32+_RANDOM_BYTES",
+    "enc_key": "CHANGE_ME_TO_32+_RANDOM_BYTES"
+  }
+}
+

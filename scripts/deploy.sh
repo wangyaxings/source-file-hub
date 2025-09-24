@@ -11,7 +11,7 @@ LOGS_DIR="$BUNDLE_DIR/logs"
 DOWNLOADS_DIR="$BUNDLE_DIR/downloads"
 COMPOSE_FILE="$BUNDLE_DIR/docker-compose.yml"
 
-echo "[+] Secure File Hub deploy starting in: $BUNDLE_DIR"
+echo "[+] File Hub deploy starting in: $BUNDLE_DIR"
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "[-] '$1' not found"; exit 1; }

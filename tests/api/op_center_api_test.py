@@ -13,8 +13,8 @@ Operation Center API 一键测试脚本
   python tmp/op_center_api_test.py --base http://localhost:30080 --api-key sk_xxx --do-info --do-download
   python tmp/op_center_api_test.py --base https://localhost:8443 --api-key sk_xxx ^
     --gen-upload-assets --gen-upload-others --do-upload-assets --do-upload-others
-python tmp/op_center_api_test.py --base https://localhost:8443 --api-key sk_47fc03051414c87d08a7bce4148e30c1e662d32d8b800e7a20e4b24a91dec470 --do-all
-
+python tests/api/op_center_api_test.py --base https://localhost:8443 --api-key sk_30b2b2ac2a938a8fdb4479c41cd0f83b25222b2cebda0f7618a91b94b5cb97bf --do-all
+python tests/api/op_center_api_test.py --base https://10.48.98.78:8444 --api-key sk_3ca3508393986f24268c0b61e1bb59a00254ba5ddcd5485aa473301f0ab05475 --do-all
 注意：
 - 若目标是自签名证书，默认 verify=False；如有可信证书可加 --verify 关闭该行为。
 """

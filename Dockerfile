@@ -1,5 +1,5 @@
 # ================================
-# Secure File Hub - 优化的单容器镜像
+# File Hub - 优化的单容器镜像
 # 外部卷挂载数据、日志和数据库
 # ================================
 
@@ -9,8 +9,8 @@
 FROM golang:1.23-alpine AS backend-builder
 
 # 元数据
-LABEL maintainer="Secure File Hub Team"
-LABEL description="Secure File Hub - Backend Builder"
+LABEL maintainer="File Hub Team"
+LABEL description="File Hub - Backend Builder"
 
 WORKDIR /build
 
@@ -46,7 +46,7 @@ RUN apk del .build-deps
 FROM node:20-alpine AS frontend-builder
 
 # 元数据
-LABEL description="Secure File Hub - Frontend Builder"
+LABEL description="File Hub - Frontend Builder"
 
 WORKDIR /build
 
@@ -78,8 +78,8 @@ RUN yarn build && \
 FROM alpine:3.18 AS runtime
 
 # 元数据
-LABEL maintainer="Secure File Hub Team"
-LABEL description="Secure File Hub - Production Runtime with External Volumes"
+LABEL maintainer="File Hub Team"
+LABEL description="File Hub - Production Runtime with External Volumes"
 LABEL version="2.0.0"
 
 WORKDIR /app

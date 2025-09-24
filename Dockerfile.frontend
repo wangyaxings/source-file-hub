@@ -1,12 +1,12 @@
 ﻿# ================================
-# Secure File Hub - Frontend Image (Next.js)
+# File Hub - Frontend Image (Next.js)
 # Best-practice multi-stage build, HTTPS Next server with API proxy
 # ================================
 
 FROM node:20-alpine AS builder
 
-LABEL maintainer="Secure File Hub Team"
-LABEL description="Secure File Hub - Frontend Builder"
+LABEL maintainer="File Hub Team"
+LABEL description="File Hub - Frontend Builder"
 
 WORKDIR /build
 
@@ -31,8 +31,8 @@ RUN yarn build \
 # ================================
 FROM node:20-alpine AS runtime
 
-LABEL maintainer="Secure File Hub Team"
-LABEL description="Secure File Hub - Frontend Runtime"
+LABEL maintainer="File Hub Team"
+LABEL description="File Hub - Frontend Runtime"
 
 WORKDIR /app
 

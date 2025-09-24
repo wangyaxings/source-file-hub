@@ -151,7 +151,7 @@ start_frontend() {
 # 主函数
 main() {
     log_info "======================================="
-    log_info "Starting Secure File Hub"
+    log_info "Starting File Hub"
     log_info "======================================="
 
     check_environment
@@ -163,7 +163,7 @@ main() {
 
     log_success "All services started successfully!"
     log_info "======================================="
-    log_info "Secure File Hub is running:"
+    log_info "File Hub is running:"
     log_info "  Frontend: http://localhost:30000"
     log_info "  Backend:  https://localhost:8443"
     log_info "======================================="
