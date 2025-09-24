@@ -9,8 +9,6 @@ database:
   driver: sqlite
   database: data/fileserver.db
 
-security: {}
-storage: {}
-
 application:
   version: v1.0.0
+
