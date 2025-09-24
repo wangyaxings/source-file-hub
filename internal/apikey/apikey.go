@@ -132,6 +132,38 @@ func GetValidPermissions() []string {
 	return []string{"read", "download", "upload", "delete", "admin"}
 }
 
+// GetAPIKeyFormatHint returns a hint about the correct API key format
+func GetAPIKeyFormatHint(providedKey string) string {
+	if providedKey == "" {
+		return "API key should be in format: prefix_key (e.g., sk_64hexchars)"
+	}
+
+	parts := strings.Split(providedKey, "_")
+	if len(parts) != 2 {
+		return "API key should have exactly one underscore separator (e.g., sk_64hexchars)"
+	}
+
+	prefix := parts[0]
+	keyPart := parts[1]
+
+	if len(prefix) < 2 || len(prefix) > 10 {
+		return "API key prefix should be 2-10 characters long"
+	}
+
+	if len(keyPart) != 64 {
+		return "API key part should be exactly 64 hexadecimal characters"
+	}
+
+	// Check if all characters are valid hex
+	for _, char := range keyPart {
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+			return "API key part should contain only hexadecimal characters (0-9, a-f, A-F)"
+		}
+	}
+
+	return "API key format is correct"
+}
+
 // GenerateRandomBytes generates random bytes of specified length
 func GenerateRandomBytes(length int) ([]byte, error) {
 	bytes := make([]byte, length)

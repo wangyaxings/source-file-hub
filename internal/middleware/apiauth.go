@@ -68,7 +68,10 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 		// Retrieve API key from database
 		apiKeyRecord, err := db.GetAPIKeyByHash(keyHash)
 		if err != nil {
-			writeAPIErrorResponse(w, http.StatusUnauthorized, "INVALID_API_KEY", "Invalid or expired API key")
+			writeAPIErrorResponse(w, http.StatusUnauthorized, "INVALID_API_KEY", "Invalid or expired API key", map[string]interface{}{
+				"provided_key_format": apikey.GetAPIKeyFormatHint(apiKeyValue),
+				"message":             "The API key is invalid, expired, or does not exist. Please check your API key or contact the administrator.",
+			})
 			return
 		}
 
@@ -347,15 +350,24 @@ func GetClientIP(r *http.Request) string {
 }
 
 // writeAPIErrorResponse writes a JSON error response
-func writeAPIErrorResponse(w http.ResponseWriter, status int, code, message string) {
+func writeAPIErrorResponse(w http.ResponseWriter, status int, code, message string, details ...map[string]interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
+	errorResponse := map[string]interface{}{
+		"code":    code,
+		"message": message,
+	}
+
+	// Add additional details if provided
+	if len(details) > 0 {
+		for key, value := range details[0] {
+			errorResponse[key] = value
+		}
+	}
+
 	response := map[string]interface{}{
-		"error": map[string]interface{}{
-			"code":    code,
-			"message": message,
-		},
+		"error":   errorResponse,
 		"success": false,
 	}
 

@@ -2382,6 +2382,9 @@ func RegisterAPIRoutes(router *mux.Router) {
 	publicAPI.Handle("/versions/{type}/latest/info", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiGetLatestVersionInfoHandler)))).Methods("GET")
 	publicAPI.Handle("/versions/{type}/latest/download", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiDownloadLatestByTypeHandler)))).Methods("GET")
 
+	log.Printf("Registering version status route for roadmap and recommendation")
+	publicAPI.Handle("/versions/{type}/status", middleware.APILoggingMiddleware(http.HandlerFunc(apiGetVersionTypeStatusHandler))).Methods("GET")
+
 	publicAPI.Handle("/versions/{type}/{ver}/info", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiGetVersionInfoHandler)))).Methods("GET")
 
 	publicAPI.Handle("/packages", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(apiListPackagesHandler)))).Methods("GET")
@@ -2407,17 +2410,28 @@ func apiDownloadFileByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rec, err := db.GetFileRecordByID(id)
 	if err != nil {
-		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found")
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found", map[string]interface{}{
+			"file_id": id,
+			"message": "The requested file could not be found in the database.",
+		})
 		return
 	}
 	if rec.Status == database.FileStatusPurged || !rec.FileExists {
-		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not available")
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "FILE_NOT_AVAILABLE", "File not available", map[string]interface{}{
+			"file_id": id,
+			"status":  rec.Status,
+			"message": "The file is not available for download. It may have been deleted or purged.",
+		})
 		return
 	}
 
 	fullPath := rec.FilePath
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File content missing")
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "FILE_CONTENT_MISSING", "File content missing", map[string]interface{}{
+			"file_id":   id,
+			"file_path": fullPath,
+			"message":   "The file record exists but the physical file is missing from storage.",
+		})
 		return
 	}
 	f, err := os.Open(fullPath)
@@ -2479,7 +2493,10 @@ func apiGetLatestVersionInfoHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if latest == nil {
-		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "No file found")
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "NO_LATEST_VERSION", "No latest version available for this type", map[string]interface{}{
+			"type":    t,
+			"message": "There are currently no files available for this version type. This may be because no files have been uploaded yet, or all files are in an inactive state.",
+		})
 		return
 	}
 	info := convertToFileInfo(*latest)
@@ -2530,12 +2547,87 @@ func apiGetVersionInfoHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if target == nil {
-		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "Specified version not found")
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "VERSION_NOT_FOUND", "Specified version not found", map[string]interface{}{
+			"type":    t,
+			"version": ver,
+			"message": "The requested version does not exist for this file type. Please check the version identifier or use 'latest' to get the most recent version.",
+		})
 		return
 	}
 	info := convertToFileInfo(*target)
 	info.VersionID = ver
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"version": info}})
+}
+
+func apiGetVersionTypeStatusHandler(w http.ResponseWriter, r *http.Request) {
+	t := strings.ToLower(mux.Vars(r)["type"])
+	if t != "roadmap" && t != "recommendation" {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
+		return
+	}
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		return
+	}
+	items, err := db.GetFilesByType(t, false)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	var latest *database.FileRecord
+	hasActive := false
+	for i := range items {
+		if items[i].IsLatest && items[i].Status == database.FileStatusActive {
+			latest = &items[i]
+			break
+		}
+	}
+	if latest == nil && len(items) > 0 {
+		for i := range items {
+			if items[i].Status == database.FileStatusActive {
+				hasActive = true
+				if latest == nil || items[i].Version > latest.Version {
+					latest = &items[i]
+				}
+			}
+		}
+	}
+	var status string
+	var message string
+	if latest != nil {
+		status = "available"
+		message = "Latest version is available for download"
+	} else if hasActive {
+		status = "available"
+		message = "Active versions exist but none is marked as latest"
+	} else if len(items) > 0 {
+		status = "inactive"
+		message = "All versions are in inactive state"
+	} else {
+		status = "empty"
+		message = "No files uploaded for this type"
+	}
+
+	writeJSONResponse(w, http.StatusOK, Response{
+		Success: true,
+		Data: map[string]interface{}{
+			"type":           t,
+			"status":         status,
+			"message":        message,
+			"total_versions": len(items),
+			"active_versions": len(func() []database.FileRecord {
+				var active []database.FileRecord
+				for _, item := range items {
+					if item.Status == database.FileStatusActive {
+						active = append(active, item)
+					}
+				}
+				return active
+			}()),
+			"has_latest": latest != nil,
+		},
+	})
 }
 
 func apiDownloadLatestByTypeHandler(w http.ResponseWriter, r *http.Request) {
@@ -2572,7 +2664,10 @@ func apiDownloadLatestByTypeHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if latest == nil {
-		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "No file found")
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "NO_LATEST_VERSION", "No latest version available for this type", map[string]interface{}{
+			"type":    t,
+			"message": "There are currently no files available for this version type. This may be because no files have been uploaded yet, or all files are in an inactive state.",
+		})
 		return
 	}
 
