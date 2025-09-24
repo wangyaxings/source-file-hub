@@ -45,7 +45,7 @@ type Response struct {
 	Data    interface{}            `json:"data,omitempty"`
 	Error   string                 `json:"error,omitempty"`
 	Code    string                 `json:"code,omitempty"`
-	Details map[string]interface{} `json:"details,omitempty"`
+	Details map[string]interface{} `json:"details"`
 }
 
 func calculateFileChecksum(filePath string) (string, error) {
@@ -353,7 +353,7 @@ func healthAPIKeyCheckHandler(w http.ResponseWriter, r *http.Request) {
 	if apiKey == "" {
 
 		response := Response{
-			Success: true,
+			Success: false,
 			Message: "Service is healthy, but no API key provided",
 			Data: map[string]interface{}{
 				"healthy":       true,
@@ -367,7 +367,7 @@ func healthAPIKeyCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 	if !apikey.ValidateAPIKeyFormat(apiKey) {
 		response := Response{
-			Success: true,
+			Success: false,
 			Message: "Service is healthy, but API key format is invalid",
 			Data: map[string]interface{}{
 				"healthy":       true,
@@ -398,7 +398,7 @@ func healthAPIKeyCheckHandler(w http.ResponseWriter, r *http.Request) {
 	apiKeyRecord, err := db.GetAPIKeyByHash(keyHash)
 	if err != nil {
 		response := Response{
-			Success: true,
+			Success: false,
 			Message: "Service is healthy, but API key is invalid",
 			Data: map[string]interface{}{
 				"healthy":       true,
@@ -412,7 +412,7 @@ func healthAPIKeyCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 	if apiKeyRecord.Status != "active" {
 		response := Response{
-			Success: true,
+			Success: false,
 			Message: "Service is healthy, but API key is disabled",
 			Data: map[string]interface{}{
 				"healthy":       true,
@@ -426,7 +426,7 @@ func healthAPIKeyCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 	if apiKeyRecord.ExpiresAt != nil && apiKeyRecord.ExpiresAt.Before(time.Now()) {
 		response := Response{
-			Success: true,
+			Success: false,
 			Message: "Service is healthy, but API key has expired",
 			Data: map[string]interface{}{
 				"healthy":       true,
@@ -459,24 +459,9 @@ func writeJSONResponse(w http.ResponseWriter, status int, data interface{}) {
 	}
 }
 
-func writeErrorResponse(w http.ResponseWriter, status int, message string) {
-
-	code := "INTERNAL_ERROR"
-	if status == http.StatusBadRequest {
-		code = "VALIDATION_ERROR"
-	}
-	if status == http.StatusUnauthorized {
-		code = "UNAUTHORIZED"
-	}
-	if status == http.StatusNotFound {
-		code = "NOT_FOUND"
-	}
-	writeErrorWithCode(w, status, code, message)
-}
-
 func writeErrorWithCode(w http.ResponseWriter, status int, code, message string) {
 
-	details := map[string]interface{}{}
+	details := make(map[string]interface{})
 	if rid := w.Header().Get("X-Request-ID"); rid != "" {
 		details["request_id"] = rid
 	}
@@ -491,10 +476,10 @@ func writeErrorWithCode(w http.ResponseWriter, status int, code, message string)
 
 func writeErrorWithCodeDetails(w http.ResponseWriter, status int, code, message string, details map[string]interface{}) {
 	if details == nil {
-		details = map[string]interface{}{}
+		details = make(map[string]interface{})
 	}
+	// Only add request_id from header if it doesn't already exist in details
 	if rid := w.Header().Get("X-Request-ID"); rid != "" {
-
 		if _, ok := details["request_id"]; !ok {
 			details["request_id"] = rid
 		}
@@ -2775,4 +2760,30 @@ func apiUploadZipHandler(w http.ResponseWriter, r *http.Request, kind string) {
 func CleanupExpiredTempKeys() {
 
 	log.Printf("CleanupExpiredTempKeys: placeholder implementation - no expired keys to clean")
+}
+
+// Test helper functions to allow testing of unexported functions
+func WriteErrorWithCodeForTest(w http.ResponseWriter, status int, code, message string) {
+	writeErrorWithCode(w, status, code, message)
+}
+
+func WriteErrorWithCodeDetailsForTest(w http.ResponseWriter, status int, code, message string, details map[string]interface{}) {
+	writeErrorWithCodeDetails(w, status, code, message, details)
+}
+
+func WriteErrorResponseForTest(w http.ResponseWriter, status int, message string) {
+	// Map status codes to error codes for legacy compatibility
+	var code string
+	switch status {
+	case http.StatusBadRequest:
+		code = "VALIDATION_ERROR"
+	case http.StatusUnauthorized:
+		code = "UNAUTHORIZED"
+	case http.StatusNotFound:
+		code = "NOT_FOUND"
+	default:
+		code = "INTERNAL_ERROR"
+	}
+
+	writeErrorWithCode(w, status, code, message)
 }
