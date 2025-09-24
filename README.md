@@ -10,7 +10,7 @@
 
 A secure REST API file server implemented in Go with HTTPS support and unified authenticated file download service. Provides enterprise-grade file management, user authentication, and structured logging capabilities.
 
-**🌏 Language**: [English](README.md) | [中文](docs/README-CN.md)
+**🌏 Language**: [English](README.md)
 
 ## ✨ Features
 
@@ -197,7 +197,7 @@ scripts/quick-test.ps1    # Windows PowerShell
 
 ```bash
 # Pull the image
-docker pull ghcr.io/wangyaxings/source-file-hub:latest
+docker pull xxxx/source-file-hub:latest
 
 # Start with docker-compose
 docker-compose up -d
@@ -280,15 +280,6 @@ curl -k -X POST https://localhost:8443/api/v1/auth/logout \
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🆘 Support
-
-- **Issues**: [GitHub Issues](https://github.com/wangyaxings/source-file-hub/issues)
-- **Documentation**: See the `docs/` directory
-- **API Reference**: [API Guide](docs/api-guide.md)
 
 ---
 
