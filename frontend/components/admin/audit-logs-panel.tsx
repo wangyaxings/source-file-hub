@@ -177,40 +177,40 @@ export function AuditLogsPanel() {
 
           <div className="border rounded-md">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[1400px]">
-                <thead className="bg-muted">
-                  <tr>
-                    <th className="text-left p-3 w-36 max-w-36">Request Time</th>
-                    <th className="text-left p-3 w-40 max-w-40">API Key</th>
-                    <th className="text-left p-3 w-20 max-w-20">Method</th>
-                    <th className="text-left p-3 w-64 max-w-64">Endpoint</th>
-                    <th className="text-left p-3 w-20 max-w-20">Status</th>
-                    <th className="text-left p-3 w-24 max-w-24">Response Size</th>
-                    <th className="text-left p-3 w-24 max-w-24">Response Time</th>
-                    <th className="text-left p-3 w-32 max-w-32">IP Address</th>
-                    <th className="text-left p-3 w-56 max-w-56">File Path</th>
-                  </tr>
-                </thead>
-              <tbody>
+              <Table className="text-sm min-w-[1400px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-36 max-w-36">Request Time</TableHead>
+                    <TableHead className="w-40 max-w-40">API Key</TableHead>
+                    <TableHead className="w-20 max-w-20">Method</TableHead>
+                    <TableHead className="w-64 max-w-64">Endpoint</TableHead>
+                    <TableHead className="w-20 max-w-20">Status</TableHead>
+                    <TableHead className="w-24 max-w-24">Response Size</TableHead>
+                    <TableHead className="w-24 max-w-24">Response Time</TableHead>
+                    <TableHead className="w-32 max-w-32">IP Address</TableHead>
+                    <TableHead className="w-56 max-w-56">File Path</TableHead>
+                  </TableRow>
+                </TableHeader>
+              <TableBody>
                 {loading ? (
-                  <tr>
-                    <td colSpan={9} className="p-6 text-center">
+                  <TableRow>
+                    <TableCell colSpan={9} className="p-6 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Loading...
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ) : items.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="p-6 text-center text-muted-foreground">
+                  <TableRow>
+                    <TableCell colSpan={9} className="p-6 text-center text-muted-foreground">
                       No usage logs found.
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   items.map((item, idx) => (
-                    <tr key={item.id || idx} className="border-t hover:bg-muted/50">
-                      <td className="p-3 w-36 max-w-36 text-xs truncate" title={
+                    <TableRow key={item.id || idx}>
+                      <TableCell className="w-36 max-w-36 text-xs truncate" title={
                         item.requestTime ?
                           new Date(item.requestTime).toLocaleString('zh-CN', {
                             year: 'numeric',
@@ -231,11 +231,11 @@ export function AuditLogsPanel() {
                             second: '2-digit'
                           }) : ''
                         }
-                      </td>
-                      <td className="p-3 w-40 max-w-40 truncate text-sm" title={item.apiKeyName}>
+                      </TableCell>
+                      <TableCell className="w-40 max-w-40 truncate text-sm" title={item.apiKeyName}>
                         {item.apiKeyName || 'Unknown'}
-                      </td>
-                      <td className="p-3 w-20 max-w-20">
+                      </TableCell>
+                      <TableCell className="w-20 max-w-20">
                         <span className={`px-2 py-0.5 rounded text-xs ${
                           item.method === 'GET' ? 'bg-green-100 text-green-800' :
                           item.method === 'POST' ? 'bg-blue-100 text-blue-800' :
@@ -245,13 +245,13 @@ export function AuditLogsPanel() {
                         }`}>
                           {item.method}
                         </span>
-                      </td>
-                      <td className="p-3 w-64 max-w-64">
+                      </TableCell>
+                      <TableCell className="w-64 max-w-64">
                         <code className="text-xs font-mono truncate block" title={item.endpoint}>
                           {item.endpoint}
                         </code>
-                      </td>
-                      <td className="p-3 w-20 max-w-20">
+                      </TableCell>
+                      <TableCell className="w-20 max-w-20">
                         <span className={`px-2 py-0.5 rounded text-xs ${
                           item.statusCode >= 200 && item.statusCode < 300 ? 'bg-green-100 text-green-800' :
                           item.statusCode >= 400 && item.statusCode < 500 ? 'bg-yellow-100 text-yellow-800' :
@@ -260,17 +260,17 @@ export function AuditLogsPanel() {
                         }`}>
                           {item.statusCode}
                         </span>
-                      </td>
-                      <td className="p-3 w-24 max-w-24 text-xs truncate" title={item.responseSize ? `${(item.responseSize / 1024).toFixed(1)} KB` : '-'}>
+                      </TableCell>
+                      <TableCell className="w-24 max-w-24 text-xs truncate" title={item.responseSize ? `${(item.responseSize / 1024).toFixed(1)} KB` : '-'}>
                         {item.responseSize ? `${(item.responseSize / 1024).toFixed(1)} KB` : '-'}
-                      </td>
-                      <td className="p-3 w-24 max-w-24 text-xs truncate" title={item.responseTimeMs ? `${item.responseTimeMs}ms` : '-'}>
+                      </TableCell>
+                      <TableCell className="w-24 max-w-24 text-xs truncate" title={item.responseTimeMs ? `${item.responseTimeMs}ms` : '-'}>
                         {item.responseTimeMs ? `${item.responseTimeMs}ms` : '-'}
-                      </td>
-                      <td className="p-3 w-32 max-w-32 text-xs truncate font-mono" title={item.ipAddress}>
+                      </TableCell>
+                      <TableCell className="w-32 max-w-32 text-xs truncate font-mono" title={item.ipAddress}>
                         {item.ipAddress}
-                      </td>
-                      <td className="p-3 w-56 max-w-56">
+                      </TableCell>
+                      <TableCell className="w-56 max-w-56">
                         {item.filePath ? (
                           <code className="text-xs font-mono truncate block" title={item.filePath}>
                             {item.filePath}
@@ -278,12 +278,12 @@ export function AuditLogsPanel() {
                         ) : (
                           <span className="text-xs text-gray-400">-</span>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             </div>
           </div>
 

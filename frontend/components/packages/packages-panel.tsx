@@ -7,9 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-// Removed Table imports - now using native HTML table
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-// Removed DropdownMenu imports - now using direct button
 import { apiClient } from "@/lib/api"
 import { formatDate } from "@/lib/utils"
 import { Search, Loader2, Edit, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter } from "lucide-react"
@@ -127,42 +126,42 @@ export function PackagesPanel() {
 
           <div className="border rounded-md">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[1000px]">
-              <thead className="bg-muted">
-                <tr>
-                  <th className="text-left p-3 w-32 max-w-32">Tenant</th>
-                  <th className="text-left p-3 w-28 max-w-28">IP</th>
-                  <th className="text-left p-3 w-44 max-w-44">Timestamp</th>
-                  <th className="text-left p-3 w-20 max-w-20">Type</th>
-                  <th className="text-left p-3 w-24 max-w-24">Size</th>
-                  <th className="text-left p-3 w-64 max-w-64">File Path</th>
-                  <th className="text-left p-3 w-40 max-w-40">Remark</th>
-                  <th className="text-left p-3 w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
+              <Table className="text-sm min-w-[1000px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-32 max-w-32">Tenant</TableHead>
+                    <TableHead className="w-28 max-w-28">IP</TableHead>
+                    <TableHead className="w-44 max-w-44">Timestamp</TableHead>
+                    <TableHead className="w-20 max-w-20">Type</TableHead>
+                    <TableHead className="w-24 max-w-24">Size</TableHead>
+                    <TableHead className="w-64 max-w-64">File Path</TableHead>
+                    <TableHead className="w-40 max-w-40">Remark</TableHead>
+                    <TableHead className="w-10"></TableHead>
+                  </TableRow>
+                </TableHeader>
+              <TableBody>
                 {loadingList ? (
-                  <tr>
-                    <td colSpan={8} className="p-6 text-center">
+                  <TableRow>
+                    <TableCell colSpan={8} className="p-6 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Loading...
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ) : (items?.length ?? 0) === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="p-6 text-center text-muted-foreground">
+                  <TableRow>
+                    <TableCell colSpan={8} className="p-6 text-center text-muted-foreground">
                       No packages found.
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   (items || []).map(item => (
                     <PackageRow key={item.id} item={item} onEdit={() => openRemark(item)} />
                   ))
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             </div>
           </div>
 
@@ -262,23 +261,23 @@ function PackageRow({ item, onEdit }: { item: PackageItem, onEdit: () => void })
   }, [fullPath])
 
   return (
-    <tr className="border-t hover:bg-muted/50">
-      <td className="p-3 w-32 max-w-32">
+    <TableRow>
+      <TableCell className="w-32 max-w-32">
         <div className="truncate text-sm font-medium" title={item.tenantId}>
           {item.tenantId}
         </div>
-      </td>
-      <td className="p-3 w-28 max-w-28">
+      </TableCell>
+      <TableCell className="w-28 max-w-28">
         <div className="truncate text-sm font-mono" title={item.ip}>
           {item.ip}
         </div>
-      </td>
-      <td className="p-3 w-44 max-w-44">
+      </TableCell>
+      <TableCell className="w-44 max-w-44">
         <div className="text-sm truncate" title={formatDate(item.timestamp)}>
           {formatDate(item.timestamp)}
         </div>
-      </td>
-      <td className="p-3 w-20 max-w-20">
+      </TableCell>
+      <TableCell className="w-20 max-w-20">
         <Badge
           variant={item.type === 'assets' ? 'default' : 'secondary'}
           className="text-xs"
@@ -286,23 +285,23 @@ function PackageRow({ item, onEdit }: { item: PackageItem, onEdit: () => void })
         >
           {item.type}
         </Badge>
-      </td>
-      <td className="p-3 w-24 max-w-24">
+      </TableCell>
+      <TableCell className="w-24 max-w-24">
         <div className="text-sm truncate" title={sizeFmt}>{sizeFmt}</div>
-      </td>
-      <td className="p-3 w-64 max-w-64">
+      </TableCell>
+      <TableCell className="w-64 max-w-64">
         <div className="text-sm overflow-hidden" title={fullPath}>
           <span className="font-mono truncate">
             {displayPath}
           </span>
         </div>
-      </td>
-      <td className="p-3 w-40 max-w-40">
+      </TableCell>
+      <TableCell className="w-40 max-w-40">
         <div className="truncate text-sm" title={item.remark || ''}>
           {item.remark || ''}
         </div>
-      </td>
-      <td className="p-3 w-10 max-w-10">
+      </TableCell>
+      <TableCell className="w-10 max-w-10">
         <Button
           variant="ghost"
           className="h-8 w-8 p-0"
@@ -313,7 +312,7 @@ function PackageRow({ item, onEdit }: { item: PackageItem, onEdit: () => void })
           <Edit className="h-4 w-4" />
           <span className="sr-only">Edit Remark</span>
         </Button>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   )
 }

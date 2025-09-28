@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/lib/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { usePermissions } from "@/lib/permissions"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { UserPlus, Search, Filter, ChevronUp, ChevronDown, Check, X, Edit, Key, Shield } from "lucide-react"
 
 type UserRow = {
@@ -172,24 +173,24 @@ export default function UserManagement() {
       </div>
 
       <div className="border rounded-md">
-        <table className="w-full text-sm">
-          <thead className="bg-muted">
-            <tr>
-              <th className="text-left p-3 w-1/6">Username</th>
-              <th className="text-left p-3 w-1/6">Email</th>
-              <th className="text-left p-3 w-1/8">Role</th>
-              <th className="text-left p-3 w-1/8">Status</th>
-              <th className="text-left p-3 w-1/8">2FA</th>
-              <th className="text-left p-3 w-1/6">Last Login</th>
-              <th className="text-left p-3 w-1/6">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table className="text-sm">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-1/6">Username</TableHead>
+              <TableHead className="w-1/6">Email</TableHead>
+              <TableHead className="w-1/8">Role</TableHead>
+              <TableHead className="w-1/8">Status</TableHead>
+              <TableHead className="w-1/8">2FA</TableHead>
+              <TableHead className="w-1/6">Last Login</TableHead>
+              <TableHead className="w-1/6">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {filtered.map(u => (
-              <tr key={u.user_id} className="border-t hover:bg-muted/50">
-                <td className="p-3 font-medium truncate">{u.user_id}</td>
-                <td className="p-3 truncate">{u.email || '-'}</td>
-                <td className="p-3">
+              <TableRow key={u.user_id}>
+                <TableCell className="font-medium truncate">{u.user_id}</TableCell>
+                <TableCell className="truncate">{u.email || '-'}</TableCell>
+                <TableCell>
                   <Select defaultValue={u.role} onValueChange={(v) => onChangeRole(u, v)}>
                     <SelectTrigger className="w-24 h-7 text-xs">
                       <SelectValue />
@@ -199,17 +200,17 @@ export default function UserManagement() {
                       <SelectItem value="administrator">admin</SelectItem>
                     </SelectContent>
                   </Select>
-                </td>
-                <td className="p-3">
+                </TableCell>
+                <TableCell>
                   <span className={`px-2 py-0.5 rounded text-xs ${u.status==='active'?'bg-green-100 text-green-700':u.status==='pending'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700'}`}>{u.status}</span>
-                </td>
-                <td className="p-3">
+                </TableCell>
+                <TableCell>
                   <Button size="sm" variant={u.two_fa ? 'secondary' : 'outline'} onClick={() => onToggle2FA(u)} className="h-7 px-2">
                     <Shield className={`h-3 w-3 ${u.two_fa ? 'text-green-600' : ''}`} />
                   </Button>
-                </td>
-                <td className="p-3 text-xs truncate">{u.last_login ? new Date(u.last_login).toLocaleString() : '-'}</td>
-                <td className="p-3">
+                </TableCell>
+                <TableCell className="text-xs truncate">{u.last_login ? new Date(u.last_login).toLocaleString() : '-'}</TableCell>
+                <TableCell>
                   <div className="flex gap-1">
                     {u.status !== 'active' && (
                       <Button size="sm" onClick={() => onApprove(u)} className="h-7 px-2" title="Approve">
@@ -227,14 +228,14 @@ export default function UserManagement() {
                       setCredOpen(true)
                     }} />
                   </div>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
             {filtered.length === 0 && (
-              <tr><td className="p-4 text-center text-muted-foreground" colSpan={7}>No users</td></tr>
+              <TableRow><TableCell className="p-4 text-center text-muted-foreground" colSpan={7}>No users</TableCell></TableRow>
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
       <div className="flex items-center justify-between py-2">
         <div className="text-sm text-muted-foreground">Page {page}, total {total}</div>

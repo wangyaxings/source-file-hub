@@ -5,6 +5,7 @@ import { apiClient } from '@/lib/api'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 export default function AuditLogsPage() {
   const [mounted, setMounted] = useState(false)
@@ -56,31 +57,31 @@ export default function AuditLogsPage() {
         <Button variant="secondary" onClick={() => { setPage(1); load() }} disabled={loading}>{loading ? 'Loading...' : 'Search'}</Button>
       </div>
       <div className="overflow-x-auto border rounded-md">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted">
-            <tr>
-              <th className="text-left p-2">Time</th>
-              <th className="text-left p-2">Actor</th>
-              <th className="text-left p-2">Target</th>
-              <th className="text-left p-2">Action</th>
-              <th className="text-left p-2">Details</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table className="min-w-full text-sm">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Actor</TableHead>
+              <TableHead>Target</TableHead>
+              <TableHead>Action</TableHead>
+              <TableHead>Details</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {items.map((it, idx) => (
-              <tr key={idx} className="border-t">
-                <td className="p-2">{it.createdAt || it.created_at || ''}</td>
-                <td className="p-2">{it.actor}</td>
-                <td className="p-2">{it.targetUser || it.target_user}</td>
-                <td className="p-2">{it.action}</td>
-                <td className="p-2"><code className="text-xs break-words">{it.details}</code></td>
-              </tr>
+              <TableRow key={idx}>
+                <TableCell>{it.createdAt || it.created_at || ''}</TableCell>
+                <TableCell>{it.actor}</TableCell>
+                <TableCell>{it.targetUser || it.target_user}</TableCell>
+                <TableCell>{it.action}</TableCell>
+                <TableCell><code className="text-xs break-words">{it.details}</code></TableCell>
+              </TableRow>
             ))}
             {items.length === 0 && (
-              <tr><td className="p-4 text-center text-muted-foreground" colSpan={5}>No records</td></tr>
+              <TableRow><TableCell className="p-4 text-center text-muted-foreground" colSpan={5}>No records</TableCell></TableRow>
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
       <div className="flex items-center justify-between py-2">
         <div className="text-sm text-muted-foreground">Page {page}, total {total}</div>

@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/lib/use-toast"
 import { formatDate, isoToDatetimeLocal, datetimeLocalToISO } from "@/lib/utils"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { AnalyticsCharts } from "./analytics-charts"
 import {
   Key,
@@ -578,33 +579,33 @@ export function APIKeyManagement() {
                 <>
                   <div className="border rounded-md">
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm min-w-[800px]">
-                      <thead className="bg-muted">
-                        <tr>
-                          <th className="text-left p-3 w-32">Time</th>
-                          <th className="text-left p-3 w-32">API Key</th>
-                          <th className="text-left p-3 w-20">Method</th>
-                          <th className="text-left p-3 w-48">Endpoint</th>
-                          <th className="text-left p-3 w-20">Status</th>
-                          <th className="text-left p-3 w-24">Response</th>
-                          <th className="text-left p-3 w-32">IP Address</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                      <Table className="text-sm min-w-[800px]">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-32">Time</TableHead>
+                            <TableHead className="w-32">API Key</TableHead>
+                            <TableHead className="w-20">Method</TableHead>
+                            <TableHead className="w-48">Endpoint</TableHead>
+                            <TableHead className="w-20">Status</TableHead>
+                            <TableHead className="w-24">Response</TableHead>
+                            <TableHead className="w-32">IP Address</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                      <TableBody>
                         {usageLogs.map((log) => (
-                          <tr key={log.id} className="border-t hover:bg-muted/50">
-                            <td className="p-3 text-xs truncate" title={formatDate(log.requestTime)}>
+                          <TableRow key={log.id}>
+                            <TableCell className="text-xs truncate" title={formatDate(log.requestTime)}>
                               {formatDate(log.requestTime)}
-                            </td>
-                            <td className="p-3 w-32">
+                            </TableCell>
+                            <TableCell className="w-32">
                               <div className="truncate" title={getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)}>
                                 {(() => {
                                   const displayName = getAPIKeyDisplayName(log.apiKeyId, log.apiKeyName)
                                   return displayName.length > 20 ? `${displayName.slice(0, 17)}...` : displayName
                                 })()}
                               </div>
-                            </td>
-                            <td className="p-3">
+                            </TableCell>
+                            <TableCell>
                               <span className={`px-2 py-0.5 rounded text-xs ${
                                 log.method === 'GET' ? 'bg-blue-100 text-blue-800' :
                                 log.method === 'POST' ? 'bg-green-100 text-green-800' :
@@ -614,15 +615,15 @@ export function APIKeyManagement() {
                               }`}>
                                 {log.method}
                               </span>
-                            </td>
-                            <td className="p-3 w-48">
+                            </TableCell>
+                            <TableCell className="w-48">
                               <div className="truncate" title={log.endpoint}>
                                 <code className="text-xs bg-gray-100 px-1 py-0.5 rounded font-mono">
                                   {log.endpoint.length > 40 ? `${log.endpoint.slice(0, 37)}...` : log.endpoint}
                                 </code>
                               </div>
-                            </td>
-                            <td className="p-3">
+                            </TableCell>
+                            <TableCell>
                               <span className={`px-2 py-0.5 rounded text-xs ${
                                 log.statusCode >= 200 && log.statusCode < 300
                                   ? 'bg-green-100 text-green-800'
@@ -632,15 +633,15 @@ export function APIKeyManagement() {
                               }`}>
                                 {log.statusCode}
                               </span>
-                            </td>
-                            <td className="p-3 text-xs">{log.responseTimeMs}ms</td>
-                            <td className="p-3 text-xs font-mono truncate" title={log.ipAddress}>
+                            </TableCell>
+                            <TableCell className="text-xs">{log.responseTimeMs}ms</TableCell>
+                            <TableCell className="text-xs font-mono truncate" title={log.ipAddress}>
                               {log.ipAddress}
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </tbody>
-                      </table>
+                      </TableBody>
+                      </Table>
                     </div>
                   </div>
 

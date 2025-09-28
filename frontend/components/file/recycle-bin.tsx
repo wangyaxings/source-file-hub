@@ -8,6 +8,7 @@ import { apiClient } from "@/lib/api"
 import { formatFileSize, formatDate } from "@/lib/utils"
 import { useToast } from "@/lib/use-toast"
 import { usePermissions } from "@/lib/permissions"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Trash2,
   RefreshCw,
@@ -193,21 +194,21 @@ export function RecycleBin() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
-                    <th className="pb-4 font-medium w-1/4">File Name</th>
-                    <th className="pb-4 font-medium w-20">Size</th>
-                    <th className="pb-4 font-medium w-24">Deleted By</th>
-                    <th className="pb-4 font-medium w-32">Deleted At</th>
-                    <th className="pb-4 font-medium w-24">Days Left</th>
-                    <th className="pb-4 font-medium w-32">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="w-full">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-1/4">File Name</TableHead>
+                    <TableHead className="w-20">Size</TableHead>
+                    <TableHead className="w-24">Deleted By</TableHead>
+                    <TableHead className="w-32">Deleted At</TableHead>
+                    <TableHead className="w-24">Days Left</TableHead>
+                    <TableHead className="w-32">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {items.map((item) => (
-                    <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="py-4">
+                    <TableRow key={item.id}>
+                      <TableCell>
                         <div className="flex items-center gap-3">
                           <div className="flex-shrink-0">
                             <FileText className="h-5 w-5 text-gray-400" />
@@ -227,23 +228,23 @@ export function RecycleBin() {
                             )}
                           </div>
                         </div>
-                      </td>
-                      <td className="py-4 text-sm text-gray-600">
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-600">
                         {formatFileSize(item.size)}
-                      </td>
-                      <td className="py-4 text-sm text-gray-600">
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-600">
                         <div className="flex items-center gap-2">
                           <User className="h-3 w-3" />
                           <span>{item.deletedBy || "unknown"}</span>
                         </div>
-                      </td>
-                      <td className="py-4 text-sm text-gray-600">
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-600">
                         <div className="flex items-center gap-2">
                           <Clock className="h-3 w-3" />
                           <span>{formatDate(item.deletedAt)}</span>
                         </div>
-                      </td>
-                      <td className="py-4 text-sm">
+                      </TableCell>
+                      <TableCell className="text-sm">
                         <span className={`px-2 py-1 rounded-full text-xs ${
                           item.daysUntilPurge <= 7
                             ? 'bg-red-100 text-red-800'
@@ -253,8 +254,8 @@ export function RecycleBin() {
                         }`}>
                           {item.daysUntilPurge <= 0 ? 'Expired' : `${item.daysUntilPurge} days`}
                         </span>
-                      </td>
-                      <td className="py-4">
+                      </TableCell>
+                      <TableCell>
                         <div className="flex items-center gap-2">
                           {permissions?.canAccessRecycle && (
                             <Button
@@ -272,11 +273,11 @@ export function RecycleBin() {
                             </Button>
                           )}
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>

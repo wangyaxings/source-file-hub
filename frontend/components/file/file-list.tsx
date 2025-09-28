@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { apiClient, type FileInfo } from "@/lib/api"
 import { formatFileSize, formatDate } from "@/lib/utils"
 import { useToast } from "@/lib/use-toast"
@@ -317,21 +318,21 @@ export function FileList({ refreshTrigger }: FileListProps) {
               <div className="p-6 text-sm text-gray-500">No versions</div>
             ) : (
               <div className="border rounded-md">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted">
-                    <tr>
-                      <th className="text-left p-3 w-48">Version</th>
-                      <th className="text-left p-3 w-44">Date</th>
-                      <th className="text-left p-3 w-32">SHA256</th>
-                      <th className="text-left p-3 w-48">Tags</th>
-                      <th className="text-left p-3 w-20">Size</th>
-                      <th className="text-left p-3 w-20">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table className="text-sm">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-48">Version</TableHead>
+                      <TableHead className="w-44">Date</TableHead>
+                      <TableHead className="w-32">SHA256</TableHead>
+                      <TableHead className="w-48">Tags</TableHead>
+                      <TableHead className="w-20">Size</TableHead>
+                      <TableHead className="w-20">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {versionsDialog.versions.map((v, index) => (
-                      <tr key={v.versionId} className="border-t hover:bg-muted/50">
-                        <td className="p-3 w-48">
+                      <TableRow key={v.versionId}>
+                        <TableCell className="w-48">
                           <div className="flex items-center gap-2">
                             {index === 0 && (
                               <Badge variant="default" className="text-xs bg-green-600 hover:bg-green-700">
@@ -342,28 +343,28 @@ export function FileList({ refreshTrigger }: FileListProps) {
                               {v.versionId}
                             </div>
                           </div>
-                        </td>
-                        <td className="p-3 w-44">
+                        </TableCell>
+                        <TableCell className="w-44">
                           <div className="text-sm whitespace-nowrap">
                             {v.date ? formatDate(v.date) : ''}
                           </div>
-                        </td>
-                        <td className="p-3 w-32">
+                        </TableCell>
+                        <TableCell className="w-32">
                           <div className="font-mono text-sm truncate" title={v.sha256 || ''}>
                             {v.sha256 ? v.sha256.slice(0, 12) : ''}
                           </div>
-                        </td>
-                        <td className="p-3 w-48">
+                        </TableCell>
+                        <TableCell className="w-48">
                           <div className="text-sm truncate" title={(v.tags||[]).join(', ')}>
                             {(v.tags||[]).length ? v.tags.join(', ') : <span className="text-muted-foreground">-</span>}
                           </div>
-                        </td>
-                        <td className="p-3 w-20">
+                        </TableCell>
+                        <TableCell className="w-20">
                           <div className="text-sm">
                             {typeof v.size === 'number' ? formatFileSize(v.size) : ''}
                           </div>
-                        </td>
-                        <td className="p-3 w-20">
+                        </TableCell>
+                        <TableCell className="w-20">
                           <div className="flex items-center gap-1">
                             {v.path && (
                               <Button
@@ -388,11 +389,11 @@ export function FileList({ refreshTrigger }: FileListProps) {
                               </Button>
                             )}
                           </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             ))}
           </div>
@@ -488,21 +489,21 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[800px]">
-        <thead>
-          <tr className="border-b text-left text-sm text-gray-500">
-            <th className="pb-4 font-medium w-80 max-w-80">File Name</th>
-            <th className="pb-4 font-medium w-20 max-w-20">Size</th>
-            <th className="pb-4 font-medium w-36 max-w-36">Upload Time</th>
-            <th className="pb-4 font-medium w-24 max-w-24">Uploader</th>
-            {showVersions && <th className="pb-4 font-medium w-16 max-w-16">Version</th>}
-            <th className="pb-4 font-medium w-32 max-w-32">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table className="min-w-[800px]">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-80 max-w-80">File Name</TableHead>
+            <TableHead className="w-20 max-w-20">Size</TableHead>
+            <TableHead className="w-36 max-w-36">Upload Time</TableHead>
+            <TableHead className="w-24 max-w-24">Uploader</TableHead>
+            {showVersions && <TableHead className="w-16 max-w-16">Version</TableHead>}
+            <TableHead className="w-32 max-w-32">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {files.map((file) => (
-            <tr key={file.id || file.path} className="border-b last:border-0 hover:bg-gray-50">
-              <td className="py-4 w-80 max-w-80">
+            <TableRow key={file.id || file.path}>
+              <TableCell className="w-80 max-w-80">
                 <div className="flex items-center gap-3">
                   <div className="flex-shrink-0">
                     <FileText className="h-5 w-5 text-gray-400" />
@@ -516,30 +517,30 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
                     )}
                   </div>
                 </div>
-              </td>
-              <td className="py-4 w-20 max-w-20 text-sm text-gray-600">
+              </TableCell>
+              <TableCell className="w-20 max-w-20 text-sm text-gray-600">
                 <div className="truncate" title={formatFileSize(file.size)}>
                   {formatFileSize(file.size)}
                 </div>
-              </td>
-              <td className="py-4 w-36 max-w-36 text-sm text-gray-600">
+              </TableCell>
+              <TableCell className="w-36 max-w-36 text-sm text-gray-600">
                 <div className="flex items-center gap-2 whitespace-nowrap">
                   <Clock className="h-2 w-2 flex-shrink-0" />
                   <span className="truncate" title={formatDate(file.uploadTime)}>{formatDate(file.uploadTime)}</span>
                 </div>
-              </td>
-              <td className="py-4 w-24 max-w-24 text-sm text-gray-600">
+              </TableCell>
+              <TableCell className="w-24 max-w-24 text-sm text-gray-600">
                 <div className="flex items-center gap-2">
                   <User className="h-3 w-3 flex-shrink-0" />
                   <span className="truncate" title={file.uploader || "unknown"}>{file.uploader || "unknown"}</span>
                 </div>
-              </td>
+              </TableCell>
               {showVersions && (
-                <td className="py-4 w-16 max-w-16 text-sm text-gray-600 font-mono">
+                <TableCell className="w-16 max-w-16 text-sm text-gray-600 font-mono">
                   v{file.version}
-                </td>
+                </TableCell>
               )}
-              <td className="py-4 w-32 max-w-32">
+              <TableCell className="w-32 max-w-32">
                 <div className="flex items-center gap-2">
                   <Button
                     variant="ghost"
@@ -576,11 +577,11 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
                     </Button>
                   )}
                 </div>
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   )
 }

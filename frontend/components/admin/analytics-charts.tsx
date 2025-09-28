@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/lib/use-toast"
 import { apiClient } from "@/lib/api"
 import { mapApiErrorToMessage } from "@/lib/errors"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   RefreshCw,
   Download,
@@ -876,26 +877,26 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Status Code</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Message</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Count</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Percentage</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table className="w-full">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Status Code</TableHead>
+                      <TableHead>Message</TableHead>
+                      <TableHead>Count</TableHead>
+                      <TableHead>Percentage</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {analyticsData.errorTypes.map((error, index) => (
-                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4">
+                      <TableRow key={index}>
+                        <TableCell>
                           <span className="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full font-mono">
                             {error.statusCode}
                           </span>
-                        </td>
-                        <td className="py-3 px-4 text-gray-900">{error.message}</td>
-                        <td className="py-3 px-4 font-medium text-gray-900">{error.count}</td>
-                        <td className="py-3 px-4">
+                        </TableCell>
+                        <TableCell className="text-gray-900">{error.message}</TableCell>
+                        <TableCell className="font-medium text-gray-900">{error.count}</TableCell>
+                        <TableCell>
                           <div className="flex items-center gap-2">
                             <div className="flex-1 bg-gray-200 rounded-full h-2">
                               <div
@@ -909,11 +910,11 @@ export function AnalyticsCharts({ usageLogs, apiKeys }: AnalyticsChartsProps) {
                               {error.percentage.toFixed(2)}%
                             </span>
                           </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </CardContent>
           </Card>

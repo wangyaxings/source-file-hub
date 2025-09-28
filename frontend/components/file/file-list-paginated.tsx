@@ -15,6 +15,7 @@ import { formatDate, formatFileSize } from '@/lib/utils'
 import { Files, Loader2, RefreshCw, FileText, Download, Clock, User, History, Trash2, Settings, AlertTriangle, Edit } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 type VersionRow = { versionId: string; tags: string[]; date?: string; sha256?: string; size?: number; fileName?: string; path?: string }
 
@@ -236,21 +237,21 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
               <div className="p-6 text-sm text-gray-500">No versions</div>
             ) : (
               <div className="border rounded-md">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted">
-                    <tr>
-                      <th className="text-left p-3 w-40">Version</th>
-                      <th className="text-left p-3 w-44">Date</th>
-                      <th className="text-left p-3 w-32">SHA256</th>
-                      <th className="text-left p-3 w-48">Tags</th>
-                      <th className="text-left p-3 w-20">Size</th>
-                      <th className="text-left p-3 w-20">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table className="text-sm">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-40">Version</TableHead>
+                      <TableHead className="w-44">Date</TableHead>
+                      <TableHead className="w-32">SHA256</TableHead>
+                      <TableHead className="w-48">Tags</TableHead>
+                      <TableHead className="w-20">Size</TableHead>
+                      <TableHead className="w-20">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {versionsDialog.versions.map((v, index) => (
-                      <tr key={v.versionId} className="border-t hover:bg-muted/50">
-                        <td className="p-3 w-40">
+                      <TableRow key={v.versionId}>
+                        <TableCell className="w-40">
                           <div className="flex items-center gap-2">
                             {index === 0 && (
                               <Badge variant="default" className="text-xs bg-green-600 hover:bg-green-700">
@@ -261,28 +262,28 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
                               {v.versionId}
                             </div>
                           </div>
-                        </td>
-                        <td className="p-3 w-44">
+                        </TableCell>
+                        <TableCell className="w-44">
                           <div className="text-sm whitespace-nowrap">
                             {v.date ? formatDate(v.date) : ''}
                           </div>
-                        </td>
-                        <td className="p-3 w-32">
+                        </TableCell>
+                        <TableCell className="w-32">
                           <div className="font-mono text-sm truncate" title={v.sha256 || ''}>
                             {v.sha256 ? v.sha256.slice(0, 12) : ''}
                           </div>
-                        </td>
-                        <td className="p-3 w-48">
+                        </TableCell>
+                        <TableCell className="w-48">
                           <div className="text-sm truncate" title={(v.tags||[]).join(', ')}>
                             {(v.tags||[]).length ? v.tags.join(', ') : <span className="text-muted-foreground">-</span>}
                           </div>
-                        </td>
-                        <td className="p-3 w-20">
+                        </TableCell>
+                        <TableCell className="w-20">
                           <div className="text-sm">
                             {typeof v.size === 'number' ? formatFileSize(v.size) : ''}
                           </div>
-                        </td>
-                        <td className="p-3 w-20">
+                        </TableCell>
+                        <TableCell className="w-20">
                           <div className="flex items-center gap-1">
                             {v.path && (
                               <Button
@@ -316,11 +317,11 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
                               </Button>
                             )}
                           </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             ))}
           </div>
@@ -408,21 +409,21 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
   }
   return (
     <div className="border rounded-md">
-      <table className="w-full text-sm">
-        <thead className="bg-muted">
-          <tr>
-            <th className="text-left p-3 font-medium">File Name</th>
-            <th className="text-left p-3 font-medium w-20">Size</th>
-            <th className="text-left p-3 font-medium w-32">Upload Time</th>
-            <th className="text-left p-3 font-medium w-24">Uploader</th>
-            {showVersions && <th className="text-left p-3 font-medium w-16">Version</th>}
-            <th className="text-left p-3 font-medium w-32">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table className="text-sm">
+        <TableHeader>
+          <TableRow>
+            <TableHead>File Name</TableHead>
+            <TableHead className="w-20">Size</TableHead>
+            <TableHead className="w-32">Upload Time</TableHead>
+            <TableHead className="w-24">Uploader</TableHead>
+            {showVersions && <TableHead className="w-16">Version</TableHead>}
+            <TableHead className="w-32">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {files.map((file) => (
-            <tr key={file.id || file.path} className="border-t hover:bg-muted/50">
-              <td className="p-3">
+            <TableRow key={file.id || file.path}>
+              <TableCell>
                 <div className="flex items-center gap-3">
                   <div className="flex-shrink-0"><FileText className="h-5 w-5 text-gray-400" /></div>
                   <div>
@@ -430,22 +431,22 @@ function FileTable({ files, onDownload, onViewVersions, onDelete, downloadingFil
                     {file.description && (<div className="text-sm text-gray-500 mt-1">{file.description}</div>)}
                   </div>
                 </div>
-              </td>
-              <td className="p-3 text-sm text-gray-600">{formatFileSize(file.size)}</td>
-              <td className="p-3 text-sm text-gray-600"><div className="flex items-center gap-2 whitespace-nowrap"><Clock className="h-3 w-3 flex-shrink-0" /><span>{formatDate(file.uploadTime)}</span></div></td>
-              <td className="p-3 text-sm text-gray-600"><div className="flex items-center gap-2"><User className="h-3 w-3" /><span>{file.uploader || 'unknown'}</span></div></td>
-              {showVersions && (<td className="p-3 text-sm text-gray-600 font-mono">v{file.version}</td>)}
-              <td className="p-3">
+              </TableCell>
+              <TableCell className="text-sm text-gray-600">{formatFileSize(file.size)}</TableCell>
+              <TableCell className="text-sm text-gray-600"><div className="flex items-center gap-2 whitespace-nowrap"><Clock className="h-3 w-3 flex-shrink-0" /><span>{formatDate(file.uploadTime)}</span></div></TableCell>
+              <TableCell className="text-sm text-gray-600"><div className="flex items-center gap-2"><User className="h-3 w-3" /><span>{file.uploader || 'unknown'}</span></div></TableCell>
+              {showVersions && (<TableCell className="text-sm text-gray-600 font-mono">v{file.version}</TableCell>)}
+              <TableCell>
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" size="sm" onClick={() => onDownload(file)} disabled={downloadingFile === file.path} title="Download File">{downloadingFile === file.path ? (<Loader2 className="h-4 w-4 animate-spin" />) : (<Download className="h-4 w-4" />)}</Button>
                   {!showVersions && onViewVersions && (<Button variant="ghost" size="sm" onClick={() => onViewVersions(file)} title="View Version History"><History className="h-4 w-4" /></Button>)}
                   {!showVersions && onDelete && (<Button variant="ghost" size="sm" onClick={() => onDelete(file)} className="text-red-600 hover:text-red-700 hover:bg-red-50" title="Delete File"><Trash2 className="h-4 w-4" /></Button>)}
                 </div>
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   )
 }
