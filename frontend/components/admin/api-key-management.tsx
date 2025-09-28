@@ -30,7 +30,9 @@ import {
   AlertTriangle,
   Loader2,
   Calendar,
-  X
+  X,
+  Edit,
+  Download
 } from "lucide-react"
 
 // Feature flag: backend does not yet support clearing expiry

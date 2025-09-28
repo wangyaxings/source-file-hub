@@ -136,13 +136,13 @@ export function PackagesPanel() {
                     <TableHead className="w-24 max-w-24">Size</TableHead>
                     <TableHead className="w-64 max-w-64">File Path</TableHead>
                     <TableHead className="w-40 max-w-40">Remark</TableHead>
-                    <TableHead className="w-10"></TableHead>
+                    <TableHead className="w-10">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
               <TableBody>
                 {loadingList ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="p-6 text-center">
+                    <TableCell colSpan={9} className="p-6 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Loading...
@@ -151,7 +151,7 @@ export function PackagesPanel() {
                   </TableRow>
                 ) : (items?.length ?? 0) === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="p-6 text-center text-muted-foreground">
+                    <TableCell colSpan={9} className="p-6 text-center text-muted-foreground">
                       No packages found.
                     </TableCell>
                   </TableRow>
