@@ -270,24 +270,47 @@ func createAPIUsageLogEntry(r *http.Request, recorder *ResponseRecorder, start t
 // setAuthContextInLogEntry sets authentication-related fields in log entry
 func setAuthContextInLogEntry(logEntry *database.APIUsageLog, authCtx *APIAuthContext, r *http.Request) {
 	if authCtx != nil {
-		logEntry.APIKeyID = authCtx.KeyID
-		logEntry.APIKeyName = authCtx.APIKey.Name
-		logEntry.UserID = authCtx.Role
+		setAPIKeyContext(logEntry, authCtx)
 	} else {
-		// For session-based requests, try to get user info from session
-		if userCtx := r.Context().Value("user"); userCtx != nil {
-			if user, ok := userCtx.(map[string]interface{}); ok {
-				if username, exists := user["username"]; exists {
-					if usernameStr, ok := username.(string); ok {
-						logEntry.UserID = usernameStr
-					}
-				}
-			}
-		}
-		// Mark as web session request
-		logEntry.APIKeyID = "web_session"
-		logEntry.APIKeyName = "Web Session"
+		setSessionContext(logEntry, r)
 	}
+}
+
+func setAPIKeyContext(logEntry *database.APIUsageLog, authCtx *APIAuthContext) {
+	logEntry.APIKeyID = authCtx.KeyID
+	logEntry.APIKeyName = authCtx.APIKey.Name
+	logEntry.UserID = authCtx.Role
+}
+
+func setSessionContext(logEntry *database.APIUsageLog, r *http.Request) {
+	username := extractUserFromSession(r)
+	logEntry.UserID = username
+	logEntry.APIKeyID = "web_session"
+	logEntry.APIKeyName = "Web Session"
+}
+
+func extractUserFromSession(r *http.Request) string {
+	userCtx := r.Context().Value("user")
+	if userCtx == nil {
+		return ""
+	}
+
+	user, ok := userCtx.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	username, exists := user["username"]
+	if !exists {
+		return ""
+	}
+
+	usernameStr, ok := username.(string)
+	if !ok {
+		return ""
+	}
+
+	return usernameStr
 }
 
 // setFileContextInLogEntry sets file-related fields in log entry

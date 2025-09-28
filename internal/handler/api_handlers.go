@@ -291,6 +291,24 @@ func handleAPIDownloadFileByID(w http.ResponseWriter, r *http.Request) {
 
 // findLatestVersion finds the latest version for a given file type
 func findLatestVersion(fileType string) (*database.FileRecord, error) {
+	items, err := getFilesByTypeFromDatabase(fileType)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(items) == 0 {
+		return nil, fmt.Errorf("no files found for type %s", fileType)
+	}
+
+	latest := findLatestVersionFromItems(items)
+	if latest == nil {
+		return nil, fmt.Errorf("no active versions available for type %s", fileType)
+	}
+
+	return latest, nil
+}
+
+func getFilesByTypeFromDatabase(fileType string) ([]database.FileRecord, error) {
 	db := database.GetDatabase()
 	if db == nil {
 		return nil, fmt.Errorf("database not available")
@@ -301,34 +319,29 @@ func findLatestVersion(fileType string) (*database.FileRecord, error) {
 		return nil, fmt.Errorf("failed to get files: %v", err)
 	}
 
-	if len(items) == 0 {
-		return nil, fmt.Errorf("no files found for type %s", fileType)
-	}
+	return items, nil
+}
 
-	var latest *database.FileRecord
+func findLatestVersionFromItems(items []database.FileRecord) *database.FileRecord {
+	// First, try to find the latest marked version
 	for i := range items {
 		if items[i].IsLatest && items[i].Status == database.FileStatusActive {
+			return &items[i]
+		}
+	}
+
+	// If no latest marked version, find the highest version among active items
+	var latest *database.FileRecord
+	for i := range items {
+		if items[i].Status != database.FileStatusActive {
+			continue
+		}
+		if latest == nil || items[i].Version > latest.Version {
 			latest = &items[i]
-			break
 		}
 	}
 
-	if latest == nil {
-		for i := range items {
-			if items[i].Status != database.FileStatusActive {
-				continue
-			}
-			if latest == nil || (latest != nil && items[i].Version > latest.Version) {
-				latest = &items[i]
-			}
-		}
-	}
-
-	if latest == nil {
-		return nil, fmt.Errorf("no active versions available for type %s", fileType)
-	}
-
-	return latest, nil
+	return latest
 }
 
 // getFilesByType retrieves files by type from database
@@ -347,30 +360,6 @@ func determineVersionStatus(items []database.FileRecord) (string, string, *datab
 	status, message := determineStatusAndMessage(latest, items)
 
 	return status, message, latest
-}
-
-func findLatestVersionFromItems(items []database.FileRecord) *database.FileRecord {
-	// First, try to find the latest marked version
-	for i := range items {
-		if items[i].IsLatest && items[i].Status == database.FileStatusActive {
-			return &items[i]
-		}
-	}
-
-	// If no latest marked version, find the highest version among active items
-	if len(items) > 0 {
-		var latest *database.FileRecord
-		for i := range items {
-			if items[i].Status == database.FileStatusActive {
-				if latest == nil || items[i].Version > latest.Version {
-					latest = &items[i]
-				}
-			}
-		}
-		return latest
-	}
-
-	return nil
 }
 
 func determineStatusAndMessage(latest *database.FileRecord, items []database.FileRecord) (string, string) {
@@ -469,68 +458,88 @@ func handleAPIGetVersionInfo(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	t := strings.ToLower(vars["type"])
 	ver := vars["ver"]
-	if t != "roadmap" && t != "recommendation" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
-		return
-	}
-	if strings.TrimSpace(ver) == "" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "version identifier required", map[string]interface{}{"field": "ver"})
+
+	if err := validateVersionInfoRequest(t, ver); err != nil {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error(), map[string]interface{}{"field": "type"})
 		return
 	}
 
 	if strings.EqualFold(ver, "latest") {
-		// Handle latest version request by reusing the same logic
-		t := strings.ToLower(vars["type"])
-		latest, err := findLatestVersion(t)
-		if err != nil {
-			writeErrorWithCodeDetails(w, http.StatusNotFound, "NO_LATEST_VERSION", "No latest version available for this type", map[string]interface{}{
-				"type":    t,
-				"message": err.Error(),
-			})
-			return
-		}
-
-		info := convertToFileInfo(*latest)
-		if info.VersionID == "" {
-			info.VersionID = filepath.Base(filepath.Dir(latest.FilePath))
-		}
-		info.VersionID = ver // Override with "latest"
-		writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"version": info}})
+		handleLatestVersionRequest(w, t)
 		return
 	}
+
+	handleSpecificVersionRequest(w, t, ver)
+}
+
+func validateVersionInfoRequest(fileType, version string) error {
+	if fileType != "roadmap" && fileType != "recommendation" {
+		return fmt.Errorf("type must be 'roadmap' or 'recommendation'")
+	}
+	if strings.TrimSpace(version) == "" {
+		return fmt.Errorf("version identifier required")
+	}
+	return nil
+}
+
+func handleLatestVersionRequest(w http.ResponseWriter, fileType string) {
+	latest, err := findLatestVersion(fileType)
+	if err != nil {
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "NO_LATEST_VERSION", "No latest version available for this type", map[string]interface{}{
+			"type":    fileType,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	info := convertToFileInfo(*latest)
+	if info.VersionID == "" {
+		info.VersionID = filepath.Base(filepath.Dir(latest.FilePath))
+	}
+	info.VersionID = "latest" // Override with "latest"
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"version": info}})
+}
+
+func handleSpecificVersionRequest(w http.ResponseWriter, fileType, version string) {
 	db := database.GetDatabase()
 	if db == nil {
 		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", databaseNotAvailable)
 		return
 	}
-	items, err := db.GetFilesByType(t, false)
+
+	items, err := db.GetFilesByType(fileType, false)
 	if err != nil {
 		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
 	}
-	var target *database.FileRecord
+
+	target := findVersionInItems(items, version)
+	if target == nil {
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "VERSION_NOT_FOUND", versionNotFound, map[string]interface{}{
+			"type":    fileType,
+			"version": version,
+			"message": "The requested version does not exist for this file type. Please check the version identifier or use 'latest' to get the most recent version.",
+		})
+		return
+	}
+
+	info := convertToFileInfo(*target)
+	info.VersionID = version
+	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"version": info}})
+}
+
+func findVersionInItems(items []database.FileRecord, version string) *database.FileRecord {
 	for i := range items {
 		if items[i].Status != database.FileStatusActive {
 			continue
 		}
 
 		vid := filepath.Base(filepath.Dir(items[i].FilePath))
-		if vid == ver {
-			target = &items[i]
-			break
+		if vid == version {
+			return &items[i]
 		}
 	}
-	if target == nil {
-		writeErrorWithCodeDetails(w, http.StatusNotFound, "VERSION_NOT_FOUND", versionNotFound, map[string]interface{}{
-			"type":    t,
-			"version": ver,
-			"message": "The requested version does not exist for this file type. Please check the version identifier or use 'latest' to get the most recent version.",
-		})
-		return
-	}
-	info := convertToFileInfo(*target)
-	info.VersionID = ver
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"version": info}})
+	return nil
 }
 
 func handleAPIGetVersionTypeStatus(w http.ResponseWriter, r *http.Request) {

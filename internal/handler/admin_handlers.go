@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -138,6 +139,45 @@ func handleAdminUpdateAPIKey(w http.ResponseWriter, r *http.Request) {
 		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "id required")
 		return
 	}
+
+	req, err := parseUpdateAPIKeyRequest(r)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	db := database.GetDatabase()
+	if db == nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
+		return
+	}
+
+	expiresAt, clearExpiry, err := parseExpiresAt(req.ExpiresAt)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	if err := validateUpdateAPIKeyRequest(req, id, db); err != nil {
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	if err := updateAPIKeyInDatabase(db, id, req, expiresAt, clearExpiry); err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	response := buildUpdateAPIKeyResponse(db, id)
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+func parseUpdateAPIKeyRequest(r *http.Request) (struct {
+	Name        *string   `json:"name"`
+	Description *string   `json:"description"`
+	Permissions *[]string `json:"permissions"`
+	ExpiresAt   *string   `json:"expires_at"`
+}, error) {
 	var req struct {
 		Name        *string   `json:"name"`
 		Description *string   `json:"description"`
@@ -145,61 +185,79 @@ func handleAdminUpdateAPIKey(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt   *string   `json:"expires_at"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", invalidRequestBody)
-		return
+		return req, fmt.Errorf("invalid request body")
 	}
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
-		return
+	return req, nil
+}
+
+func parseExpiresAt(expiresAtStr *string) (*time.Time, bool, error) {
+	if expiresAtStr == nil {
+		return nil, false, nil
 	}
 
-	var expiresAt *time.Time
-	clearExpiry := false
-	if req.ExpiresAt != nil {
-		if strings.TrimSpace(*req.ExpiresAt) == "" {
-			clearExpiry = true
-		} else if t, err := time.Parse(time.RFC3339, *req.ExpiresAt); err == nil {
-			expiresAt = &t
-		}
+	if strings.TrimSpace(*expiresAtStr) == "" {
+		return nil, true, nil
 	}
 
+	t, err := time.Parse(time.RFC3339, *expiresAtStr)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid expires_at format")
+	}
+
+	return &t, false, nil
+}
+
+func validateUpdateAPIKeyRequest(req struct {
+	Name        *string   `json:"name"`
+	Description *string   `json:"description"`
+	Permissions *[]string `json:"permissions"`
+	ExpiresAt   *string   `json:"expires_at"`
+}, id string, db *database.Database) error {
 	if req.Permissions != nil {
 		if !apikey.ValidatePermissions(*req.Permissions) {
-			writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid permissions")
-			return
+			return fmt.Errorf("invalid permissions")
 		}
 	}
 
 	if req.Name != nil {
 		existingKeys, err := db.GetAllAPIKeys()
 		if err != nil {
-			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check existing API keys")
-			return
+			return fmt.Errorf("failed to check existing API keys")
 		}
 		for _, key := range existingKeys {
 			if key.ID != id && key.Name == *req.Name {
-				writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "API key name already exists")
-				return
+				return fmt.Errorf("API key name already exists")
 			}
 		}
 	}
 
+	return nil
+}
+
+func updateAPIKeyInDatabase(db *database.Database, id string, req struct {
+	Name        *string   `json:"name"`
+	Description *string   `json:"description"`
+	Permissions *[]string `json:"permissions"`
+	ExpiresAt   *string   `json:"expires_at"`
+}, expiresAt *time.Time, clearExpiry bool) error {
 	if err := db.UpdateAPIKeyFields(id, req.Name, req.Description, req.Permissions, expiresAt, clearExpiry); err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-		return
+		return err
 	}
+
 	if req.Permissions != nil {
 		_ = authz.RemoveAllAPIKeyPolicies(id)
 		_ = authz.CreateAPIKeyPolicies(id, *req.Permissions)
 	}
 
+	return nil
+}
+
+func buildUpdateAPIKeyResponse(db *database.Database, id string) Response {
 	rec, err := db.GetAPIKeyByID(id)
 	if err != nil {
-		writeJSONResponse(w, http.StatusOK, Response{Success: true})
-		return
+		return Response{Success: true}
 	}
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"api_key": rec}})
+	return Response{Success: true, Data: map[string]interface{}{"api_key": rec}}
 }
 
 func handleAdminDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
@@ -384,16 +442,33 @@ func handleAdminListUsers(w http.ResponseWriter, r *http.Request) {
 		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
+
 	users, err := db.ListUsers()
 	if err != nil {
 		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
 	}
 
+	queryParams := parseUserListQueryParams(r)
+	filteredUsers := filterAndPaginateUsers(users, queryParams, db)
+	response := buildUserListResponse(filteredUsers, queryParams)
+
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+type userListQueryParams struct {
+	query        string
+	statusFilter string
+	page         int
+	limit        int
+}
+
+func parseUserListQueryParams(r *http.Request) userListQueryParams {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	statusFilter := strings.TrimSpace(r.URL.Query().Get("status"))
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
 	if page <= 0 {
 		page = 1
 	}
@@ -401,51 +476,104 @@ func handleAdminListUsers(w http.ResponseWriter, r *http.Request) {
 		limit = 20
 	}
 
-	type row struct {
-		UserID    string `json:"user_id"`
-		Email     string `json:"email,omitempty"`
-		Role      string `json:"role"`
-		Status    string `json:"status"`
-		TwoFA     bool   `json:"two_fa"`
-		LastLogin string `json:"last_login,omitempty"`
+	return userListQueryParams{
+		query:        q,
+		statusFilter: statusFilter,
+		page:         page,
+		limit:        limit,
+	}
+}
+
+type userRow struct {
+	UserID    string `json:"user_id"`
+	Email     string `json:"email,omitempty"`
+	Role      string `json:"role"`
+	Status    string `json:"status"`
+	TwoFA     bool   `json:"two_fa"`
+	LastLogin string `json:"last_login,omitempty"`
+}
+
+func filterAndPaginateUsers(users []database.AppUser, params userListQueryParams, db *database.Database) []userRow {
+	list := make([]userRow, 0, len(users))
+
+	for _, u := range users {
+		row := buildUserRow(u, db)
+		if !matchesUserFilters(row, params) {
+			continue
+		}
+		list = append(list, row)
 	}
 
-	list := make([]row, 0, len(users))
-	for _, u := range users {
-		ur, _ := db.GetUserRole(u.Username)
-		r := row{UserID: u.Username, Email: u.Email, Role: u.Role, Status: "active", TwoFA: u.TwoFAEnabled}
-		if ur != nil && ur.Status != "" {
-			r.Status = ur.Status
-		}
-		if u.LastLoginAt != nil {
-			r.LastLogin = u.LastLoginAt.Format(time.RFC3339)
-		}
-		if q != "" && !(strings.Contains(strings.ToLower(r.UserID), strings.ToLower(q)) || strings.Contains(strings.ToLower(r.Email), strings.ToLower(q))) {
-			continue
-		}
-		if statusFilter != "" && statusFilter != "all" && r.Status != statusFilter {
-			continue
-		}
-		list = append(list, r)
+	return paginateUserList(list, params)
+}
+
+func buildUserRow(user database.AppUser, db *database.Database) userRow {
+	ur, _ := db.GetUserRole(user.Username)
+	row := userRow{
+		UserID: user.Username,
+		Email:  user.Email,
+		Role:   user.Role,
+		Status: "active",
+		TwoFA:  user.TwoFAEnabled,
 	}
+
+	if ur != nil && ur.Status != "" {
+		row.Status = ur.Status
+	}
+
+	if user.LastLoginAt != nil {
+		row.LastLogin = user.LastLoginAt.Format(time.RFC3339)
+	}
+
+	return row
+}
+
+func matchesUserFilters(row userRow, params userListQueryParams) bool {
+	if params.query != "" {
+		query := strings.ToLower(params.query)
+		if !strings.Contains(strings.ToLower(row.UserID), query) &&
+			!strings.Contains(strings.ToLower(row.Email), query) {
+			return false
+		}
+	}
+
+	if params.statusFilter != "" && params.statusFilter != "all" && row.Status != params.statusFilter {
+		return false
+	}
+
+	return true
+}
+
+func paginateUserList(list []userRow, params userListQueryParams) []userRow {
 	total := len(list)
-	start := (page - 1) * limit
+	start := (params.page - 1) * params.limit
 	if start > total {
 		start = total
 	}
-	end := start + limit
+	end := start + params.limit
 	if end > total {
 		end = total
 	}
-	paged := list[start:end]
 
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
-		"users": paged,
-		"count": total,
-		"total": total,
-		"page":  page,
-		"limit": limit,
-	}})
+	if start >= total {
+		return []userRow{}
+	}
+
+	return list[start:end]
+}
+
+func buildUserListResponse(filteredUsers []userRow, params userListQueryParams) Response {
+	total := len(filteredUsers)
+	return Response{
+		Success: true,
+		Data: map[string]interface{}{
+			"users": filteredUsers,
+			"count": total,
+			"total": total,
+			"page":  params.page,
+			"limit": params.limit,
+		},
+	}
 }
 
 func handleAdminCreateUser(w http.ResponseWriter, r *http.Request) {

@@ -674,41 +674,83 @@ type UploadData struct {
 }
 
 func handleListFiles(w http.ResponseWriter, r *http.Request) {
-	fileType := r.URL.Query().Get("type")
-
-	page := 1
-	limit := 50
-	if v := r.URL.Query().Get("page"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			page = n
-		}
-	}
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
-
-	var controller *fc.FileController
-	if appContainer != nil && appContainer.FileController != nil {
-		controller = appContainer.FileController
-	} else {
-		controller = fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
-	}
-	items, total, err := controller.ListWithPagination(fileType, page, limit)
+	fileType, page, limit, err := parseListFilesParams(r)
 	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get file list: "+err.Error())
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "list_files_failed", map[string]interface{}{"type": fileType, "page": page, "limit": limit}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error(), map[string]interface{}{"field": "params"})
 		return
 	}
 
-	files := make([]FileInfo, 0, len(items))
-	for _, f := range items {
-		files = append(files, convertEntityToFileInfo(f))
+	controller, err := getFileController()
+	if err != nil {
+		handleListFilesError(w, r, "Failed to initialize file controller: "+err.Error(), fileType, page, limit)
+		return
 	}
-	response := Response{
+
+	if err := processListFilesRequest(w, r, controller, fileType, page, limit); err != nil {
+		handleListFilesError(w, r, err.Error(), fileType, page, limit)
+	}
+}
+
+func parseListFilesParams(r *http.Request) (string, int, int, error) {
+	fileType := r.URL.Query().Get("type")
+	page, limit, err := parsePaginationParams(r)
+	return fileType, page, limit, err
+}
+
+func parsePaginationParams(r *http.Request) (int, int, error) {
+	page := 1
+	limit := 50
+
+	if v := r.URL.Query().Get("page"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			page = n
+		} else {
+			return 0, 0, fmt.Errorf("invalid page parameter")
+		}
+	}
+
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		} else {
+			return 0, 0, fmt.Errorf("invalid limit parameter")
+		}
+	}
+
+	return page, limit, nil
+}
+
+func getFileController() (*fc.FileController, error) {
+	if appContainer != nil && appContainer.FileController != nil {
+		return appContainer.FileController, nil
+	}
+	return fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo())), nil
+}
+
+func processListFilesRequest(w http.ResponseWriter, r *http.Request, controller *fc.FileController, fileType string, page, limit int) error {
+	items, total, err := controller.ListWithPagination(fileType, page, limit)
+	if err != nil {
+		return fmt.Errorf("failed to get file list: %v", err)
+	}
+
+	files := convertItemsToFileInfos(items)
+	response := buildListFilesResponse(files, total, page, limit)
+	writeJSONResponse(w, http.StatusOK, response)
+
+	logListFilesSuccess(r, fileType, len(files), total, page, limit)
+	return nil
+}
+
+func convertItemsToFileInfos(items []entities.File) []FileInfo {
+	files := make([]FileInfo, 0, len(items))
+	for _, item := range items {
+		files = append(files, convertEntityToFileInfo(item))
+	}
+	return files
+}
+
+func buildListFilesResponse(files []FileInfo, total, page, limit int) Response {
+	return Response{
 		Success: true,
 		Message: "File list retrieved successfully",
 		Data: map[string]interface{}{
@@ -718,9 +760,22 @@ func handleListFiles(w http.ResponseWriter, r *http.Request) {
 			"limit": limit,
 		},
 	}
-	writeJSONResponse(w, http.StatusOK, response)
+}
+
+func logListFilesSuccess(r *http.Request, fileType string, count, total, page, limit int) {
 	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "list_files_success", map[string]interface{}{"type": fileType, "count": len(files), "total": total, "page": page, "limit": limit}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
+		l.InfoCtx(logger.EventAPIRequest, "list_files_success",
+			map[string]interface{}{"type": fileType, "count": count, "total": total, "page": page, "limit": limit},
+			"", r.Context().Value(middleware.RequestIDKey), getActor(r))
+	}
+}
+
+func handleListFilesError(w http.ResponseWriter, r *http.Request, message, fileType string, page, limit int) {
+	writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", message)
+	if l := logger.GetLogger(); l != nil {
+		l.ErrorCtx(logger.EventError, "list_files_failed",
+			map[string]interface{}{"type": fileType, "page": page, "limit": limit},
+			"INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
 	}
 }
 
@@ -767,49 +822,76 @@ func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	fileID := vars["id"]
 
-	var deletedBy string
-	if userCtx := r.Context().Value("user"); userCtx != nil {
-		if user, ok := userCtx.(*auth.User); ok {
-			deletedBy = user.Username
-		} else {
-			deletedBy = "unknown"
-		}
-	} else {
-		deletedBy = "unknown"
+	deletedBy, err := extractUserFromContext(r)
+	if err != nil {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error(), map[string]interface{}{"field": "user"})
+		return
 	}
 
+	if err := deleteFileFromDatabase(fileID, deletedBy, w, r); err != nil {
+		handleDeleteFileError(w, r, fileID, deletedBy, err)
+		return
+	}
+
+	response := buildDeleteFileResponse()
+	writeJSONResponse(w, http.StatusOK, response)
+	logDeleteFileSuccess(r, fileID, deletedBy)
+}
+
+func deleteFileFromDatabase(fileID, deletedBy string, w http.ResponseWriter, r *http.Request) error {
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", databaseNotInitialized)
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "recyclebin_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
+		return fmt.Errorf("database not initialized")
 	}
 
 	if err := db.SoftDeleteFile(fileID, deletedBy); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
-			writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found or already deleted")
-			if l := logger.GetLogger(); l != nil {
-				l.WarnCtx(logger.EventError, "soft_delete_not_found", map[string]interface{}{"file_id": fileID}, "FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-		} else {
-			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete file: "+err.Error())
-			if l := logger.GetLogger(); l != nil {
-				l.ErrorCtx(logger.EventError, "soft_delete_failed", map[string]interface{}{"file_id": fileID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
+			return fmt.Errorf("file not found or already deleted")
 		}
-		return
+		return fmt.Errorf("failed to delete file: %v", err)
 	}
 
-	response := Response{
+	return nil
+}
+
+func handleDeleteFileError(w http.ResponseWriter, r *http.Request, fileID, deletedBy string, err error) {
+	if strings.Contains(err.Error(), "not found") {
+		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", err.Error())
+		logDeleteFileWarning(r, "soft_delete_not_found", fileID)
+	} else {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		logDeleteFileError(r, "soft_delete_failed", fileID, err)
+	}
+}
+
+func buildDeleteFileResponse() Response {
+	return Response{
 		Success: true,
 		Message: "File moved to recycle bin successfully",
 	}
+}
 
-	writeJSONResponse(w, http.StatusOK, response)
+func logDeleteFileSuccess(r *http.Request, fileID, deletedBy string) {
 	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "soft_delete_success", map[string]interface{}{"file_id": fileID, "by": deletedBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
+		l.InfoCtx(logger.EventAPIRequest, "soft_delete_success",
+			map[string]interface{}{"file_id": fileID, "by": deletedBy},
+			"", r.Context().Value(middleware.RequestIDKey), getActor(r))
+	}
+}
+
+func logDeleteFileWarning(r *http.Request, event, fileID string) {
+	if l := logger.GetLogger(); l != nil {
+		l.WarnCtx(logger.EventError, event,
+			map[string]interface{}{"file_id": fileID},
+			"FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r))
+	}
+}
+
+func logDeleteFileError(r *http.Request, event, fileID string, err error) {
+	if l := logger.GetLogger(); l != nil {
+		l.ErrorCtx(logger.EventError, event,
+			map[string]interface{}{"file_id": fileID, "error": err.Error()},
+			"INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
 	}
 }
 
@@ -817,49 +899,85 @@ func handleRestoreFile(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	fileID := vars["id"]
 
-	var restoredBy string
-	if userCtx := r.Context().Value("user"); userCtx != nil {
-		if user, ok := userCtx.(*auth.User); ok {
-			restoredBy = user.Username
-		} else {
-			restoredBy = "unknown"
-		}
-	} else {
-		restoredBy = "unknown"
+	restoredBy, err := extractUserFromContext(r)
+	if err != nil {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error(), map[string]interface{}{"field": "user"})
+		return
 	}
 
+	if err := restoreFileFromDatabase(fileID, restoredBy, w, r); err != nil {
+		handleRestoreFileError(w, r, fileID, restoredBy, err)
+		return
+	}
+
+	response := buildRestoreFileResponse()
+	writeJSONResponse(w, http.StatusOK, response)
+	logRestoreFileSuccess(r, fileID, restoredBy)
+}
+
+func extractUserFromContext(r *http.Request) (string, error) {
+	if userCtx := r.Context().Value("user"); userCtx != nil {
+		if user, ok := userCtx.(*auth.User); ok {
+			return user.Username, nil
+		}
+	}
+	return "", fmt.Errorf("user context not found or invalid")
+}
+
+func restoreFileFromDatabase(fileID, restoredBy string, w http.ResponseWriter, r *http.Request) error {
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", databaseNotInitialized)
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "clear_recyclebin_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
+		return fmt.Errorf("database not initialized")
 	}
 
 	if err := db.RestoreFile(fileID, restoredBy); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
-			writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found in recycle bin")
-			if l := logger.GetLogger(); l != nil {
-				l.WarnCtx(logger.EventError, "restore_not_found", map[string]interface{}{"file_id": fileID}, "FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-		} else {
-			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to restore file: "+err.Error())
-			if l := logger.GetLogger(); l != nil {
-				l.ErrorCtx(logger.EventError, "restore_failed", map[string]interface{}{"file_id": fileID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
+			return fmt.Errorf("file not found in recycle bin")
 		}
-		return
+		return fmt.Errorf("failed to restore file: %v", err)
 	}
 
-	response := Response{
+	return nil
+}
+
+func handleRestoreFileError(w http.ResponseWriter, r *http.Request, fileID, restoredBy string, err error) {
+	if strings.Contains(err.Error(), "not found") {
+		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", err.Error())
+		logRestoreFileWarning(r, "restore_not_found", fileID)
+	} else {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		logRestoreFileError(r, "restore_failed", fileID, err)
+	}
+}
+
+func buildRestoreFileResponse() Response {
+	return Response{
 		Success: true,
 		Message: "File restored successfully",
 	}
+}
 
-	writeJSONResponse(w, http.StatusOK, response)
+func logRestoreFileSuccess(r *http.Request, fileID, restoredBy string) {
 	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "restore_success", map[string]interface{}{"file_id": fileID, "by": restoredBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
+		l.InfoCtx(logger.EventAPIRequest, "restore_success",
+			map[string]interface{}{"file_id": fileID, "by": restoredBy},
+			"", r.Context().Value(middleware.RequestIDKey), getActor(r))
+	}
+}
+
+func logRestoreFileWarning(r *http.Request, event, fileID string) {
+	if l := logger.GetLogger(); l != nil {
+		l.WarnCtx(logger.EventError, event,
+			map[string]interface{}{"file_id": fileID},
+			"FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r))
+	}
+}
+
+func logRestoreFileError(r *http.Request, event, fileID string, err error) {
+	if l := logger.GetLogger(); l != nil {
+		l.ErrorCtx(logger.EventError, event,
+			map[string]interface{}{"file_id": fileID, "error": err.Error()},
+			"INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
 	}
 }
 
@@ -867,45 +985,74 @@ func handlePurgeFile(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	fileID := vars["id"]
 
-	var purgedBy string
-	if userCtx := r.Context().Value("user"); userCtx != nil {
-		if user, ok := userCtx.(*auth.User); ok {
-			purgedBy = user.Username
-		} else {
-			purgedBy = "unknown"
-		}
-	} else {
+	purgedBy, err := extractUserFromContext(r)
+	if err != nil {
 		purgedBy = "unknown"
 	}
 
+	if err := purgeFileFromDatabase(fileID, purgedBy, w, r); err != nil {
+		handlePurgeFileError(w, r, fileID, purgedBy, err)
+		return
+	}
+
+	response := buildPurgeFileResponse()
+	writeJSONResponse(w, http.StatusOK, response)
+	logPurgeFileSuccess(r, fileID, purgedBy)
+}
+
+func purgeFileFromDatabase(fileID, purgedBy string, w http.ResponseWriter, r *http.Request) error {
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", databaseNotInitialized)
-		return
+		return fmt.Errorf("database not initialized")
 	}
 
 	if err := db.PermanentlyDeleteFile(fileID, purgedBy); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
-			writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found or already purged")
-			if l := logger.GetLogger(); l != nil {
-				l.WarnCtx(logger.EventError, "purge_not_found", map[string]interface{}{"file_id": fileID}, "FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-		} else {
-			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to purge file: "+err.Error())
-			if l := logger.GetLogger(); l != nil {
-				l.ErrorCtx(logger.EventError, "purge_failed", map[string]interface{}{"file_id": fileID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
+			return fmt.Errorf("file not found or already purged")
 		}
-		return
+		return fmt.Errorf("failed to purge file: %v", err)
 	}
 
-	response := Response{
+	return nil
+}
+
+func handlePurgeFileError(w http.ResponseWriter, r *http.Request, fileID, purgedBy string, err error) {
+	if strings.Contains(err.Error(), "not found") {
+		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", err.Error())
+		logPurgeFileWarning(r, "purge_not_found", fileID)
+	} else {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		logPurgeFileError(r, "purge_failed", fileID, err)
+	}
+}
+
+func buildPurgeFileResponse() Response {
+	return Response{
 		Success: true,
 		Message: "File permanently deleted",
 	}
+}
 
-	writeJSONResponse(w, http.StatusOK, response)
+func logPurgeFileSuccess(r *http.Request, fileID, purgedBy string) {
 	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "purge_success", map[string]interface{}{"file_id": fileID, "by": purgedBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
+		l.InfoCtx(logger.EventAPIRequest, "purge_success",
+			map[string]interface{}{"file_id": fileID, "by": purgedBy},
+			"", r.Context().Value(middleware.RequestIDKey), getActor(r))
+	}
+}
+
+func logPurgeFileWarning(r *http.Request, event, fileID string) {
+	if l := logger.GetLogger(); l != nil {
+		l.WarnCtx(logger.EventError, event,
+			map[string]interface{}{"file_id": fileID},
+			"FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r))
+	}
+}
+
+func logPurgeFileError(r *http.Request, event, fileID string, err error) {
+	if l := logger.GetLogger(); l != nil {
+		l.ErrorCtx(logger.EventError, event,
+			map[string]interface{}{"file_id": fileID, "error": err.Error()},
+			"INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
 	}
 }
