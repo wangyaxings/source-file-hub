@@ -289,22 +289,22 @@ func handleAPIDownloadFileByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleAPIGetLatestVersionInfo(w http.ResponseWriter, r *http.Request) {
-	t := strings.ToLower(mux.Vars(r)["type"])
-	if t != "roadmap" && t != "recommendation" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
-		return
-	}
+// findLatestVersion finds the latest version for a given file type
+func findLatestVersion(fileType string) (*database.FileRecord, error) {
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
-		return
+		return nil, fmt.Errorf("database not available")
 	}
-	items, err := db.GetFilesByType(t, false)
+
+	items, err := db.GetFilesByType(fileType, false)
 	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-		return
+		return nil, fmt.Errorf("failed to get files: %v", err)
 	}
+
+	if len(items) == 0 {
+		return nil, fmt.Errorf("no files found for type %s", fileType)
+	}
+
 	var latest *database.FileRecord
 	for i := range items {
 		if items[i].IsLatest && items[i].Status == database.FileStatusActive {
@@ -312,7 +312,8 @@ func handleAPIGetLatestVersionInfo(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if latest == nil && len(items) > 0 {
+
+	if latest == nil {
 		for i := range items {
 			if items[i].Status != database.FileStatusActive {
 				continue
@@ -322,13 +323,119 @@ func handleAPIGetLatestVersionInfo(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
 	if latest == nil {
+		return nil, fmt.Errorf("no active versions available for type %s", fileType)
+	}
+
+	return latest, nil
+}
+
+// getFilesByType retrieves files by type from database
+func getFilesByType(fileType string) ([]database.FileRecord, error) {
+	db := database.GetDatabase()
+	if db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
+
+	return db.GetFilesByType(fileType, false)
+}
+
+// determineVersionStatus determines the status of versions for a file type
+func determineVersionStatus(items []database.FileRecord) (string, string, *database.FileRecord) {
+	var latest *database.FileRecord
+	hasActive := false
+
+	for i := range items {
+		if items[i].IsLatest && items[i].Status == database.FileStatusActive {
+			latest = &items[i]
+			break
+		}
+	}
+
+	if latest == nil && len(items) > 0 {
+		for i := range items {
+			if items[i].Status == database.FileStatusActive {
+				hasActive = true
+				if latest == nil || items[i].Version > latest.Version {
+					latest = &items[i]
+				}
+			}
+		}
+	}
+
+	var status string
+	var message string
+	if latest != nil {
+		status = "available"
+		message = "Latest version is available for download"
+	} else if hasActive {
+		status = "available"
+		message = "Active versions exist but none is marked as latest"
+	} else if len(items) > 0 {
+		status = "inactive"
+		message = "All versions are in inactive state"
+	} else {
+		status = "empty"
+		message = "No files uploaded for this type"
+	}
+
+	return status, message, latest
+}
+
+// countActiveVersions counts the number of active versions
+func countActiveVersions(items []database.FileRecord) int {
+	count := 0
+	for _, item := range items {
+		if item.Status == database.FileStatusActive {
+			count++
+		}
+	}
+	return count
+}
+
+// serveFileDownload serves a file for download
+func serveFileDownload(w http.ResponseWriter, r *http.Request, record *database.FileRecord) {
+	f, err := os.Open(record.FilePath)
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file")
+		return
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot stat file")
+		return
+	}
+
+	name := filepath.Base(record.FilePath)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
+	w.Header().Set("Content-Type", getContentType(name))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	_, _ = io.Copy(w, f)
+}
+
+// handleAPIGetLatestVersionInfo handles requests for latest version info
+func handleAPIGetLatestVersionInfo(w http.ResponseWriter, r *http.Request) {
+	t := strings.ToLower(mux.Vars(r)["type"])
+	if t != "roadmap" && t != "recommendation" {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
+		return
+	}
+
+	latest, err := findLatestVersion(t)
+	if err != nil {
 		writeErrorWithCodeDetails(w, http.StatusNotFound, "NO_LATEST_VERSION", "No latest version available for this type", map[string]interface{}{
 			"type":    t,
-			"message": "There are currently no files available for this version type. This may be because no files have been uploaded yet, or all files are in an inactive state.",
+			"message": err.Error(),
 		})
 		return
 	}
+
 	info := convertToFileInfo(*latest)
 	if info.VersionID == "" {
 		info.VersionID = filepath.Base(filepath.Dir(latest.FilePath))
@@ -350,7 +457,23 @@ func handleAPIGetVersionInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.EqualFold(ver, "latest") {
-		handleAPIGetLatestVersionInfo(w, r)
+		// Handle latest version request by reusing the same logic
+		t := strings.ToLower(vars["type"])
+		latest, err := findLatestVersion(t)
+		if err != nil {
+			writeErrorWithCodeDetails(w, http.StatusNotFound, "NO_LATEST_VERSION", "No latest version available for this type", map[string]interface{}{
+				"type":    t,
+				"message": err.Error(),
+			})
+			return
+		}
+
+		info := convertToFileInfo(*latest)
+		if info.VersionID == "" {
+			info.VersionID = filepath.Base(filepath.Dir(latest.FilePath))
+		}
+		info.VersionID = ver // Override with "latest"
+		writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"version": info}})
 		return
 	}
 	db := database.GetDatabase()
@@ -394,67 +517,25 @@ func handleAPIGetVersionTypeStatus(w http.ResponseWriter, r *http.Request) {
 		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
 		return
 	}
-	db := database.GetDatabase()
-	if db == nil {
+
+	items, err := getFilesByType(t)
+	if err != nil {
 		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
 		return
 	}
-	items, err := db.GetFilesByType(t, false)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-		return
-	}
-	var latest *database.FileRecord
-	hasActive := false
-	for i := range items {
-		if items[i].IsLatest && items[i].Status == database.FileStatusActive {
-			latest = &items[i]
-			break
-		}
-	}
-	if latest == nil && len(items) > 0 {
-		for i := range items {
-			if items[i].Status == database.FileStatusActive {
-				hasActive = true
-				if latest == nil || items[i].Version > latest.Version {
-					latest = &items[i]
-				}
-			}
-		}
-	}
-	var status string
-	var message string
-	if latest != nil {
-		status = "available"
-		message = "Latest version is available for download"
-	} else if hasActive {
-		status = "available"
-		message = "Active versions exist but none is marked as latest"
-	} else if len(items) > 0 {
-		status = "inactive"
-		message = "All versions are in inactive state"
-	} else {
-		status = "empty"
-		message = "No files uploaded for this type"
-	}
+
+	status, message, latest := determineVersionStatus(items)
+	activeCount := countActiveVersions(items)
 
 	writeJSONResponse(w, http.StatusOK, Response{
 		Success: true,
 		Data: map[string]interface{}{
-			"type":           t,
-			"status":         status,
-			"message":        message,
-			"total_versions": len(items),
-			"active_versions": len(func() []database.FileRecord {
-				var active []database.FileRecord
-				for _, item := range items {
-					if item.Status == database.FileStatusActive {
-						active = append(active, item)
-					}
-				}
-				return active
-			}()),
-			"has_latest": latest != nil,
+			"type":            t,
+			"status":          status,
+			"message":         message,
+			"total_versions":  len(items),
+			"active_versions": activeCount,
+			"has_latest":      latest != nil,
 		},
 	})
 }
@@ -465,60 +546,17 @@ func handleAPIDownloadLatestByType(w http.ResponseWriter, r *http.Request) {
 		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
 		return
 	}
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
-		return
-	}
-	items, err := db.GetFilesByType(t, false)
+
+	latest, err := findLatestVersion(t)
 	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-		return
-	}
-	var latest *database.FileRecord
-	for i := range items {
-		if items[i].IsLatest && items[i].Status == database.FileStatusActive {
-			latest = &items[i]
-			break
-		}
-	}
-	if latest == nil && len(items) > 0 {
-		for i := range items {
-			if items[i].Status != database.FileStatusActive {
-				continue
-			}
-			if latest == nil || items[i].Version > latest.Version {
-				latest = &items[i]
-			}
-		}
-	}
-	if latest == nil {
 		writeErrorWithCodeDetails(w, http.StatusNotFound, "NO_LATEST_VERSION", "No latest version available for this type", map[string]interface{}{
 			"type":    t,
-			"message": "There are currently no files available for this version type. This may be because no files have been uploaded yet, or all files are in an inactive state.",
+			"message": err.Error(),
 		})
 		return
 	}
 
-	f, err := os.Open(latest.FilePath)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file")
-		return
-	}
-	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot stat file")
-		return
-	}
-	name := filepath.Base(latest.FilePath)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
-	w.Header().Set("Content-Type", getContentType(name))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
-	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
-	_, _ = io.Copy(w, f)
+	serveFileDownload(w, r, latest)
 }
 
 func handleAPIUploadZip(w http.ResponseWriter, r *http.Request, kind string) {
