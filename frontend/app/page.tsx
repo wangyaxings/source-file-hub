@@ -573,12 +573,13 @@ export default function HomePage() {
                 Files
               </TabsTrigger>
             )}
-            {permissions?.canAccessRecycle && false && (
+            {/* Recycle bin feature temporarily disabled */}
+            {/* {permissions?.canAccessRecycle && (
               <TabsTrigger value="recycle" className="flex items-center gap-2">
                 <Trash2 className="h-4 w-4" />
                 Recycle
               </TabsTrigger>
-            )}
+            )} */}
             {permissions?.canAccessPackages && (
               <TabsTrigger value="packages" className="flex items-center gap-2">
                 <Files className="h-4 w-4" />
@@ -611,11 +612,12 @@ export default function HomePage() {
             </TabsContent>
           )}
 
-          {permissions?.canAccessRecycle && false && (
+          {/* Recycle bin feature temporarily disabled */}
+          {/* {permissions?.canAccessRecycle && (
             <TabsContent value="recycle" className="space-y-6">
               <RecycleBin />
             </TabsContent>
-          )}
+          )} */}
 
           {permissions?.canAccessPackages && (
             <TabsContent value="packages" className="space-y-6">

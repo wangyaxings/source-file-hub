@@ -225,18 +225,17 @@ export function FileList({ refreshTrigger }: FileListProps) {
               </CardDescription>
             </div>
             <div className="flex items-center gap-4">
-              {false && (
-                <Select value={selectedType} onValueChange={handleTypeChange}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Files</SelectItem>
-                    <SelectItem value="roadmap">Roadmaps</SelectItem>
-                    <SelectItem value="recommendation">Recommendations</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
+              {/* File type selector temporarily disabled */}
+              {/* <Select value={selectedType} onValueChange={handleTypeChange}>
+                <SelectTrigger className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Files</SelectItem>
+                  <SelectItem value="roadmap">Roadmaps</SelectItem>
+                  <SelectItem value="recommendation">Recommendations</SelectItem>
+                </SelectContent>
+              </Select> */}
               <Button variant="outline" size="sm" onClick={loadFiles}>
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh

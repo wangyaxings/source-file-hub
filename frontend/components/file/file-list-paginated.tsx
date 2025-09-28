@@ -159,27 +159,25 @@ export function FileListPaginated({ refreshTrigger }: FileListPaginatedProps) {
               <CardDescription>Manage uploaded Roadmaps (.tsv) and Recommendations (.xlsx)</CardDescription>
             </div>
             <div className="flex items-center gap-3">
-              {false && (
-                <Select value={type} onValueChange={changeType}>
-                  <SelectTrigger className="w-40"><SelectValue placeholder="Filter by type"/></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Files</SelectItem>
-                    <SelectItem value="roadmap">Roadmaps</SelectItem>
-                    <SelectItem value="recommendation">Recommendations</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-              {false && (
-                <Select value={String(limit)} onValueChange={(v)=> changeLimit(parseInt(v,10))}>
-                  <SelectTrigger className="w-32"><SelectValue placeholder="Page size"/></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="10">10 / page</SelectItem>
-                    <SelectItem value="20">20 / page</SelectItem>
-                    <SelectItem value="50">50 / page</SelectItem>
-                    <SelectItem value="100">100 / page</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
+              {/* File type filter temporarily disabled */}
+              {/* <Select value={type} onValueChange={changeType}>
+                <SelectTrigger className="w-40"><SelectValue placeholder="Filter by type"/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Files</SelectItem>
+                  <SelectItem value="roadmap">Roadmaps</SelectItem>
+                  <SelectItem value="recommendation">Recommendations</SelectItem>
+                </SelectContent>
+              </Select> */}
+              {/* Page size selector temporarily disabled */}
+              {/* <Select value={String(limit)} onValueChange={(v)=> changeLimit(parseInt(v,10))}>
+                <SelectTrigger className="w-32"><SelectValue placeholder="Page size"/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 / page</SelectItem>
+                  <SelectItem value="20">20 / page</SelectItem>
+                  <SelectItem value="50">50 / page</SelectItem>
+                  <SelectItem value="100">100 / page</SelectItem>
+                </SelectContent>
+              </Select> */}
               <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-2"/>Refresh</Button>
             </div>
           </div>
