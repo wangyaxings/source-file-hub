@@ -79,7 +79,7 @@ func CreateTestUser(t testing.TB, username, password, role string) *database.App
 
 	db := database.GetDatabase()
 	if db == nil {
-		t.Fatal("Database not initialized")
+		t.Fatal("databaseNotInitialized")
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -112,7 +112,7 @@ func CreateTestAPIKey(t *testing.T, userID, name string, permissions []string) *
 
 	db := database.GetDatabase()
 	if db == nil {
-		t.Fatal("Database not initialized")
+		t.Fatal("databaseNotInitialized")
 	}
 
 	keyID := GenerateRandomID(16)
@@ -168,7 +168,7 @@ func CreateTestFileRecord(t *testing.T, originalName, uploader string) *database
 
 	db := database.GetDatabase()
 	if db == nil {
-		t.Fatal("Database not initialized")
+		t.Fatal("databaseNotInitialized")
 	}
 
 	fileID := GenerateRandomID(16)
@@ -1028,7 +1028,7 @@ func AssertDatabaseRecordExists(t *testing.T, tableName, condition string, expec
 
 	db := database.GetDatabase()
 	if db == nil {
-		t.Fatal("Database not initialized")
+		t.Fatal("databaseNotInitialized")
 	}
 
 	// This is a simplified version - in a real implementation, you'd use proper SQL queries

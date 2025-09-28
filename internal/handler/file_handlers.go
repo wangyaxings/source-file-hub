@@ -746,7 +746,7 @@ func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", databaseNotInitialized)
 		if l := logger.GetLogger(); l != nil {
 			l.ErrorCtx(logger.EventError, "recyclebin_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
 		}
@@ -796,7 +796,7 @@ func handleRestoreFile(w http.ResponseWriter, r *http.Request) {
 
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", databaseNotInitialized)
 		if l := logger.GetLogger(); l != nil {
 			l.ErrorCtx(logger.EventError, "clear_recyclebin_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
 		}
@@ -846,7 +846,7 @@ func handlePurgeFile(w http.ResponseWriter, r *http.Request) {
 
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", databaseNotInitialized)
 		return
 	}
 

@@ -21,7 +21,7 @@ import (
 func handleAdminListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	keys, err := db.GetAllAPIKeys()
@@ -44,7 +44,7 @@ func handleAdminCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt   string   `json:"expires_at"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", invalidRequestBody)
 		return
 	}
 	if req.Name == "" || req.Role == "" {
@@ -57,7 +57,7 @@ func handleAdminCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 
@@ -122,7 +122,7 @@ func handleAdminUpdateAPIKeyStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	if err := db.UpdateAPIKeyStatus(id, req.Status); err != nil {
@@ -145,12 +145,12 @@ func handleAdminUpdateAPIKey(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt   *string   `json:"expires_at"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", invalidRequestBody)
 		return
 	}
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 
@@ -210,7 +210,7 @@ func handleAdminDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	_ = authz.RemoveAllAPIKeyPolicies(id)
@@ -224,7 +224,7 @@ func handleAdminDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 func handleAdminUsageLogs(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	q := r.URL.Query()
@@ -282,7 +282,7 @@ func handleAdminUsageLogs(w http.ResponseWriter, r *http.Request) {
 func handleAdminAnalytics(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	q := r.URL.Query()
@@ -338,7 +338,7 @@ func handleAdminGetUser(w http.ResponseWriter, r *http.Request) {
 
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "databaseNotInitialized")
 		return
 	}
 
@@ -381,7 +381,7 @@ func handleAdminGetUser(w http.ResponseWriter, r *http.Request) {
 func handleAdminListUsers(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	users, err := db.ListUsers()
@@ -464,7 +464,7 @@ func handleAdminCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	if _, err := db.GetUser(req.Username); err == nil {
@@ -490,7 +490,7 @@ func handleAdminApproveUser(w http.ResponseWriter, r *http.Request) {
 	username := mux.Vars(r)["id"]
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	ur, _ := db.GetUserRole(username)
@@ -509,7 +509,7 @@ func handleAdminSuspendUser(w http.ResponseWriter, r *http.Request) {
 	username := mux.Vars(r)["id"]
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	ur, _ := db.GetUserRole(username)
@@ -528,7 +528,7 @@ func handleAdminEnable2FA(w http.ResponseWriter, r *http.Request) {
 	username := mux.Vars(r)["id"]
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	if err := db.SetUser2FA(username, true, ""); err != nil {
@@ -542,7 +542,7 @@ func handleAdminDisable2FA(w http.ResponseWriter, r *http.Request) {
 	username := mux.Vars(r)["id"]
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 	if err := db.SetUser2FA(username, false, ""); err != nil {
@@ -578,12 +578,12 @@ func handleAdminPatchUser(w http.ResponseWriter, r *http.Request) {
 		Reset2FA     *bool   `json:"reset_2fa"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", invalidRequestBody)
 		return
 	}
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "databaseNotAvailable")
 		return
 	}
 

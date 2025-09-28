@@ -103,7 +103,7 @@ func handleCheckPermission(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body", map[string]interface{}{"field": "body", "error": err.Error()})
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", invalidRequestBody, map[string]interface{}{"field": "body", "error": err.Error()})
 		return
 	}
 
@@ -143,7 +143,7 @@ func handleCheckMultiplePermissions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body", map[string]interface{}{"field": "body", "error": err.Error()})
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", invalidRequestBody, map[string]interface{}{"field": "body", "error": err.Error()})
 		return
 	}
 

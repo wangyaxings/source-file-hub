@@ -236,12 +236,12 @@ func handleAPIDownloadFileByID(w http.ResponseWriter, r *http.Request) {
 	}
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", databaseNotAvailable)
 		return
 	}
 	rec, err := db.GetFileRecordByID(id)
 	if err != nil {
-		writeErrorWithCodeDetails(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found", map[string]interface{}{
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "FILE_NOT_FOUND", fileNotFound, map[string]interface{}{
 			"file_id": id,
 			"message": "The requested file could not be found in the database.",
 		})
@@ -421,10 +421,9 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, record *database.
 
 // handleAPIGetLatestVersionInfo handles requests for latest version info
 const (
-	allowedFileTypes     = "roadmap or recommendation"
-	noLatestVersion      = "No latest version available for this type"
-	cacheControl         = "Cache-Control"
-	databaseNotAvailable = "Database not available"
+	allowedFileTypes = "roadmap or recommendation"
+	noLatestVersion  = "No latest version available for this type"
+	cacheControl     = "Cache-Control"
 )
 
 func handleAPIGetLatestVersionInfo(w http.ResponseWriter, r *http.Request) {
@@ -485,7 +484,7 @@ func handleAPIGetVersionInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", databaseNotAvailable)
 		return
 	}
 	items, err := db.GetFilesByType(t, false)
@@ -506,7 +505,7 @@ func handleAPIGetVersionInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if target == nil {
-		writeErrorWithCodeDetails(w, http.StatusNotFound, "VERSION_NOT_FOUND", "Specified version not found", map[string]interface{}{
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "VERSION_NOT_FOUND", versionNotFound, map[string]interface{}{
 			"type":    t,
 			"version": ver,
 			"message": "The requested version does not exist for this file type. Please check the version identifier or use 'latest' to get the most recent version.",
@@ -527,7 +526,7 @@ func handleAPIGetVersionTypeStatus(w http.ResponseWriter, r *http.Request) {
 
 	items, err := getFilesByType(t)
 	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", databaseNotAvailable)
 		return
 	}
 

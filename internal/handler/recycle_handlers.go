@@ -15,7 +15,7 @@ import (
 func handleGetRecycleBin(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", databaseNotInitialized)
 		return
 	}
 
@@ -57,7 +57,7 @@ func handleClearRecycleBin(w http.ResponseWriter, r *http.Request) {
 
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
+		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", databaseNotInitialized)
 		return
 	}
 

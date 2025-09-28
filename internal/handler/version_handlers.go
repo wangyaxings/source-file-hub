@@ -104,7 +104,7 @@ func handleUpdateVersionTags(w http.ResponseWriter, r *http.Request) {
 		Tags []string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", invalidRequestBody)
 		return
 	}
 

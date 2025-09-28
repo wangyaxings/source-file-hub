@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"secure-file-hub/internal/database"
+
 	"github.com/gorilla/mux"
 )
 
@@ -14,7 +15,7 @@ import (
 func handleListPackages(w http.ResponseWriter, r *http.Request) {
 	db := database.GetDatabase()
 	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
+		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", databaseNotAvailable)
 		return
 	}
 
@@ -59,7 +60,7 @@ func handleUpdatePackageRemark(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body", map[string]interface{}{"field": "body", "error": err.Error()})
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalidRequestBody", map[string]interface{}{"field": "body", "error": err.Error()})
 		return
 	}
 

@@ -99,7 +99,7 @@ func SeedAdmin(password string) {
 			return
 		}
 		log.Printf("Created admin user with password: %s", password)
-		
+
 		// Create admin role record
 		_ = db.CreateOrUpdateUserRole(&database.UserRole{
 			UserID:       "admin",
@@ -144,7 +144,7 @@ func seedDemoUsers(db *database.Database) {
 				log.Printf("Warning: Failed to create demo user %s: %v", user.username, createErr)
 				continue
 			}
-			
+
 			// Create user role record
 			_ = db.CreateOrUpdateUserRole(&database.UserRole{
 				UserID:       user.username,
@@ -154,7 +154,7 @@ func seedDemoUsers(db *database.Database) {
 				QuotaMonthly: -1,
 				Status:       "active",
 			})
-			
+
 			log.Printf("Created demo user: %s", user.username)
 		}
 	}
@@ -185,7 +185,7 @@ func GetDefaultUsers() []map[string]string {
 
 	// Return users from database
 	users := []map[string]string{}
-	
+
 	// Get admin user
 	if adminUser, err := db.GetUser("admin"); err == nil {
 		users = append(users, map[string]string{
@@ -195,7 +195,7 @@ func GetDefaultUsers() []map[string]string {
 			"desc":     "Administrator account",
 		})
 	}
-	
+
 	// Get demo users
 	for _, username := range []string{"user1", "test"} {
 		if user, err := db.GetUser(username); err == nil {
@@ -207,14 +207,14 @@ func GetDefaultUsers() []map[string]string {
 			})
 		}
 	}
-	
+
 	// If no users found in database, return empty list
 	if len(users) == 0 {
 		return []map[string]string{
 			{"username": "admin", "password": "admin123", "role": "administrator", "desc": "Default admin (create via database)"},
 		}
 	}
-	
+
 	return users
 }
 
