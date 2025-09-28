@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -290,12 +291,12 @@ func handleAdminAnalytics(w http.ResponseWriter, r *http.Request) {
 	start := now.Add(-7 * 24 * time.Hour)
 	end := now
 
-	if s := strings.TrimSpace(firstNonEmpty(q.Get("start"), q.Get("startDate"))); s != "" {
+	if s := strings.TrimSpace(getFirstNonEmpty(q.Get("start"), q.Get("startDate"))); s != "" {
 		if t, err := time.Parse(time.RFC3339, s); err == nil {
 			start = t
 		}
 	}
-	if e := strings.TrimSpace(firstNonEmpty(q.Get("end"), q.Get("endDate"))); e != "" {
+	if e := strings.TrimSpace(getFirstNonEmpty(q.Get("end"), q.Get("endDate"))); e != "" {
 		if t, err := time.Parse(time.RFC3339, e); err == nil {
 			end = t
 		}
@@ -312,14 +313,23 @@ func handleAdminAnalytics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	apiKeyFilter := strings.TrimSpace(firstNonEmpty(q.Get("api_key_id"), q.Get("apiKey")))
-	userFilter := strings.TrimSpace(firstNonEmpty(q.Get("user_id"), q.Get("user")))
+	apiKeyFilter := strings.TrimSpace(getFirstNonEmpty(q.Get("api_key_id"), q.Get("apiKey")))
+	userFilter := strings.TrimSpace(getFirstNonEmpty(q.Get("user_id"), q.Get("user")))
 	data, err := db.GetAnalyticsData(database.AnalyticsTimeRange{Start: start, End: end}, apiKeyFilter, userFilter)
 	if err != nil {
 		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
 	}
 	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: data})
+}
+
+func getFirstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func handleAdminGetUser(w http.ResponseWriter, r *http.Request) {
@@ -597,4 +607,9 @@ func handleAdminPatchUser(w http.ResponseWriter, r *http.Request) {
 		_ = db.SetUser2FA(username, false, "")
 	}
 	writeJSONResponse(w, http.StatusOK, Response{Success: true})
+}
+
+// CleanupExpiredTempKeys cleans up expired temporary keys
+func CleanupExpiredTempKeys() {
+	log.Printf("CleanupExpiredTempKeys: placeholder implementation - no expired keys to clean")
 }

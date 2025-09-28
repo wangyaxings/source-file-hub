@@ -599,3 +599,38 @@ func handleAPIUploadAssetsZip(w http.ResponseWriter, r *http.Request) {
 func handleAPIUploadOthersZip(w http.ResponseWriter, r *http.Request) {
 	handleAPIUploadZip(w, r, "others")
 }
+
+// RegisterAPIRoutes registers all API routes
+func RegisterAPIRoutes(router *mux.Router) {
+	apiRouter := router.PathPrefix("/api/v1").Subrouter()
+
+	apiRouter.HandleFunc("/health", handleHealthCheck).Methods("GET")
+	apiRouter.HandleFunc("/healthz", handleHealthCheck).Methods("GET")
+
+	apiRouter.HandleFunc("/status-check", handleHealthAPIKeyCheck).Methods("GET")
+
+	publicAPI := apiRouter.PathPrefix("/public").Subrouter()
+
+	publicAPI.Handle("/files/upload", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleFileUpload)))).Methods("POST")
+	publicAPI.Handle("/files", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleListFiles)))).Methods("GET")
+	publicAPI.Handle("/files/{id}/download", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleAPIDownloadFileByID)))).Methods("GET")
+	publicAPI.Handle("/files/{id}", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleDeleteFile)))).Methods("DELETE")
+	publicAPI.Handle("/files/{id}/restore", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleRestoreFile)))).Methods("POST")
+
+	publicAPI.Handle("/versions/{type}/latest", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleAPIGetLatestVersionInfo)))).Methods("GET")
+	publicAPI.Handle("/versions/{type}/latest/info", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleAPIGetLatestVersionInfo)))).Methods("GET")
+	publicAPI.Handle("/versions/{type}/latest/download", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleAPIDownloadLatestByType)))).Methods("GET")
+
+	log.Printf("Registering version status route for roadmap and recommendation")
+	publicAPI.Handle("/versions/{type}/status", middleware.APILoggingMiddleware(http.HandlerFunc(handleAPIGetVersionTypeStatus))).Methods("GET")
+
+	publicAPI.Handle("/versions/{type}/{ver}/info", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleAPIGetVersionInfo)))).Methods("GET")
+
+	publicAPI.Handle("/packages", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleListPackages)))).Methods("GET")
+	publicAPI.Handle("/packages/{id}/remark", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleUpdatePackageRemark)))).Methods("PATCH")
+
+	publicAPI.Handle("/upload/assets-zip", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleAPIUploadAssetsZip)))).Methods("POST")
+	publicAPI.Handle("/upload/others-zip", middleware.APIKeyAuthMiddleware(middleware.APILoggingMiddleware(http.HandlerFunc(handleAPIUploadOthersZip)))).Methods("POST")
+
+	log.Printf("Public API routes registered with API key authentication")
+}
