@@ -125,27 +125,50 @@ var defaultDB *Database
 
 // InitDatabase initializes the database connection and creates tables
 func InitDatabase(dbPath string) error {
-	// Create directory if not exists
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
-		return fmt.Errorf("failed to create database directory: %v", err)
+	if err := createDatabaseDirectory(dbPath); err != nil {
+		return err
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := openAndConfigureDatabase(dbPath)
 	if err != nil {
-		return fmt.Errorf("failed to open database: %v", err)
-	}
-
-	// Configure SQLite for better concurrency
-	db.SetMaxOpenConns(1) // SQLite works best with a single connection
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(0)
-
-	if err := applySQLitePragmas(db); err != nil {
 		return err
 	}
 
 	defaultDB = &Database{db: db}
 
+	return initializeDatabaseTables()
+}
+
+func createDatabaseDirectory(dbPath string) error {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		return fmt.Errorf("failed to create database directory: %v", err)
+	}
+	return nil
+}
+
+func openAndConfigureDatabase(dbPath string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+
+	configureSQLiteSettings(db)
+
+	if err := applySQLitePragmas(db); err != nil {
+		return nil, err
+	}
+
+	return db, nil
+}
+
+func configureSQLiteSettings(db *sql.DB) {
+	// Configure SQLite for better concurrency
+	db.SetMaxOpenConns(1) // SQLite works best with a single connection
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+}
+
+func initializeDatabaseTables() error {
 	// Migrate api_usage_logs table to remove foreign key constraints
 	if err := defaultDB.migrateAPIUsageLogsTable(); err != nil {
 		return fmt.Errorf("failed to migrate api_usage_logs schema: %v", err)
@@ -155,6 +178,10 @@ func InitDatabase(dbPath string) error {
 		return fmt.Errorf("failed to create tables: %v", err)
 	}
 
+	return initializeCasbinSetup()
+}
+
+func initializeCasbinSetup() error {
 	// Initialize policies
 	if err := defaultDB.initializeCasbinPolicies(); err != nil {
 		return fmt.Errorf("failed to initialize casbin policies: %v", err)

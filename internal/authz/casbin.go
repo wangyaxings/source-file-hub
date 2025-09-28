@@ -195,16 +195,16 @@ func CheckAPIKeyPermission(apiKeyID, resource, action string) (bool, error) {
 
 // MapPermissionToResource maps API key permissions to resources and actions
 func MapPermissionToResource(permission string) ([]string, []string) {
-    switch permission {
-    case "read":
-        return []string{"/api/v1/public/files", "/api/v1/public/packages", "/api/v1/public/versions/*"}, []string{"GET"}
-    case "download":
-        return []string{"/api/v1/public/files/*", "/api/v1/public/versions/*/latest/download"}, []string{"GET"}
-    case "upload":
-        return []string{"/api/v1/public/files/upload", "/api/v1/public/upload/*", "/api/v1/public/packages/*/remark"}, []string{"POST", "PATCH"}
-    case "delete":
-        return []string{"/api/v1/public/files/*"}, []string{"DELETE"}
-    case "admin":
+	switch permission {
+	case "read":
+		return []string{"/api/v1/public/files", "/api/v1/public/packages", "/api/v1/public/versions/*"}, []string{"GET"}
+	case "download":
+		return []string{"/api/v1/public/files/*", "/api/v1/public/versions/*/latest/download"}, []string{"GET"}
+	case "upload":
+		return []string{"/api/v1/public/files/upload", "/api/v1/public/upload/*", "/api/v1/public/packages/*/remark"}, []string{"POST", "PATCH"}
+	case "delete":
+		return []string{"/api/v1/public/files/*"}, []string{"DELETE"}
+	case "admin":
 		return []string{"/api/v1/public/*"}, []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 	default:
 		return []string{}, []string{}
@@ -214,14 +214,29 @@ func MapPermissionToResource(permission string) ([]string, []string) {
 // CreateAPIKeyPolicies creates all necessary policies for an API key based on its permissions
 func CreateAPIKeyPolicies(apiKeyID string, permissions []string) error {
 	for _, permission := range permissions {
-		resources, actions := MapPermissionToResource(permission)
-		for _, resource := range resources {
-			for _, action := range actions {
-				_, err := AddAPIKeyPolicy(apiKeyID, resource, action)
-				if err != nil {
-					return fmt.Errorf("failed to add policy for %s: %v", permission, err)
-				}
-			}
+		if err := createPoliciesForPermission(apiKeyID, permission); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func createPoliciesForPermission(apiKeyID, permission string) error {
+	resources, actions := MapPermissionToResource(permission)
+
+	for _, resource := range resources {
+		if err := createPoliciesForResource(apiKeyID, resource, actions, permission); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func createPoliciesForResource(apiKeyID, resource string, actions []string, permission string) error {
+	for _, action := range actions {
+		_, err := AddAPIKeyPolicy(apiKeyID, resource, action)
+		if err != nil {
+			return fmt.Errorf("failed to add policy for %s: %v", permission, err)
 		}
 	}
 	return nil

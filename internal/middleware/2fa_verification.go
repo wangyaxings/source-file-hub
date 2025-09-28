@@ -13,39 +13,66 @@ import (
 // TwoFAVerificationMiddleware checks if user needs to complete 2FA verification
 func TwoFAVerificationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-
-		// Skip 2FA verification check for certain endpoints
-		if strings.HasPrefix(path, "/api/v1/web/auth/ab/") ||
-			strings.Contains(path, "/auth/2fa/") ||
-			strings.Contains(path, "/auth/me") ||
-			strings.Contains(path, "/health") ||
-			strings.Contains(path, "/static/") ||
-			strings.Contains(path, "/admin/") ||
-			strings.Contains(path, "2fa/totp") {
+		if shouldSkip2FACheck(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Check if user is authenticated via authboss session
-		if pid, ok := ab.GetSession(r, ab.SessionKey); ok && pid != "" {
-			// Check if user needs 2FA verification
-			if db := database.GetDatabase(); db != nil {
-				if appUser, err := db.GetUser(pid); err == nil && appUser != nil {
-					// If user has 2FA enabled and has TOTP secret, they need verification
-					if appUser.TwoFAEnabled && appUser.TOTPSecret != "" {
-						// Check if 2FA verification is completed in this session
-						if !is2FAVerified(r) {
-							write2FAVerificationRequiredResponse(w)
-							return
-						}
-					}
-				}
-			}
+		if requires2FAVerification(r) {
+			write2FAVerificationRequiredResponse(w)
+			return
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func shouldSkip2FACheck(path string) bool {
+	skipPaths := []string{
+		"/api/v1/web/auth/ab/",
+		"/auth/2fa/",
+		"/auth/me",
+		"/health",
+		"/static/",
+		"/admin/",
+		"2fa/totp",
+	}
+
+	for _, skipPath := range skipPaths {
+		if strings.HasPrefix(path, skipPath) || strings.Contains(path, skipPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func requires2FAVerification(r *http.Request) bool {
+	pid, ok := ab.GetSession(r, ab.SessionKey)
+	if !ok || pid == "" {
+		return false
+	}
+
+	user, err := getUserFromDatabase(pid)
+	if err != nil || user == nil {
+		return false
+	}
+
+	return userNeeds2FAVerification(user, r)
+}
+
+func getUserFromDatabase(pid string) (*database.AppUser, error) {
+	db := database.GetDatabase()
+	if db == nil {
+		return nil, nil
+	}
+	return db.GetUser(pid)
+}
+
+func userNeeds2FAVerification(user *database.AppUser, r *http.Request) bool {
+	if !user.TwoFAEnabled || user.TOTPSecret == "" {
+		return false
+	}
+	return !is2FAVerified(r)
 }
 
 // is2FAVerified checks if 2FA verification is completed in the current session
