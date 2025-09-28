@@ -431,7 +431,7 @@ function CreateUserModal({ onCreated }: { onCreated: (username: string, password
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={mustReset} onChange={e => setMustReset(e.target.checked)} />
-            Force password reset
+            {' Force password reset'}
           </label>
         </div>
         <DialogFooter>
