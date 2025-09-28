@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -21,10 +23,7 @@ import (
 // It ensures frontend can retrieve the secret even when Authboss returns empty bodies or redirects.
 func TOTPJSONShimMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-
-		// Only handle the authboss TOTP endpoints mounted under /api/v1/web/auth/ab
-		if !strings.HasPrefix(path, "/api/v1/web/auth/ab/2fa/totp/") {
+		if !isTOTPPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -32,26 +31,40 @@ func TOTPJSONShimMiddleware(next http.Handler) http.Handler {
 		// Session safety: clear conflicting sessions
 		clearConflictingSession(w, r)
 
-		// Prefer JSON flow; if client doesn't want JSON, fall through
-		wantsJSON := strings.Contains(r.Header.Get("Accept"), "application/json") ||
-			strings.Contains(r.Header.Get("Content-Type"), "application/json")
-
-		switch {
-		case r.Method == http.MethodPost && strings.HasSuffix(path, "/setup") && wantsJSON:
-			handleTOTPSetup(w, r)
-			return
-
-		case r.Method == http.MethodGet && strings.HasSuffix(path, "/confirm") && wantsJSON:
-			handleTOTPConfirm(w, r)
-			return
-
-		case r.Method == http.MethodPost && strings.HasSuffix(path, "/validate") && wantsJSON:
-			handleTOTPValidate(w, r)
+		if !wantsJSON(r) {
+			next.ServeHTTP(w, r)
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		handleTOTPRequest(w, r, next)
 	})
+}
+
+// isTOTPPath checks if the request path is a TOTP endpoint
+func isTOTPPath(path string) bool {
+	return strings.HasPrefix(path, "/api/v1/web/auth/ab/2fa/totp/")
+}
+
+// wantsJSON checks if the client prefers JSON responses
+func wantsJSON(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "application/json") ||
+		strings.Contains(r.Header.Get("Content-Type"), "application/json")
+}
+
+// handleTOTPRequest routes TOTP requests to appropriate handlers
+func handleTOTPRequest(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	path := r.URL.Path
+
+	switch {
+	case r.Method == http.MethodPost && strings.HasSuffix(path, "/setup"):
+		handleTOTPSetup(w, r)
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/confirm"):
+		handleTOTPConfirm(w, r)
+	case r.Method == http.MethodPost && strings.HasSuffix(path, "/validate"):
+		handleTOTPValidate(w, r)
+	default:
+		next.ServeHTTP(w, r)
+	}
 }
 
 func buildOTPAuthURL(issuer, label, secret string) string {
@@ -211,18 +224,8 @@ func handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 
 // handleTOTPValidate handles TOTP validation requests
 func handleTOTPValidate(w http.ResponseWriter, r *http.Request) {
-	// Determine the PID to validate
-	currentPID, okCur := ab.GetSession(r, ab.SessionKey)
-	pendingPID, okPend := ab.GetSession(r, totp2fa.SessionTOTPPendingPID)
-	pid := ""
-	switch {
-	case okCur && okPend && currentPID == pendingPID:
-		pid = currentPID
-	case okPend:
-		pid = pendingPID
-	case okCur:
-		pid = currentPID
-	default:
+	pid, err := determinePID(r)
+	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{
 			"success": false,
 			"error":   "Unauthorized",
@@ -230,15 +233,7 @@ func handleTOTPValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auth.AB == nil || auth.AB.Config.Storage.Server == nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"success": false,
-			"error":   "Server not ready",
-		})
-		return
-	}
-
-	abUser, err := auth.AB.Config.Storage.Server.Load(r.Context(), pid)
+	abUser, err := loadUser(r.Context(), pid)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{
 			"success": false,
@@ -247,18 +242,15 @@ func handleTOTPValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Interface to access TOTP secret
-	type totpUser interface{ GetTOTPSecretKey() string }
-	u, ok := abUser.(totpUser)
-	if !ok {
+	secret, err := getTOTPSecret(abUser)
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
 			"success": false,
-			"error":   "Invalid user type",
+			"error":   err.Error(),
 		})
 		return
 	}
 
-	secret := u.GetTOTPSecretKey()
 	if secret == "" {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"success": false,
@@ -267,38 +259,19 @@ func handleTOTPValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check cooldown
-	if untilStr, ok := ab.GetSession(r, "totp_cooldown_until"); ok && untilStr != "" {
-		if untilUnix, err := strconv.ParseInt(untilStr, 10, 64); err == nil {
-			now := time.Now().Unix()
-			if now < untilUnix {
-				retryAfter := int(untilUnix - now)
-				writeJSON(w, http.StatusOK, map[string]any{
-					"success":     false,
-					"error":       "Too many recent attempts. Please wait.",
-					"code":        "2FA_COOLDOWN",
-					"retry_after": retryAfter,
-				})
-				return
-			}
-		}
+	if isInCooldown(r) {
+		retryAfter := getCooldownRetryAfter(r)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success":     false,
+			"error":       "Too many recent attempts. Please wait.",
+			"code":        "2FA_COOLDOWN",
+			"retry_after": retryAfter,
+		})
+		return
 	}
 
-	// Read code from JSON or form
-	var code string
-	ct := r.Header.Get("Content-Type")
-	if strings.Contains(ct, "application/json") {
-		var m map[string]string
-		b, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(b, &m)
-		code = strings.TrimSpace(m["code"])
-		r.Body = io.NopCloser(bytes.NewReader(b))
-	} else {
-		_ = r.ParseForm()
-		code = strings.TrimSpace(r.FormValue("code"))
-	}
-
-	if code == "" {
+	code, err := extractCode(r)
+	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"success": false,
 			"error":   "Missing code",
@@ -307,16 +280,7 @@ func handleTOTPValidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !totp.Validate(code, secret) {
-		// Get current attempts
-		attempts := 0
-		if aStr, ok := ab.GetSession(r, "totp_attempts"); ok && aStr != "" {
-			if v, err := strconv.Atoi(aStr); err == nil {
-				attempts = v
-			}
-		}
-
-		// Handle violations
-		if handleTOTPViolations(w, r, attempts) == -1 {
+		if !handleInvalidCode(w, r) {
 			return // Response already sent
 		}
 
@@ -336,13 +300,107 @@ func handleTOTPValidate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// captureResponseWriter buffers the response for inspection.
-type captureResponseWriter struct {
-	HeaderMap  http.Header
-	Body       bytes.Buffer
-	StatusCode int
+// determinePID determines which PID to use for validation
+func determinePID(r *http.Request) (string, error) {
+	currentPID, okCur := ab.GetSession(r, ab.SessionKey)
+	pendingPID, okPend := ab.GetSession(r, totp2fa.SessionTOTPPendingPID)
+
+	switch {
+	case okCur && okPend && currentPID == pendingPID:
+		return currentPID, nil
+	case okPend:
+		return pendingPID, nil
+	case okCur:
+		return currentPID, nil
+	default:
+		return "", errors.New("no valid session")
+	}
 }
 
-func (c *captureResponseWriter) Header() http.Header         { return c.HeaderMap }
-func (c *captureResponseWriter) Write(b []byte) (int, error) { return c.Body.Write(b) }
-func (c *captureResponseWriter) WriteHeader(statusCode int)  { c.StatusCode = statusCode }
+// loadUser loads user from authboss storage
+func loadUser(ctx context.Context, pid string) (ab.User, error) {
+	if auth.AB == nil || auth.AB.Config.Storage.Server == nil {
+		return nil, errors.New("server not ready")
+	}
+
+	return auth.AB.Config.Storage.Server.Load(ctx, pid)
+}
+
+// getTOTPSecret extracts TOTP secret from user
+func getTOTPSecret(abUser ab.User) (string, error) {
+	type totpUser interface{ GetTOTPSecretKey() string }
+	u, ok := abUser.(totpUser)
+	if !ok {
+		return "", errors.New("invalid user type")
+	}
+
+	return u.GetTOTPSecretKey(), nil
+}
+
+// isInCooldown checks if user is in cooldown period
+func isInCooldown(r *http.Request) bool {
+	untilStr, ok := ab.GetSession(r, "totp_cooldown_until")
+	if !ok || untilStr == "" {
+		return false
+	}
+
+	untilUnix, err := strconv.ParseInt(untilStr, 10, 64)
+	if err != nil {
+		return false
+	}
+
+	now := time.Now().Unix()
+	return now < untilUnix
+}
+
+// getCooldownRetryAfter calculates retry after seconds
+func getCooldownRetryAfter(r *http.Request) int {
+	untilStr, ok := ab.GetSession(r, "totp_cooldown_until")
+	if !ok || untilStr == "" {
+		return 0
+	}
+
+	untilUnix, err := strconv.ParseInt(untilStr, 10, 64)
+	if err != nil {
+		return 0
+	}
+
+	now := time.Now().Unix()
+	if now < untilUnix {
+		return int(untilUnix - now)
+	}
+	return 0
+}
+
+// extractCode extracts the TOTP code from request
+func extractCode(r *http.Request) (string, error) {
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "application/json") {
+		var m map[string]string
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &m)
+		code := strings.TrimSpace(m["code"])
+		r.Body = io.NopCloser(bytes.NewReader(b))
+		return code, nil
+	}
+
+	_ = r.ParseForm()
+	code := strings.TrimSpace(r.FormValue("code"))
+	return code, nil
+}
+
+// handleInvalidCode handles invalid TOTP code attempts
+func handleInvalidCode(w http.ResponseWriter, r *http.Request) bool {
+	attempts := getCurrentAttempts(r)
+	return handleTOTPViolations(w, r, attempts) != -1
+}
+
+// getCurrentAttempts gets current TOTP attempts from session
+func getCurrentAttempts(r *http.Request) int {
+	if aStr, ok := ab.GetSession(r, "totp_attempts"); ok && aStr != "" {
+		if v, err := strconv.Atoi(aStr); err == nil {
+			return v
+		}
+	}
+	return 0
+}
