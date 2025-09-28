@@ -22,7 +22,6 @@ import {
   EyeOff,
   Copy,
   Trash2,
-  Edit,
   Users,
   BarChart3,
   Settings,
@@ -30,7 +29,6 @@ import {
   XCircle,
   AlertTriangle,
   Loader2,
-  Download,
   Calendar,
   X
 } from "lucide-react"

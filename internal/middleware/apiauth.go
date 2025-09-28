@@ -207,7 +207,6 @@ func inferRequiredPermission(method, path string) string {
 func APILoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		startUTC := start.UTC()
 
 		// Create a response recorder to capture status code and size
 		recorder := &ResponseRecorder{
@@ -219,62 +218,86 @@ func APILoggingMiddleware(next http.Handler) http.Handler {
 		// Process request
 		next.ServeHTTP(recorder, r)
 
-		// Log the API usage
-		go func() {
-			authCtx := GetAPIAuthContext(r)
-			db := database.GetDatabase()
-			if db != nil {
-				logEntry := &database.APIUsageLog{
-					Endpoint:       r.URL.Path,
-					Method:         r.Method,
-					IPAddress:      GetClientIP(r),
-					UserAgent:      r.Header.Get("User-Agent"),
-					StatusCode:     recorder.StatusCode,
-					ResponseSize:   recorder.Size,
-					ResponseTimeMs: time.Since(start).Milliseconds(),
-					RequestTime:    startUTC,
-					CreatedAt:      time.Now().UTC(),
-				}
+		// Log the API usage asynchronously
+		go logAPIUsage(r, recorder, start)
+	})
+}
 
-				// Set API key info if available (API key authentication should have run first)
-				if authCtx != nil {
-					logEntry.APIKeyID = authCtx.KeyID
-					logEntry.APIKeyName = authCtx.APIKey.Name // Set the actual API key name
-					logEntry.UserID = authCtx.Role
-				} else {
-					// For session-based requests, try to get user info from session
-					if userCtx := r.Context().Value("user"); userCtx != nil {
-						if user, ok := userCtx.(map[string]interface{}); ok {
-							if username, exists := user["username"]; exists {
-								if usernameStr, ok := username.(string); ok {
-									logEntry.UserID = usernameStr
-								}
-							}
-						}
+// logAPIUsage logs API usage in a separate goroutine
+func logAPIUsage(r *http.Request, recorder *ResponseRecorder, start time.Time) {
+	startUTC := start.UTC()
+	authCtx := GetAPIAuthContext(r)
+
+	logEntry := createAPIUsageLogEntry(r, recorder, start, startUTC, authCtx)
+
+	db := database.GetDatabase()
+	if db != nil {
+		if err := db.LogAPIUsage(logEntry); err != nil {
+			log.Printf("Warning: Failed to log API usage: %v", err)
+		}
+	}
+}
+
+// createAPIUsageLogEntry creates the API usage log entry
+func createAPIUsageLogEntry(r *http.Request, recorder *ResponseRecorder, start time.Time, startUTC time.Time, authCtx *APIAuthContext) *database.APIUsageLog {
+	logEntry := &database.APIUsageLog{
+		Endpoint:       r.URL.Path,
+		Method:         r.Method,
+		IPAddress:      GetClientIP(r),
+		UserAgent:      r.Header.Get("User-Agent"),
+		StatusCode:     recorder.StatusCode,
+		ResponseSize:   recorder.Size,
+		ResponseTimeMs: time.Since(start).Milliseconds(),
+		RequestTime:    startUTC,
+		CreatedAt:      time.Now().UTC(),
+	}
+
+	// Set authentication context
+	setAuthContextInLogEntry(logEntry, authCtx, r)
+
+	// Set file context
+	setFileContextInLogEntry(logEntry, r)
+
+	return logEntry
+}
+
+// setAuthContextInLogEntry sets authentication-related fields in log entry
+func setAuthContextInLogEntry(logEntry *database.APIUsageLog, authCtx *APIAuthContext, r *http.Request) {
+	if authCtx != nil {
+		logEntry.APIKeyID = authCtx.KeyID
+		logEntry.APIKeyName = authCtx.APIKey.Name
+		logEntry.UserID = authCtx.Role
+	} else {
+		// For session-based requests, try to get user info from session
+		if userCtx := r.Context().Value("user"); userCtx != nil {
+			if user, ok := userCtx.(map[string]interface{}); ok {
+				if username, exists := user["username"]; exists {
+					if usernameStr, ok := username.(string); ok {
+						logEntry.UserID = usernameStr
 					}
-					// Mark as web session request - use special values that won't cause FK constraint issues
-					logEntry.APIKeyID = "web_session"
-					logEntry.APIKeyName = "Web Session"
-				}
-
-				// Extract file ID from request if applicable (only if file exists in database)
-				if fileID := r.URL.Query().Get("file_id"); fileID != "" {
-					// Validate file_id exists in database
-					var count int
-					if err := db.GetDB().QueryRow("SELECT COUNT(*) FROM files WHERE id = ?", fileID).Scan(&count); err == nil && count > 0 {
-						logEntry.FileID = fileID
-					}
-				}
-				if filePath := r.URL.Query().Get("file_path"); filePath != "" {
-					logEntry.FilePath = filePath
-				}
-
-				if err := db.LogAPIUsage(logEntry); err != nil {
-					log.Printf("Warning: Failed to log API usage: %v", err)
 				}
 			}
-		}()
-	})
+		}
+		// Mark as web session request
+		logEntry.APIKeyID = "web_session"
+		logEntry.APIKeyName = "Web Session"
+	}
+}
+
+// setFileContextInLogEntry sets file-related fields in log entry
+func setFileContextInLogEntry(logEntry *database.APIUsageLog, r *http.Request) {
+	if fileID := r.URL.Query().Get("file_id"); fileID != "" {
+		db := database.GetDatabase()
+		if db != nil {
+			var count int
+			if err := db.GetDB().QueryRow("SELECT COUNT(*) FROM files WHERE id = ?", fileID).Scan(&count); err == nil && count > 0 {
+				logEntry.FileID = fileID
+			}
+		}
+	}
+	if filePath := r.URL.Query().Get("file_path"); filePath != "" {
+		logEntry.FilePath = filePath
+	}
 }
 
 // ResponseRecorder captures response data for logging

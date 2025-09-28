@@ -280,7 +280,7 @@ func handleAPIDownloadFileByID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
 	w.Header().Set("Content-Type", getContentType(name))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
-	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set(cacheControl, "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 	if _, err := io.Copy(w, f); err != nil {
@@ -413,23 +413,30 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, record *database.
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
 	w.Header().Set("Content-Type", getContentType(name))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
-	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set(cacheControl, "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 	_, _ = io.Copy(w, f)
 }
 
 // handleAPIGetLatestVersionInfo handles requests for latest version info
+const (
+	allowedFileTypes     = "roadmap or recommendation"
+	noLatestVersion      = "No latest version available for this type"
+	cacheControl         = "Cache-Control"
+	databaseNotAvailable = "Database not available"
+)
+
 func handleAPIGetLatestVersionInfo(w http.ResponseWriter, r *http.Request) {
 	t := strings.ToLower(mux.Vars(r)["type"])
 	if t != "roadmap" && t != "recommendation" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type"})
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be "+allowedFileTypes, map[string]interface{}{"field": "type"})
 		return
 	}
 
 	latest, err := findLatestVersion(t)
 	if err != nil {
-		writeErrorWithCodeDetails(w, http.StatusNotFound, "NO_LATEST_VERSION", "No latest version available for this type", map[string]interface{}{
+		writeErrorWithCodeDetails(w, http.StatusNotFound, "NO_LATEST_VERSION", noLatestVersion, map[string]interface{}{
 			"type":    t,
 			"message": err.Error(),
 		})

@@ -72,8 +72,13 @@ func buildOTPAuthURL(issuer, label, secret string) string {
 		"?issuer=" + url.QueryEscape(issuer) + "&secret=" + url.QueryEscape(secret)
 }
 
+const (
+	contentTypeJSON = "application/json"
+	contentType     = "Content-Type"
+)
+
 func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(contentType, contentTypeJSON)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }

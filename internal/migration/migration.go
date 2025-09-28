@@ -154,37 +154,50 @@ func discoverNewFiles(db *database.Database, oldMetadata map[string]FileMetadata
 func discoverFilesOfType(db *database.Database, fileType string, oldMetadata map[string]FileMetadata) int {
 	baseDir := filepath.Join("downloads", fileType+"s")
 
-	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+	if !directoryExists(baseDir) {
 		return 0
 	}
 
 	discoveredCount := 0
 	filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-
-		// Skip files already migrated
-		if oldMetadata != nil {
-			relPath, _ := filepath.Rel("downloads", path)
-			if _, exists := oldMetadata[relPath]; exists {
-				return nil
-			}
-		}
-
-		if isValidFileExtension(info.Name()) {
-			if record := createRecordFromFile(path, fileType, info); record != nil {
-				if err := db.InsertFileRecord(record); err != nil {
-					log.Printf("Warning: Failed to add discovered file %s: %v", path, err)
-				} else {
-					discoveredCount++
-				}
-			}
-		}
-		return nil
+		return processDiscoveredFile(path, info, err, db, fileType, oldMetadata, &discoveredCount)
 	})
 
 	return discoveredCount
+}
+
+// directoryExists checks if a directory exists
+func directoryExists(dir string) bool {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return false
+	}
+	return true
+}
+
+// processDiscoveredFile processes a single discovered file during migration
+func processDiscoveredFile(path string, info os.FileInfo, err error, db *database.Database, fileType string, oldMetadata map[string]FileMetadata, discoveredCount *int) error {
+	if err != nil || info.IsDir() {
+		return nil
+	}
+
+	// Skip files already migrated
+	if oldMetadata != nil {
+		relPath, _ := filepath.Rel("downloads", path)
+		if _, exists := oldMetadata[relPath]; exists {
+			return nil
+		}
+	}
+
+	if isValidFileExtension(info.Name()) {
+		if record := createRecordFromFile(path, fileType, info); record != nil {
+			if err := db.InsertFileRecord(record); err != nil {
+				log.Printf("Warning: Failed to add discovered file %s: %v", path, err)
+			} else {
+				*discoveredCount++
+			}
+		}
+	}
+	return nil
 }
 
 // backupMetadataFile creates a backup of the metadata file

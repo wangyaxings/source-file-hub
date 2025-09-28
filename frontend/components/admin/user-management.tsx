@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { apiClient } from "@/lib/api"
 import { mapApiErrorToMessage } from "@/lib/errors"
 import { Button } from "@/components/ui/button"
@@ -98,9 +98,9 @@ export default function UserManagement() {
       } else {
         // 启用2FA - 管理员直接启用，用户首次登录时会引导设置
         await apiClient.adminEnable2FA(u.user_id)
-        toast({ 
-          title: '2FA enabled', 
-          description: `2FA has been enabled for ${u.user_id}. User will be prompted to complete setup on next login.` 
+        toast({
+          title: '2FA enabled',
+          description: `2FA has been enabled for ${u.user_id}. User will be prompted to complete setup on next login.`
         })
         load() // 重新加载用户列表
       }
@@ -134,17 +134,17 @@ export default function UserManagement() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
-            <Input 
-              placeholder="Search users..." 
-              value={filter} 
-              onChange={(e) => setFilter(e.target.value)} 
-              className="w-64 h-9" 
+            <Input
+              placeholder="Search users..."
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="w-64 h-9"
             />
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="h-9 px-3" 
-              onClick={() => { setPage(1); load() }} 
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 px-3"
+              onClick={() => { setPage(1); load() }}
               disabled={loading}
               title="Search"
             >
