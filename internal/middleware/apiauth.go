@@ -101,26 +101,8 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
-		// Create permission checker function (for backward compatibility)
-		hasPermission := func(permission string) bool {
-			// For backward compatibility, still check the old permission system
-			return apikey.HasPermission(apiKeyRecord.Permissions, permission)
-		}
-
-		// Update API key usage (async)
-		go func() {
-			if err := db.UpdateAPIKeyUsage(apiKeyRecord.ID); err != nil {
-				log.Printf("Warning: Failed to update API key usage: %v", err)
-			}
-		}()
-
-		// Create auth context
-		authContext := &APIAuthContext{
-			APIKey:        apiKeyRecord,
-			Role:          apiKeyRecord.Role,
-			KeyID:         apiKeyRecord.ID,
-			HasPermission: hasPermission,
-		}
+		// Update API key usage and create auth context
+		authContext := createAPIAuthContextWithUsageUpdate(db, apiKeyRecord)
 
 		// Add auth context to request
 		ctx := context.WithValue(r.Context(), APIAuthContextKey, authContext)
@@ -129,6 +111,30 @@ func APIKeyAuthMiddleware(next http.Handler) http.Handler {
 		// Continue to next handler
 		next.ServeHTTP(w, r)
 	})
+}
+
+// createAPIAuthContextWithUsageUpdate creates API auth context and updates usage
+func createAPIAuthContextWithUsageUpdate(db *database.Database, apiKeyRecord *database.APIKey) *APIAuthContext {
+	// Create permission checker function (for backward compatibility)
+	hasPermission := func(permission string) bool {
+		// For backward compatibility, still check the old permission system
+		return apikey.HasPermission(apiKeyRecord.Permissions, permission)
+	}
+
+	// Update API key usage (async)
+	go func() {
+		if err := db.UpdateAPIKeyUsage(apiKeyRecord.ID); err != nil {
+			log.Printf("Warning: Failed to update API key usage: %v", err)
+		}
+	}()
+
+	// Create auth context
+	return &APIAuthContext{
+		APIKey:        apiKeyRecord,
+		Role:          apiKeyRecord.Role,
+		KeyID:         apiKeyRecord.ID,
+		HasPermission: hasPermission,
+	}
 }
 
 // RequirePermission middleware checks if the authenticated user/API key has the required permission

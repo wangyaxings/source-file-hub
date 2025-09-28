@@ -229,41 +229,21 @@ func handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 
 // handleTOTPValidate handles TOTP validation requests
 func handleTOTPValidate(w http.ResponseWriter, r *http.Request) {
-	pid, err := determinePID(r)
-	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{
-			"success": false,
-			"error":   "Unauthorized",
-		})
+	// Validate PID and user
+	result := validatePIDAndUser(r)
+	if !result.success {
+		writeJSON(w, result.statusCode, result.response)
 		return
 	}
 
-	abUser, err := loadUser(r.Context(), pid)
-	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{
-			"success": false,
-			"error":   "User not found",
-		})
+	// Validate TOTP secret
+	result = validateTOTPSecret(result.pid, r.Context())
+	if !result.success {
+		writeJSON(w, result.statusCode, result.response)
 		return
 	}
 
-	secret, err := getTOTPSecret(abUser)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	if secret == "" {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"success": false,
-			"error":   "2FA not enabled",
-		})
-		return
-	}
-
+	// Check cooldown
 	if isInCooldown(r) {
 		retryAfter := getCooldownRetryAfter(r)
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -275,34 +255,136 @@ func handleTOTPValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code, err := extractCode(r)
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"success": false,
-			"error":   "Missing code",
-		})
-		return
-	}
-
-	if !totp.Validate(code, secret) {
+	// Validate TOTP code
+	result = validateTOTPCode(r, result.secret)
+	if !result.success {
 		if !handleInvalidCode(w, r) {
 			return // Response already sent
 		}
-
-		writeJSON(w, http.StatusOK, map[string]any{
-			"success": false,
-			"error":   "Invalid 2FA code",
-			"code":    "INVALID_2FA_CODE",
-		})
+		writeJSON(w, result.statusCode, result.response)
 		return
 	}
 
 	// Success: set sessions to full-auth with 2FA flag and clear pending
-	resetTOTPSessionData(w, pid)
+	resetTOTPSessionData(w, result.pid)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"message": "2FA validation successful",
 	})
+}
+
+// validationResult represents the result of validation operations
+type validationResult struct {
+	success    bool
+	pid        string
+	secret     string
+	statusCode int
+	response   map[string]any
+}
+
+// validatePIDAndUser validates PID and loads user
+func validatePIDAndUser(r *http.Request) validationResult {
+	pid, err := determinePID(r)
+	if err != nil {
+		return validationResult{
+			success:    false,
+			statusCode: http.StatusUnauthorized,
+			response: map[string]any{
+				"success": false,
+				"error":   "Unauthorized",
+			},
+		}
+	}
+
+	_, err = loadUser(r.Context(), pid)
+	if err != nil {
+		return validationResult{
+			success:    false,
+			statusCode: http.StatusUnauthorized,
+			response: map[string]any{
+				"success": false,
+				"error":   "User not found",
+			},
+		}
+	}
+
+	return validationResult{
+		success: true,
+		pid:     pid,
+	}
+}
+
+// validateTOTPSecret validates TOTP secret exists and is valid
+func validateTOTPSecret(pid string, ctx context.Context) validationResult {
+	abUser, err := loadUser(ctx, pid)
+	if err != nil {
+		return validationResult{
+			success:    false,
+			statusCode: http.StatusInternalServerError,
+			response: map[string]any{
+				"success": false,
+				"error":   "Failed to load user",
+			},
+		}
+	}
+
+	secret, err := getTOTPSecret(abUser)
+	if err != nil {
+		return validationResult{
+			success:    false,
+			statusCode: http.StatusInternalServerError,
+			response: map[string]any{
+				"success": false,
+				"error":   err.Error(),
+			},
+		}
+	}
+
+	if secret == "" {
+		return validationResult{
+			success:    false,
+			statusCode: http.StatusOK,
+			response: map[string]any{
+				"success": false,
+				"error":   "2FA not enabled",
+			},
+		}
+	}
+
+	return validationResult{
+		success: true,
+		pid:     pid,
+		secret:  secret,
+	}
+}
+
+// validateTOTPCode validates the provided TOTP code
+func validateTOTPCode(r *http.Request, secret string) validationResult {
+	code, err := extractCode(r)
+	if err != nil {
+		return validationResult{
+			success:    false,
+			statusCode: http.StatusOK,
+			response: map[string]any{
+				"success": false,
+				"error":   "Missing code",
+			},
+		}
+	}
+
+	if !totp.Validate(code, secret) {
+		return validationResult{
+			success:    false,
+			statusCode: http.StatusOK,
+			response: map[string]any{
+				"success": false,
+				"error":   "Invalid 2FA code",
+				"code":    "INVALID_2FA_CODE",
+			},
+		}
+	}
+
+	return validationResult{success: true}
 }
 
 // determinePID determines which PID to use for validation

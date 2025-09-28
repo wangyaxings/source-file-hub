@@ -181,23 +181,46 @@ func processDiscoveredFile(path string, info os.FileInfo, err error, db *databas
 	}
 
 	// Skip files already migrated
-	if oldMetadata != nil {
-		relPath, _ := filepath.Rel("downloads", path)
-		if _, exists := oldMetadata[relPath]; exists {
-			return nil
-		}
+	if shouldSkipMigratedFile(path, oldMetadata) {
+		return nil
 	}
 
+	// Process valid files
 	if isValidFileExtension(info.Name()) {
-		if record := createRecordFromFile(path, fileType, info); record != nil {
-			if err := db.InsertFileRecord(record); err != nil {
-				log.Printf("Warning: Failed to add discovered file %s: %v", path, err)
-			} else {
-				*discoveredCount++
-			}
-		}
+		handleValidDiscoveredFile(path, fileType, info, db, discoveredCount)
 	}
+
 	return nil
+}
+
+// shouldSkipMigratedFile checks if a file should be skipped because it's already migrated
+func shouldSkipMigratedFile(filePath string, oldMetadata map[string]FileMetadata) bool {
+	if oldMetadata == nil {
+		return false
+	}
+
+	relPath, err := filepath.Rel("downloads", filePath)
+	if err != nil {
+		return false
+	}
+
+	_, exists := oldMetadata[relPath]
+	return exists
+}
+
+// handleValidDiscoveredFile processes a valid discovered file
+func handleValidDiscoveredFile(filePath, fileType string, info os.FileInfo, db *database.Database, discoveredCount *int) {
+	record := createRecordFromFile(filePath, fileType, info)
+	if record == nil {
+		return
+	}
+
+	if err := db.InsertFileRecord(record); err != nil {
+		log.Printf("Warning: Failed to add discovered file %s: %v", filePath, err)
+		return
+	}
+
+	*discoveredCount++
 }
 
 // backupMetadataFile creates a backup of the metadata file

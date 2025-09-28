@@ -275,32 +275,62 @@ func generateSecurePassword(length int) (string, error) {
 
 	password := make([]byte, length)
 
+	// Fill first 4 positions with one character from each set
 	sets := []string{lowercase, uppercase, digits, special}
-	for i, set := range sets {
-		charIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(set))))
-		if err != nil {
-			return "", fmt.Errorf("failed to generate random character: %v", err)
-		}
-		password[i] = set[charIndex.Int64()]
+	err := fillPasswordWithRequiredSets(password, sets)
+	if err != nil {
+		return "", err
 	}
 
-	for i := len(sets); i < length; i++ {
-		charIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(allChars))))
-		if err != nil {
-			return "", fmt.Errorf("failed to generate random character: %v", err)
-		}
-		password[i] = allChars[charIndex.Int64()]
+	// Fill remaining positions with random characters
+	err = fillRemainingPasswordPositions(password, allChars, len(sets))
+	if err != nil {
+		return "", err
 	}
 
-	for i := len(password) - 1; i > 0; i-- {
-		j, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
-		if err != nil {
-			return "", fmt.Errorf("failed to shuffle password: %v", err)
-		}
-		password[i], password[j.Int64()] = password[j.Int64()], password[i]
+	// Shuffle the password
+	err = shufflePassword(password)
+	if err != nil {
+		return "", err
 	}
 
 	return string(password), nil
+}
+
+// fillPasswordWithRequiredSets fills the first positions with required character sets
+func fillPasswordWithRequiredSets(password []byte, sets []string) error {
+	for i, set := range sets {
+		charIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(set))))
+		if err != nil {
+			return fmt.Errorf("failed to generate random character: %v", err)
+		}
+		password[i] = set[charIndex.Int64()]
+	}
+	return nil
+}
+
+// fillRemainingPasswordPositions fills remaining positions with random characters
+func fillRemainingPasswordPositions(password []byte, allChars string, startIndex int) error {
+	for i := startIndex; i < len(password); i++ {
+		charIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(allChars))))
+		if err != nil {
+			return fmt.Errorf("failed to generate random character: %v", err)
+		}
+		password[i] = allChars[charIndex.Int64()]
+	}
+	return nil
+}
+
+// shufflePassword shuffles the password array
+func shufflePassword(password []byte) error {
+	for i := len(password) - 1; i > 0; i-- {
+		j, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return fmt.Errorf("failed to shuffle password: %v", err)
+		}
+		password[i], password[j.Int64()] = password[j.Int64()], password[i]
+	}
+	return nil
 }
 
 // Version handlers moved to version_handlers.go
