@@ -140,7 +140,7 @@ def generate_zip(kind: str, tenant: str, out_dir: str) -> str:
     path = os.path.join(out_dir, name)
     logging.info("generating %s zip: %s", kind, path)
     with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("dummy.txt", f"generated for {tenant} {kind} at {datetime.utcnow().isoformat()}Z")
+        zf.writestr("dummy.txt", f"generated for {tenant} {kind} at {datetime.now(timezone.utc).isoformat()}Z")
     return path
 
 

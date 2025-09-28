@@ -10,6 +10,7 @@ const Table = React.forwardRef<
     <table
       ref={ref}
       className={cn("w-full caption-bottom text-sm", className)}
+      role="table"
       {...props}
     />
   </div>
@@ -69,7 +70,7 @@ TableRow.displayName = "TableRow"
 const TableHead = React.forwardRef<
   HTMLTableCellElement,
   React.ThHTMLAttributes<HTMLTableCellElement>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <th
     ref={ref}
     className={cn(
@@ -77,7 +78,9 @@ const TableHead = React.forwardRef<
       className
     )}
     {...props}
-  />
+  >
+    {children}
+  </th>
 ))
 TableHead.displayName = "TableHead"
 
