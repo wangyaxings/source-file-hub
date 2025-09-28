@@ -182,6 +182,54 @@ func writeErrorWithCodeDetails(w http.ResponseWriter, status int, code, message 
 	writeJSONResponse(w, status, response)
 }
 
+// WriteErrorWithCodeForTest is an exported version of writeErrorWithCode for testing
+func WriteErrorWithCodeForTest(w http.ResponseWriter, status int, code, message string) {
+	writeErrorWithCode(w, status, code, message)
+}
+
+// WriteErrorWithCodeDetailsForTest is an exported version of writeErrorWithCodeDetails for testing
+func WriteErrorWithCodeDetailsForTest(w http.ResponseWriter, status int, code, message string, details map[string]interface{}) {
+	// Create a copy of details to avoid modifying the original
+	detailsCopy := make(map[string]interface{})
+	if details != nil {
+		for k, v := range details {
+			detailsCopy[k] = v
+		}
+	}
+
+	// Only add request_id from header if it doesn't already exist in details
+	if rid := w.Header().Get("X-Request-ID"); rid != "" {
+		if _, ok := detailsCopy["request_id"]; !ok {
+			detailsCopy["request_id"] = rid
+		}
+	}
+
+	writeErrorWithCodeDetails(w, status, code, message, detailsCopy)
+}
+
+// WriteErrorResponseForTest is a test version of writeErrorResponse that maps status codes to error codes
+func WriteErrorResponseForTest(w http.ResponseWriter, status int, message string) {
+	// Map HTTP status codes to appropriate error codes
+	var code string
+	switch status {
+	case http.StatusBadRequest:
+		code = "VALIDATION_ERROR"
+	case http.StatusUnauthorized:
+		code = "UNAUTHORIZED"
+	case http.StatusForbidden:
+		code = "FORBIDDEN"
+	case http.StatusNotFound:
+		code = "NOT_FOUND"
+	case http.StatusInternalServerError:
+		code = "INTERNAL_ERROR"
+	case http.StatusServiceUnavailable:
+		code = "INTERNAL_ERROR"
+	default:
+		code = "INTERNAL_ERROR"
+	}
+	writeErrorWithCode(w, status, code, message)
+}
+
 // Authentication handler functions moved to auth_handlers.go
 func meHandler(w http.ResponseWriter, r *http.Request) {
 	handleMe(w, r)

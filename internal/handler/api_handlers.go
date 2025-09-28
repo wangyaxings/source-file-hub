@@ -318,7 +318,7 @@ func findLatestVersion(fileType string) (*database.FileRecord, error) {
 			if items[i].Status != database.FileStatusActive {
 				continue
 			}
-			if latest == nil || items[i].Version > latest.Version {
+			if latest == nil || (latest != nil && items[i].Version > latest.Version) {
 				latest = &items[i]
 			}
 		}
@@ -357,7 +357,7 @@ func determineVersionStatus(items []database.FileRecord) (string, string, *datab
 		for i := range items {
 			if items[i].Status == database.FileStatusActive {
 				hasActive = true
-				if latest == nil || items[i].Version > latest.Version {
+				if latest == nil || (latest != nil && items[i].Version > latest.Version) {
 					latest = &items[i]
 				}
 			}

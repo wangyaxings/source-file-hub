@@ -365,7 +365,6 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("X-Version-ID", fileInfo.VersionID)
-	fileInfo.VersionID = fileInfo.VersionID
 
 	response := Response{
 		Success: true,
