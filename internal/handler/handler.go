@@ -2,9 +2,6 @@ package handler
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,20 +15,14 @@ import (
 	"time"
 
 	"secure-file-hub/internal/apikey"
-	"secure-file-hub/internal/application/usecases"
 	"secure-file-hub/internal/auth"
 	"secure-file-hub/internal/authz"
 	"secure-file-hub/internal/database"
-	"secure-file-hub/internal/domain/entities"
-	repo "secure-file-hub/internal/infrastructure/repository/sqlite"
-    "secure-file-hub/internal/logger"
-    cfgpkg "secure-file-hub/internal/infrastructure/config"
+	cfgpkg "secure-file-hub/internal/infrastructure/config"
 	"secure-file-hub/internal/middleware"
-	fc "secure-file-hub/internal/presentation/http/controllers"
 
 	di "secure-file-hub/internal/infrastructure/di"
 
-	ab "github.com/aarondl/authboss/v3"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -49,53 +40,7 @@ type Response struct {
 	Details map[string]interface{} `json:"details"`
 }
 
-func calculateFileChecksum(filePath string) (string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-func convertToFileInfo(record database.FileRecord) FileInfo {
-	return FileInfo{
-		ID:           record.ID,
-		FileName:     record.VersionedName,
-		OriginalName: record.OriginalName,
-		FileType:     record.FileType,
-		Size:         record.Size,
-		Description:  record.Description,
-		UploadTime:   record.UploadTime,
-		Version:      record.Version,
-		IsLatest:     record.IsLatest,
-		Uploader:     record.Uploader,
-		Path:         record.FilePath,
-		Checksum:     record.Checksum,
-	}
-}
-
-func convertEntityToFileInfo(entity entities.File) FileInfo {
-	return FileInfo{
-		ID:           entity.ID,
-		FileName:     entity.VersionedName,
-		OriginalName: entity.OriginalName,
-		FileType:     entity.FileType,
-		Size:         entity.Size,
-		Description:  entity.Description,
-		UploadTime:   entity.UploadTime,
-		Version:      entity.Version,
-		IsLatest:     entity.IsLatest,
-		Uploader:     entity.Uploader,
-		Path:         entity.FilePath,
-	}
-}
+// File-related utility functions moved to file_handlers.go
 
 func RegisterRoutes(router *mux.Router) {
 
@@ -105,7 +50,7 @@ func RegisterRoutes(router *mux.Router) {
 	webAPI := router.PathPrefix("/api/v1/web").Subrouter()
 
 	webAPI.HandleFunc("/auth/me", meHandler).Methods("GET")
-	webAPI.HandleFunc("/auth/users", getDefaultUsersHandler).Methods("GET")
+	webAPI.HandleFunc("/auth/users", handleGetDefaultUsers).Methods("GET")
 
 	webAPI.HandleFunc("/auth/check-permission", middleware.RequireAuthorization(checkPermissionHandler)).Methods("POST")
 	webAPI.HandleFunc("/auth/check-permissions", middleware.RequireAuthorization(checkMultiplePermissionsHandler)).Methods("POST")
@@ -124,9 +69,9 @@ func RegisterRoutes(router *mux.Router) {
 	webFileMgmtRouter.HandleFunc("/files/{id}/restore", middleware.RequireAuthorization(restoreFileHandler)).Methods("POST")
 	webFileMgmtRouter.HandleFunc("/files/{id}/purge", middleware.RequireAuthorization(purgeFileHandler)).Methods("DELETE")
 
-	webAPI.HandleFunc("/versions/{type}/versions.json", middleware.RequireAuthorization(webGetVersionsListHandler)).Methods("GET")
-	webAPI.HandleFunc("/versions/{type}/{versionId}/manifest", middleware.RequireAuthorization(webGetVersionManifestHandler)).Methods("GET")
-	webAPI.HandleFunc("/versions/{type}/{versionId}/tags", middleware.RequireAuthorization(webUpdateVersionTagsHandler)).Methods("PUT")
+	webAPI.HandleFunc("/versions/{type}/versions.json", middleware.RequireAuthorization(handleGetVersionsList)).Methods("GET")
+	webAPI.HandleFunc("/versions/{type}/{versionId}/manifest", middleware.RequireAuthorization(handleGetVersionManifest)).Methods("GET")
+	webAPI.HandleFunc("/versions/{type}/{versionId}/tags", middleware.RequireAuthorization(handleUpdateVersionTags)).Methods("PUT")
 
 	webAPI.HandleFunc("/recycle-bin", middleware.RequireAuthorization(getRecycleBinHandler)).Methods("GET")
 	webAPI.HandleFunc("/recycle-bin/clear", middleware.RequireAuthorization(clearRecycleBinHandler)).Methods("DELETE")
@@ -158,99 +103,20 @@ func RegisterRoutes(router *mux.Router) {
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
 }
 
+// File handler functions moved to file_handlers.go
 func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
-
-	filePath := strings.TrimPrefix(r.URL.Path, "/api/v1/web/files/")
-
-	if filePath == "" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "File path cannot be empty", map[string]interface{}{"field": "path"})
-		return
-	}
-
-	if strings.Contains(filePath, "..") || strings.HasPrefix(filePath, "/") {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid file path", map[string]interface{}{"field": "path", "reason": "path traversal or absolute path"})
-		return
-	}
-
-	var fullPath string
-	if strings.HasPrefix(filePath, "downloads/") {
-		fullPath = filePath
-	} else {
-		fullPath = filepath.Join("downloads", filePath)
-	}
-
-	if !isAllowedPath(fullPath) {
-		writeErrorWithCodeDetails(w, http.StatusForbidden, "INVALID_PERMISSION", "File path not allowed", map[string]interface{}{"path": fullPath})
-		return
-	}
-
-	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		log.Printf("File not found: %s", fullPath)
-		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found")
-		return
-	}
-
-	file, err := os.Open(fullPath)
-	if err != nil {
-		log.Printf("Error opening file %s: %v", fullPath, err)
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file")
-		return
-	}
-	defer file.Close()
-
-	fileInfo, err := file.Stat()
-	if err != nil {
-		log.Printf("Error getting file info for %s: %v", fullPath, err)
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot get file info")
-		return
-	}
-
-	fileName := filepath.Base(filePath)
-
-	contentType := getContentType(fileName)
-
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
-	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
-
-	_, err = io.Copy(w, file)
-	if err != nil {
-		log.Printf("Error writing file to response: %v", err)
-		return
-	}
-
-	log.Printf("File %s downloaded successfully by %s", filePath, r.RemoteAddr)
-
-	if l := logger.GetLogger(); l != nil {
-		var userInfo map[string]interface{}
-		if userCtx := r.Context().Value("user"); userCtx != nil {
-			if user, ok := userCtx.(*auth.User); ok {
-				userInfo = map[string]interface{}{
-					"username": user.Username,
-					"role":     user.Role,
-				}
-			}
-		}
-		if rid := r.Context().Value(middleware.RequestIDKey); rid != nil {
-			if userInfo == nil {
-				userInfo = map[string]interface{}{}
-			}
-			userInfo["request_id"] = rid
-		}
-		l.LogFileDownload(filePath, r.RemoteAddr, fileInfo.Size(), userInfo)
-	}
+	handleFileDownload(w, r)
 }
 
 func apiInfoHandler(w http.ResponseWriter, r *http.Request) {
-    baseURL := "https://localhost:8443/api/v1"
+	baseURL := "https://localhost:8443/api/v1"
 
-    // Prefer unified version from configs/app.yaml
-    appCfg := cfgpkg.Load()
-    appVersion := appCfg.Application.Version
-    if appVersion == "" { appVersion = "v1.0.0" }
+	// Prefer unified version from configs/app.yaml
+	appCfg := cfgpkg.Load()
+	appVersion := appCfg.Application.Version
+	if appVersion == "" {
+		appVersion = "v1.0.0"
+	}
 	buildTime := os.Getenv("BUILD_TIME")
 	gitCommit := os.Getenv("GIT_COMMIT")
 	gitTag := os.Getenv("GIT_TAG") // Add git tag support
@@ -494,163 +360,23 @@ func writeErrorWithCodeDetails(w http.ResponseWriter, status int, code, message 
 	writeJSONResponse(w, status, response)
 }
 
+// Authentication handler functions moved to auth_handlers.go
 func meHandler(w http.ResponseWriter, r *http.Request) {
-
-	if username, ok := ab.GetSession(r, ab.SessionKey); ok && username != "" {
-
-		user, err := loadUserFromDatabase(username)
-		if err != nil {
-			writeErrorWithCode(w, http.StatusUnauthorized, "USER_NOT_FOUND", "User not found in database")
-			return
-		}
-
-		if err := checkUserStatus(user.Username); err != nil {
-			writeErrorWithCode(w, http.StatusUnauthorized, "ACCOUNT_SUSPENDED", err.Error())
-			return
-		}
-
-		if db := database.GetDatabase(); db != nil {
-			_ = db.SetUserLastLogin(user.Username, time.Now())
-		}
-
-		payload := usecases.NewUserUseCase().BuildMePayload(user.Username, user.Role, user.TwoFAEnabled)
-		writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
-			"user": payload,
-		}})
-		return
-	}
-
-	writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+	handleMe(w, r)
 }
 
+// Authentication handler functions moved to auth_handlers.go
 func loadUserFromDatabase(username string) (*auth.User, error) {
-	db := database.GetDatabase()
-	if db == nil {
-		return nil, fmt.Errorf("database not available")
-	}
-
-	appUser, err := db.GetUser(username)
-	if err != nil {
-		return nil, err
-	}
-
-	return &auth.User{
-		Username:     appUser.Username,
-		Role:         appUser.Role,
-		Email:        appUser.Email,
-		TwoFAEnabled: appUser.TwoFAEnabled,
-	}, nil
+	return loadUserFromDatabaseImpl(username)
 }
 
 func checkUserStatus(username string) error {
-	db := database.GetDatabase()
-	if db == nil {
-		return fmt.Errorf("database not available")
-	}
-
-	userRole, err := db.GetUserRole(username)
-	if err != nil {
-
-		defaultRole := &database.UserRole{
-			UserID: username,
-			Role:   "viewer",
-			Status: "active",
-		}
-		if err := db.CreateOrUpdateUserRole(defaultRole); err != nil {
-			log.Printf("Warning: Failed to create default role for %s: %v", username, err)
-		}
-		return nil
-	}
-
-	if userRole.Status == "suspended" {
-		return fmt.Errorf("ACCOUNT_SUSPENDED")
-	}
-
-	if userRole.Status == "pending" {
-		userRole.Status = "active"
-		if err := db.CreateOrUpdateUserRole(userRole); err != nil {
-			log.Printf("Warning: Failed to activate user %s: %v", username, err)
-		}
-	}
-
-	return nil
+	return checkUserStatusImpl(username)
 }
 
-func getDefaultUsersHandler(w http.ResponseWriter, r *http.Request) {
-	users := auth.GetDefaultUsers()
+// Authentication handlers moved to auth_handlers.go
 
-	response := Response{
-		Success: true,
-		Message: "Default test users list",
-		Data: map[string]interface{}{
-			"users": users,
-			"note":  "These are pre-configured test users, you can use these accounts for login testing",
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
-}
-
-func isAllowedPath(path string) bool {
-
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-
-	downloadDir, err := filepath.Abs("downloads")
-	if err != nil {
-		return false
-	}
-
-	return strings.HasPrefix(absPath, downloadDir)
-}
-
-func getAccessLogsHandler(w http.ResponseWriter, r *http.Request) {
-
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-
-	limit := 50
-	offset := 0
-
-	if limitStr != "" {
-		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 && parsedLimit <= 1000 {
-			limit = parsedLimit
-		}
-	}
-
-	if offsetStr != "" {
-		if parsedOffset, err := strconv.Atoi(offsetStr); err == nil && parsedOffset >= 0 {
-			offset = parsedOffset
-		}
-	}
-
-	l := logger.GetLogger()
-	if l == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Logging system not initialized")
-		return
-	}
-
-	logs, err := l.GetAccessLogs(limit, offset)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query logs")
-		return
-	}
-
-	response := Response{
-		Success: true,
-		Message: "Access log query successful",
-		Data: map[string]interface{}{
-			"logs":   logs,
-			"limit":  limit,
-			"offset": offset,
-			"count":  len(logs),
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
-}
+// Access logs handler moved to admin_handlers.go
 
 type FileUploadRequest struct {
 	FileType    string `form:"fileType" json:"fileType"`
@@ -673,576 +399,44 @@ type FileInfo struct {
 	Checksum     string    `json:"checksum,omitempty"`
 }
 
+// File handler functions moved to file_handlers.go
 func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
-
-	err := r.ParseMultipartForm(128 << 20) // 128MB
-	if err != nil {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to parse form", map[string]interface{}{"field": "form", "error": err.Error()})
-		if l := logger.GetLogger(); l != nil {
-			l.WarnCtx(logger.EventError, "upload_parse_form_failed", map[string]interface{}{"error": err.Error()}, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to get file", map[string]interface{}{"field": "file", "error": err.Error()})
-		if l := logger.GetLogger(); l != nil {
-			l.WarnCtx(logger.EventError, "upload_missing_file", map[string]interface{}{"error": err.Error()}, "VALIDATION_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-	defer file.Close()
-
-	if header.Size > maxUploadBytes {
-		writeErrorWithCodeDetails(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Uploaded file exceeds the maximum allowed size", map[string]interface{}{"field": "file", "max_bytes": maxUploadBytes, "actual_bytes": header.Size})
-		if l := logger.GetLogger(); l != nil {
-			l.WarnCtx(logger.EventError, "upload_too_large", map[string]interface{}{"actual_bytes": header.Size, "max_bytes": maxUploadBytes}, "PAYLOAD_TOO_LARGE", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	fileType := r.FormValue("fileType")
-	description := r.FormValue("description")
-
-	rawTags := r.FormValue("versionTags")
-	var versionTags []string
-	if strings.TrimSpace(rawTags) != "" {
-		parts := strings.Split(rawTags, ",")
-		for _, p := range parts {
-			t := strings.TrimSpace(p)
-			if t != "" {
-				versionTags = append(versionTags, t)
-			}
-		}
-	}
-
-	allowedTypes := map[string]bool{
-		"roadmap":        true,
-		"recommendation": true,
-	}
-	if !allowedTypes[fileType] {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_TYPE", "Unsupported file type", map[string]interface{}{"field": "fileType", "allowed": []string{"roadmap", "recommendation"}})
-		if l := logger.GetLogger(); l != nil {
-			l.WarnCtx(logger.EventError, "upload_invalid_file_type", map[string]interface{}{"fileType": fileType}, "INVALID_FILE_TYPE", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	if !isValidFileExtension(header.Filename) {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "Unsupported file format", map[string]interface{}{"field": "file", "filename": header.Filename})
-		if l := logger.GetLogger(); l != nil {
-			l.WarnCtx(logger.EventError, "upload_invalid_ext", map[string]interface{}{"filename": header.Filename}, "INVALID_FILE_FORMAT", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	ext := strings.ToLower(filepath.Ext(header.Filename))
-	var fixedOriginalName string
-	switch fileType {
-	case "roadmap":
-		if ext != ".tsv" {
-			writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "File extension does not match fileType", map[string]interface{}{"field": "file", "expected_ext": ".tsv", "got": ext})
-			if l := logger.GetLogger(); l != nil {
-				l.WarnCtx(logger.EventError, "upload_ext_mismatch", map[string]interface{}{"expected": ".tsv", "got": ext}, "INVALID_FILE_FORMAT", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-			return
-		}
-		fixedOriginalName = "roadmap.tsv"
-	case "recommendation":
-		if ext != ".xlsx" {
-			writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_FORMAT", "File extension does not match fileType", map[string]interface{}{"field": "file", "expected_ext": ".xlsx", "got": ext})
-			if l := logger.GetLogger(); l != nil {
-				l.WarnCtx(logger.EventError, "upload_ext_mismatch", map[string]interface{}{"expected": ".xlsx", "got": ext}, "INVALID_FILE_FORMAT", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-			return
-		}
-		fixedOriginalName = "recommendation.xlsx"
-	default:
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "INVALID_FILE_TYPE", "Unsupported file type", map[string]interface{}{"field": "fileType", "allowed": []string{"roadmap", "recommendation"}})
-		return
-	}
-
-	var uploader string
-	if userCtx := r.Context().Value("user"); userCtx != nil {
-		if user, ok := userCtx.(*auth.User); ok {
-			uploader = user.Username
-		} else {
-			uploader = "unknown"
-		}
-	} else {
-		uploader = "unknown"
-	}
-
-	fileInfo := &FileInfo{
-		ID:           generateFileID(),
-		FileName:     header.Filename,
-		OriginalName: fixedOriginalName,
-		FileType:     fileType,
-		Size:         header.Size,
-		Description:  description,
-		UploadTime:   time.Now(),
-		Uploader:     uploader,
-	}
-
-	versionedFileName, version, err := generateVersionedFileName(fileType, fixedOriginalName)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to generate filename: "+err.Error())
-		return
-	}
-
-	fileInfo.FileName = versionedFileName
-	fileInfo.Version = version
-	fileInfo.IsLatest = true
-
-	ts := time.Now().UTC().Format("20060102150405") + "Z"
-	versionID := "v" + ts
-
-	targetDir := filepath.Join("downloads", fileType+"s")
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create directory: "+err.Error())
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "upload_mkdir_failed", map[string]interface{}{"error": err.Error(), "dir": targetDir}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	ext = strings.ToLower(filepath.Ext(fixedOriginalName))
-	finalFileName := fmt.Sprintf("%s%s", versionID, ext)
-
-	if strings.HasPrefix(finalFileName, fileType+"_") {
-		finalFileName = strings.TrimPrefix(finalFileName, fileType+"_")
-	}
-
-	versionDir := filepath.Join(targetDir, versionID)
-	if err := os.MkdirAll(versionDir, 0755); err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create version directory: "+err.Error())
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "upload_mkdir_version_failed", map[string]interface{}{"error": err.Error(), "dir": versionDir}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	targetPath := filepath.Join(versionDir, finalFileName)
-	fileInfo.Path = targetPath
-	fileInfo.FileName = finalFileName
-
-	dst, err := os.Create(targetPath)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create file: "+err.Error())
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "upload_create_file_failed", map[string]interface{}{"error": err.Error(), "path": targetPath}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-	defer dst.Close()
-
-	_, err = io.Copy(dst, file)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save file: "+err.Error())
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "upload_write_failed", map[string]interface{}{"error": err.Error(), "path": targetPath}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	latestPath := filepath.Join(targetDir, fixedOriginalName)
-	os.Remove(latestPath)
-
-	if err := os.Link(targetPath, latestPath); err != nil {
-
-		if copyErr := copyFile(targetPath, latestPath); copyErr != nil {
-			log.Printf("Warning: Failed to create latest version link: %v", copyErr)
-		}
-	}
-
-	checksum, err := calculateFileChecksum(targetPath)
-	if err != nil {
-		log.Printf("Warning: Failed to calculate SHA256 checksum: %v", err)
-	}
-
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "upload_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	record := &database.FileRecord{
-		ID:            fileInfo.ID,
-		OriginalName:  fixedOriginalName,
-		VersionedName: finalFileName,
-		FileType:      fileType,
-		FilePath:      targetPath,
-		Size:          fileInfo.Size,
-		Description:   description,
-		Uploader:      uploader,
-		UploadTime:    time.Now(),
-		Version:       version,
-		IsLatest:      true,
-		Checksum:      checksum,
-	}
-
-	if err := db.InsertFileRecord(record); err != nil {
-
-		os.Remove(targetPath)
-		os.Remove(latestPath)
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save file metadata: "+err.Error())
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "upload_db_insert_failed", map[string]interface{}{"error": err.Error()}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	if err := writeWebVersionArtifacts(fileType, versionID, fileInfo.FileName, targetPath, checksum, versionTags); err != nil {
-		log.Printf("Warning: failed to write version artifacts: %v", err)
-	}
-
-	if l := logger.GetLogger(); l != nil {
-		details := map[string]interface{}{
-			"fileType":    fileType,
-			"version":     version,
-			"description": description,
-		}
-		if rid := r.Context().Value(middleware.RequestIDKey); rid != nil {
-			details["request_id"] = rid
-		}
-		l.LogFileUpload(fileInfo.Path, uploader, fileInfo.Size, details)
-	}
-
-	w.Header().Set("X-Version-ID", versionID)
-	fileInfo.VersionID = versionID
-
-	response := Response{
-		Success: true,
-		Message: "File uploaded successfully",
-		Data:    fileInfo,
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
+	handleFileUpload(w, r)
 }
 
+// File handler functions moved to file_handlers.go
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
-	fileType := r.URL.Query().Get("type")
-
-	page := 1
-	limit := 50
-	if v := r.URL.Query().Get("page"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			page = n
-		}
-	}
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
-
-	var controller *fc.FileController
-	if appContainer != nil && appContainer.FileController != nil {
-		controller = appContainer.FileController
-	} else {
-
-		controller = fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
-	}
-	items, total, err := controller.ListWithPagination(fileType, page, limit)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get file list: "+err.Error())
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "list_files_failed", map[string]interface{}{"type": fileType, "page": page, "limit": limit}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	files := make([]FileInfo, 0, len(items))
-	for _, f := range items {
-		files = append(files, convertEntityToFileInfo(f))
-	}
-	response := Response{
-		Success: true,
-		Message: "File list retrieved successfully",
-		Data: map[string]interface{}{
-			"files": files,
-			"count": total,
-			"page":  page,
-			"limit": limit,
-		},
-	}
-	writeJSONResponse(w, http.StatusOK, response)
-	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "list_files_success", map[string]interface{}{"type": fileType, "count": len(files), "total": total, "page": page, "limit": limit}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
-	}
+	handleListFiles(w, r)
 }
 
+// File handler functions moved to file_handlers.go
 func getFileVersionsHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	fileType := vars["type"]
-	filename := vars["filename"]
-
-	var controller *fc.FileController
-	if appContainer != nil && appContainer.FileController != nil {
-		controller = appContainer.FileController
-	} else {
-
-		controller = fc.NewFileController(usecases.NewFileUseCase(repo.NewFileRepo()))
-	}
-	items, err := controller.Versions(fileType, filename)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get file versions: "+err.Error())
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "get_versions_failed", map[string]interface{}{"type": fileType, "filename": filename}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-	versions := make([]FileInfo, 0, len(items))
-	for _, f := range items {
-		versions = append(versions, convertEntityToFileInfo(f))
-	}
-
-	response := Response{
-		Success: true,
-		Message: "File versions retrieved successfully",
-		Data: map[string]interface{}{
-			"versions": versions,
-			"count":    len(versions),
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
-	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "get_versions_success", map[string]interface{}{"type": fileType, "filename": filename, "count": len(versions)}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
-	}
+	handleGetFileVersions(w, r)
 }
 
+// File handler functions moved to file_handlers.go
 func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	fileID := vars["id"]
-
-	var deletedBy string
-	if userCtx := r.Context().Value("user"); userCtx != nil {
-		if user, ok := userCtx.(*auth.User); ok {
-			deletedBy = user.Username
-		} else {
-			deletedBy = "unknown"
-		}
-	} else {
-		deletedBy = "unknown"
-	}
-
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "recyclebin_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	if err := db.SoftDeleteFile(fileID, deletedBy); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "not found") {
-			writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found or already deleted")
-			if l := logger.GetLogger(); l != nil {
-				l.WarnCtx(logger.EventError, "soft_delete_not_found", map[string]interface{}{"file_id": fileID}, "FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-		} else {
-			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete file: "+err.Error())
-			if l := logger.GetLogger(); l != nil {
-				l.ErrorCtx(logger.EventError, "soft_delete_failed", map[string]interface{}{"file_id": fileID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-		}
-		return
-	}
-
-	response := Response{
-		Success: true,
-		Message: "File moved to recycle bin successfully",
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
-	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "soft_delete_success", map[string]interface{}{"file_id": fileID, "by": deletedBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
-	}
+	handleDeleteFile(w, r)
 }
 
+// File handler functions moved to file_handlers.go
 func restoreFileHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	fileID := vars["id"]
-
-	var restoredBy string
-	if userCtx := r.Context().Value("user"); userCtx != nil {
-		if user, ok := userCtx.(*auth.User); ok {
-			restoredBy = user.Username
-		} else {
-			restoredBy = "unknown"
-		}
-	} else {
-		restoredBy = "unknown"
-	}
-
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "clear_recyclebin_db_unavailable", nil, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	if err := db.RestoreFile(fileID, restoredBy); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "not found") {
-			writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found in recycle bin")
-			if l := logger.GetLogger(); l != nil {
-				l.WarnCtx(logger.EventError, "restore_not_found", map[string]interface{}{"file_id": fileID}, "FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-		} else {
-			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to restore file: "+err.Error())
-			if l := logger.GetLogger(); l != nil {
-				l.ErrorCtx(logger.EventError, "restore_failed", map[string]interface{}{"file_id": fileID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-		}
-		return
-	}
-
-	response := Response{
-		Success: true,
-		Message: "File restored successfully",
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
-	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "restore_success", map[string]interface{}{"file_id": fileID, "by": restoredBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
-	}
+	handleRestoreFile(w, r)
 }
 
+// File handler functions moved to file_handlers.go
 func purgeFileHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	fileID := vars["id"]
-
-	var purgedBy string
-	if userCtx := r.Context().Value("user"); userCtx != nil {
-		if user, ok := userCtx.(*auth.User); ok {
-			purgedBy = user.Username
-		} else {
-			purgedBy = "unknown"
-		}
-	} else {
-		purgedBy = "unknown"
-	}
-
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
-		return
-	}
-
-	if err := db.PermanentlyDeleteFile(fileID, purgedBy); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "not found") {
-			writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found or already purged")
-			if l := logger.GetLogger(); l != nil {
-				l.WarnCtx(logger.EventError, "purge_not_found", map[string]interface{}{"file_id": fileID}, "FILE_NOT_FOUND", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-		} else {
-			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to purge file: "+err.Error())
-			if l := logger.GetLogger(); l != nil {
-				l.ErrorCtx(logger.EventError, "purge_failed", map[string]interface{}{"file_id": fileID}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-		}
-		return
-	}
-
-	response := Response{
-		Success: true,
-		Message: "File permanently deleted",
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
-	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "purge_success", map[string]interface{}{"file_id": fileID, "by": purgedBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
-	}
+	handlePurgeFile(w, r)
 }
 
+// Recycle bin handler functions moved to recycle_handlers.go
 func getRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
-		return
-	}
-
-	items, err := db.GetRecycleBinItems()
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get recycle bin items: "+err.Error())
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "recyclebin_query_failed", map[string]interface{}{"error": err.Error()}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	response := Response{
-		Success: true,
-		Message: "Recycle bin retrieved successfully",
-		Data: map[string]interface{}{
-			"items": items,
-			"count": len(items),
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
-	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "recyclebin_success", map[string]interface{}{"count": len(items)}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
-	}
+	handleGetRecycleBin(w, r)
 }
 
+// Recycle bin handler functions moved to recycle_handlers.go
 func clearRecycleBinHandler(w http.ResponseWriter, r *http.Request) {
-
-	var purgedBy string
-	if userCtx := r.Context().Value("user"); userCtx != nil {
-		if user, ok := userCtx.(*auth.User); ok {
-			purgedBy = user.Username
-		} else {
-			purgedBy = "unknown"
-		}
-	} else {
-		purgedBy = "unknown"
-	}
-
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Database not initialized")
-		return
-	}
-
-	items, err := db.GetRecycleBinItems()
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get recycle bin items: "+err.Error())
-		if l := logger.GetLogger(); l != nil {
-			l.ErrorCtx(logger.EventError, "clear_recyclebin_query_failed", map[string]interface{}{"error": err.Error()}, "INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-		}
-		return
-	}
-
-	purgedCount := 0
-	for _, item := range items {
-		if err := db.PermanentlyDeleteFile(item.ID, purgedBy); err != nil {
-			log.Printf("Failed to purge file %s: %v", item.ID, err)
-		} else {
-			purgedCount++
-		}
-	}
-
-	response := Response{
-		Success: true,
-		Message: fmt.Sprintf("Recycle bin cleared: %d files purged", purgedCount),
-		Data: map[string]interface{}{
-			"purged_count": purgedCount,
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
-	if l := logger.GetLogger(); l != nil {
-		l.InfoCtx(logger.EventAPIRequest, "clear_recyclebin_success", map[string]interface{}{"purged_count": purgedCount, "by": purgedBy}, "", r.Context().Value(middleware.RequestIDKey), getActor(r))
-	}
+	handleClearRecycleBin(w, r)
 }
 
 func generateSecurePassword(length int) (string, error) {
@@ -1287,297 +481,10 @@ func generateSecurePassword(length int) (string, error) {
 	return string(password), nil
 }
 
-func generateFileID() string {
-	return fmt.Sprintf("file_%d_%d", time.Now().UnixNano(), os.Getpid())
-}
-
-func generateVersionedFileName(fileType, originalName string) (string, int, error) {
-
-	db := database.GetDatabase()
-	if db == nil {
-		return "", 0, fmt.Errorf("database not initialized")
-	}
-
-	query := `
-		SELECT COALESCE(MAX(version), 0) as max_version
-		FROM files
-		WHERE file_type = ? AND original_name = ? AND status != 'purged'
-	`
-
-	var maxVersion int
-	err := db.GetDB().QueryRow(query, fileType, originalName).Scan(&maxVersion)
-	if err != nil && err != sql.ErrNoRows {
-		return "", 0, fmt.Errorf("failed to query max version: %v", err)
-	}
-
-	version := maxVersion + 1
-
-	ext := filepath.Ext(originalName)
-	baseName := strings.TrimSuffix(originalName, ext)
-	versionedName := fmt.Sprintf("%s_v%d%s", baseName, version, ext)
-
-	return versionedName, version, nil
-}
-
-func isValidFileExtension(filename string) bool {
-	ext := strings.ToLower(filepath.Ext(filename))
-	validExts := map[string]bool{
-		".tsv":  true, // Roadmap
-		".xlsx": true, // Recommendation
-	}
-	return validExts[ext]
-}
-
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
-}
-
-func getContentType(fileName string) string {
-	ext := strings.ToLower(filepath.Ext(fileName))
-	switch ext {
-	case ".tsv":
-		return "text/tab-separated-values"
-	case ".xlsx":
-		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-	case ".zip":
-		return "application/zip"
-	default:
-		return "application/octet-stream"
-	}
-}
-
-func writeWebVersionArtifacts(fileType, versionID, storedName, targetPath, checksum string, tags []string) error {
-	if fileType != "roadmap" && fileType != "recommendation" {
-		return nil
-	}
-
-	baseDir := filepath.Dir(targetPath)
-	manifestPath := filepath.Join(baseDir, "manifest.json")
-
-	manifest := map[string]interface{}{
-		"version_id":   versionID,
-		"version_tags": tags,
-		"build": map[string]interface{}{
-			"time":   time.Now().UTC().Format(time.RFC3339),
-			"commit": "",
-		},
-		"artifact": map[string]interface{}{
-			"file_name": storedName,
-			"path":      targetPath,
-			"sha256":    checksum,
-			"size":      fileSizeSafe(targetPath),
-		},
-		"schema_version":   "1.0",
-		"breaking_changes": []string{},
-	}
-	if err := writeJSONFileGeneric(manifestPath, manifest); err != nil {
-		return err
-	}
-
-	db := database.GetDatabase()
-	if db != nil {
-		if err := db.UpsertVersionTags(fileType, versionID, tags); err != nil {
-
-			log.Printf("Warning: Failed to save version tags to database: %v", err)
-		}
-	}
-
-	return nil
-}
-
-func writeJSONFileGeneric(path string, v interface{}) error {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
-func readJSONFileGeneric(path string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var m map[string]interface{}
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func webGetVersionManifestHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	ft := strings.ToLower(vars["type"])
-	vid := vars["versionId"]
-	if ft != "roadmap" && ft != "recommendation" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid type", map[string]interface{}{"field": "type", "allowed": []string{"roadmap", "recommendation"}})
-		return
-	}
-	if vid == "" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "versionId required", map[string]interface{}{"field": "versionId"})
-		return
-	}
-	baseDir := filepath.Join("downloads", ft+"s", vid)
-	manifestPath := filepath.Join(baseDir, "manifest.json")
-	if b, err := os.ReadFile(manifestPath); err == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(b)
-		return
-	}
-	writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "Manifest not found")
-}
-
-func webGetVersionsListHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	ft := strings.ToLower(vars["type"])
-	if ft != "roadmap" && ft != "recommendation" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid type", map[string]interface{}{"field": "type", "allowed": []string{"roadmap", "recommendation"}})
-		return
-	}
-	baseDir := filepath.Join("downloads", ft+"s")
-	entries, err := os.ReadDir(baseDir)
-	if err != nil {
-		writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"versions": []interface{}{}}})
-		return
-	}
-	list := []interface{}{}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-
-		mpath := filepath.Join(baseDir, e.Name(), "manifest.json")
-		if m, err := readJSONFileGeneric(mpath); err == nil {
-			date := ""
-			if b, ok := m["build"].(map[string]interface{}); ok {
-				if t, ok2 := b["time"].(string); ok2 {
-					date = t
-				}
-			}
-
-			var tags interface{} = m["version_tags"]
-			if db := database.GetDatabase(); db != nil {
-				if versionID, ok := m["version_id"].(string); ok {
-					if dbTags, err := db.GetVersionTags(ft, versionID); err == nil && len(dbTags) > 0 {
-						tags = dbTags
-					}
-				}
-			}
-
-			list = append(list, map[string]interface{}{
-				"version_id": m["version_id"],
-				"tags":       tags,
-				"status":     "active",
-				"date":       date,
-			})
-		}
-	}
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"versions": list}})
-}
-
-func webUpdateVersionTagsHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	ft := strings.ToLower(vars["type"]) // roadmap or recommendation
-	vid := vars["versionId"]
-
-	if ft != "roadmap" && ft != "recommendation" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "type must be 'roadmap' or 'recommendation'", map[string]interface{}{"field": "type", "allowed": []string{"roadmap", "recommendation"}})
-		return
-	}
-	if vid == "" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "versionId required", map[string]interface{}{"field": "versionId"})
-		return
-	}
-
-	var body struct {
-		Tags []string `json:"tags"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErrorWithCode(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
-		return
-	}
-
-	for i := range body.Tags {
-		body.Tags[i] = strings.TrimSpace(body.Tags[i])
-	}
-
-	filteredTags := []string{}
-	for _, tag := range body.Tags {
-		if strings.TrimSpace(tag) != "" {
-			filteredTags = append(filteredTags, strings.TrimSpace(tag))
-		}
-	}
-
-	db := database.GetDatabase()
-	if db != nil {
-		if err := db.UpsertVersionTags(ft, vid, filteredTags); err != nil {
-
-			if l := logger.GetLogger(); l != nil {
-				l.ErrorCtx(logger.EventError, "update_version_tags_db_failed",
-					map[string]interface{}{"error": err.Error(), "file_type": ft, "version_id": vid},
-					"INTERNAL_ERROR", r.Context().Value(middleware.RequestIDKey), getActor(r))
-			}
-		}
-	}
-
-	baseDir := filepath.Join("downloads", ft+"s", vid)
-	manifestPath := filepath.Join(baseDir, "manifest.json")
-
-	manifest, err := readJSONFileGeneric(manifestPath)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "Version manifest not found")
-		return
-	}
-
-	manifest["version_tags"] = filteredTags
-
-	if err := writeJSONFileGeneric(manifestPath, manifest); err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update version tags")
-		return
-	}
-
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Message: "Version tags updated successfully"})
-}
-
-func fileSizeSafe(path string) int64 {
-	if fi, err := os.Stat(path); err == nil {
-		return fi.Size()
-	}
-	return 0
-}
+// Version handlers moved to version_handlers.go
 
 func SetContainer(container *di.Container) {
 	appContainer = container
-}
-
-func getActor(r *http.Request) string {
-	if userCtx := r.Context().Value("user"); userCtx != nil {
-		if user, ok := userCtx.(*auth.User); ok {
-			return user.Username
-		}
-	}
-	return "anonymous"
 }
 
 func RegisterWebAdminRoutes(router *mux.Router) {
@@ -2201,150 +1108,22 @@ func adminPatchUserHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, Response{Success: true})
 }
 
+// Authentication handler functions moved to auth_handlers.go
 func checkPermissionHandler(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Resource string `json:"resource"`
-		Action   string `json:"action"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body", map[string]interface{}{"field": "body", "error": err.Error()})
-		return
-	}
-
-	userCtx := r.Context().Value("user")
-	if userCtx == nil {
-		writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
-		return
-	}
-
-	user, ok := userCtx.(*auth.User)
-	if !ok {
-		writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid user context")
-		return
-	}
-
-	allowed, err := authz.CheckPermission(user.Role, req.Resource, req.Action)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check permission")
-		return
-	}
-
-	writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-		"success":  true,
-		"allowed":  allowed,
-		"resource": req.Resource,
-		"action":   req.Action,
-		"role":     user.Role,
-	})
+	handleCheckPermission(w, r)
 }
 
 func checkMultiplePermissionsHandler(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Permissions []struct {
-			Resource string `json:"resource"`
-			Action   string `json:"action"`
-		} `json:"permissions"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body", map[string]interface{}{"field": "body", "error": err.Error()})
-		return
-	}
-
-	userCtx := r.Context().Value("user")
-	if userCtx == nil {
-		writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
-		return
-	}
-
-	user, ok := userCtx.(*auth.User)
-	if !ok {
-		writeErrorWithCode(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid user context")
-		return
-	}
-
-	resultMap := make(map[string]bool, len(req.Permissions))
-
-	for _, perm := range req.Permissions {
-		allowed, err := authz.CheckPermission(user.Role, perm.Resource, perm.Action)
-		if err != nil {
-			writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check permission")
-			return
-		}
-		key := perm.Resource + ":" + perm.Action
-		resultMap[key] = allowed
-	}
-
-	writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"results": resultMap,
-		"role":    user.Role,
-	})
+	handleCheckMultiplePermissions(w, r)
 }
 
+// Package handler functions moved to package_handlers.go
 func apiListPackagesHandler(w http.ResponseWriter, r *http.Request) {
-	db := database.GetDatabase()
-	if db == nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "DATABASE_ERROR", "Database not available")
-		return
-	}
-
-	q := r.URL.Query()
-	tenant := strings.TrimSpace(q.Get("tenant"))
-	ptype := strings.TrimSpace(q.Get("type"))
-	search := strings.TrimSpace(q.Get("q"))
-	page, _ := strconv.Atoi(q.Get("page"))
-	limit, _ := strconv.Atoi(q.Get("limit"))
-
-	items, total, err := db.ListPackages(tenant, ptype, search, page, limit)
-	if err != nil {
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
-		return
-	}
-
-	data := map[string]interface{}{
-		"items": items,
-		"count": total,
-		"page": func() int {
-			if page > 0 {
-				return page
-			}
-			return 1
-		}(),
-		"limit": func() int {
-			if limit > 0 {
-				return limit
-			}
-			return 50
-		}(),
-	}
-	writeJSONResponse(w, http.StatusOK, Response{Success: true, Data: data})
+	handleListPackages(w, r)
 }
 
 func apiUpdatePackageRemarkHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	packageID := vars["id"]
-
-	var req struct {
-		Remark string `json:"remark"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body", map[string]interface{}{"field": "body", "error": err.Error()})
-		return
-	}
-
-	response := Response{
-		Success: true,
-		Message: "Package remark updated successfully",
-		Data: map[string]interface{}{
-			"package_id": packageID,
-			"remark":     req.Remark,
-		},
-	}
-
-	writeJSONResponse(w, http.StatusOK, response)
+	handleUpdatePackageRemark(w, r)
 }
 
 func RegisterAPIRoutes(router *mux.Router) {
