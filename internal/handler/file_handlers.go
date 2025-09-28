@@ -376,29 +376,56 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileType := r.FormValue("fileType")
-	description := r.FormValue("description")
-	versionTags := parseVersionTags(r.FormValue("versionTags"))
-
-	if err := validateFileTypeAndExtension(fileType, uploadData.Header.Filename); err != nil {
+	formData := extractFormData(r)
+	if err := validateUploadData(formData, uploadData.Header.Filename); err != nil {
 		handleUploadError(w, r, "INVALID_FILE_TYPE", "Invalid file type or extension", err)
 		return
 	}
 
-	fixedOriginalName, err := getFixedOriginalName(fileType, uploadData.Header.Filename)
+	fileInfo, err := createFileInfoFromUpload(uploadData, formData, r)
 	if err != nil {
 		handleUploadError(w, r, "INVALID_FILE_FORMAT", "File extension does not match fileType", err)
 		return
 	}
 
-	uploader := getUploader(r)
-	fileInfo := createFileInfo(uploadData, fixedOriginalName, fileType, description, uploader)
-
-	if err := processFileUpload(w, r, fileInfo, versionTags); err != nil {
+	if err := processFileUpload(w, r, fileInfo, formData.VersionTags); err != nil {
 		handleUploadError(w, r, "INTERNAL_ERROR", "Failed to process file upload", err)
 		return
 	}
 
+	sendUploadSuccessResponse(w, fileInfo)
+}
+
+type UploadFormData struct {
+	FileType    string
+	Description string
+	VersionTags []string
+}
+
+func extractFormData(r *http.Request) UploadFormData {
+	return UploadFormData{
+		FileType:    r.FormValue("fileType"),
+		Description: r.FormValue("description"),
+		VersionTags: parseVersionTags(r.FormValue("versionTags")),
+	}
+}
+
+func validateUploadData(formData UploadFormData, filename string) error {
+	return validateFileTypeAndExtension(formData.FileType, filename)
+}
+
+func createFileInfoFromUpload(uploadData *UploadData, formData UploadFormData, r *http.Request) (*FileInfo, error) {
+	fixedOriginalName, err := getFixedOriginalName(formData.FileType, uploadData.Header.Filename)
+	if err != nil {
+		return nil, err
+	}
+
+	uploader := getUploader(r)
+	fileInfo := createFileInfo(uploadData, fixedOriginalName, formData.FileType, formData.Description, uploader)
+	return fileInfo, nil
+}
+
+func sendUploadSuccessResponse(w http.ResponseWriter, fileInfo *FileInfo) {
 	w.Header().Set("X-Version-ID", fileInfo.VersionID)
 
 	response := Response{
@@ -548,10 +575,38 @@ func processFileUpload(w http.ResponseWriter, r *http.Request, fileInfo *FileInf
 // saveUploadedFile saves the file to disk
 func saveUploadedFile(fileInfo *FileInfo) error {
 	targetDir := filepath.Join("downloads", fileInfo.FileType+"s")
+	if err := createTargetDirectory(targetDir); err != nil {
+		return err
+	}
+
+	finalFileName := generateFinalFileName(fileInfo)
+	versionDir := filepath.Join(targetDir, fileInfo.VersionID)
+	if err := createVersionDirectory(versionDir); err != nil {
+		return err
+	}
+
+	targetPath := filepath.Join(versionDir, finalFileName)
+	fileInfo.Path = targetPath
+	fileInfo.FileName = finalFileName
+
+	if err := createTargetFile(targetPath); err != nil {
+		return err
+	}
+
+	createLatestVersionLink(targetDir, fileInfo.OriginalName, targetPath)
+	calculateAndSetChecksum(fileInfo, targetPath)
+
+	return nil
+}
+
+func createTargetDirectory(targetDir string) error {
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %v", err)
 	}
+	return nil
+}
 
+func generateFinalFileName(fileInfo *FileInfo) string {
 	ext := strings.ToLower(filepath.Ext(fileInfo.OriginalName))
 	finalFileName := fmt.Sprintf("%s%s", fileInfo.VersionID, ext)
 
@@ -559,15 +614,17 @@ func saveUploadedFile(fileInfo *FileInfo) error {
 		finalFileName = strings.TrimPrefix(finalFileName, fileInfo.FileType+"_")
 	}
 
-	versionDir := filepath.Join(targetDir, fileInfo.VersionID)
+	return finalFileName
+}
+
+func createVersionDirectory(versionDir string) error {
 	if err := os.MkdirAll(versionDir, 0755); err != nil {
 		return fmt.Errorf("failed to create version directory: %v", err)
 	}
+	return nil
+}
 
-	targetPath := filepath.Join(versionDir, finalFileName)
-	fileInfo.Path = targetPath
-	fileInfo.FileName = finalFileName
-
+func createTargetFile(targetPath string) error {
 	dst, err := os.Create(targetPath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %v", err)
@@ -578,7 +635,11 @@ func saveUploadedFile(fileInfo *FileInfo) error {
 	// This is a simplified version - the original file needs to be passed through
 	// For now, we'll assume the file content is handled elsewhere
 
-	latestPath := filepath.Join(targetDir, fileInfo.OriginalName)
+	return nil
+}
+
+func createLatestVersionLink(targetDir, originalName, targetPath string) {
+	latestPath := filepath.Join(targetDir, originalName)
 	os.Remove(latestPath)
 
 	if err := os.Link(targetPath, latestPath); err != nil {
@@ -586,14 +647,14 @@ func saveUploadedFile(fileInfo *FileInfo) error {
 			log.Printf("Warning: Failed to create latest version link: %v", copyErr)
 		}
 	}
+}
 
+func calculateAndSetChecksum(fileInfo *FileInfo, targetPath string) {
 	checksum, err := calculateFileChecksum(targetPath)
 	if err != nil {
 		log.Printf("Warning: Failed to calculate SHA256 checksum: %v", err)
 	}
 	fileInfo.Checksum = checksum
-
-	return nil
 }
 
 // saveToDatabase saves file record to database

@@ -140,9 +140,9 @@ func InitDatabase(dbPath string) error {
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(0)
 
-    if err := applySQLitePragmas(db); err != nil {
-        return err
-    }
+	if err := applySQLitePragmas(db); err != nil {
+		return err
+	}
 
 	defaultDB = &Database{db: db}
 
@@ -1835,32 +1835,32 @@ func (d *Database) GetAPIUsageLogs(userID, fileID string, limit, offset int) ([]
 	}
 	defer rows.Close()
 
-    return d.scanAPIUsageLogRows(rows)
+	return d.scanAPIUsageLogRows(rows)
 }
 
 // applySQLitePragmas enables recommended SQLite pragmas for performance and reliability.
 func applySQLitePragmas(db *sql.DB) error {
-    if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-        return fmt.Errorf("failed to enable foreign keys: %v", err)
-    }
-    if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
-        return fmt.Errorf("failed to enable WAL mode: %v", err)
-    }
-    if _, err := db.Exec("PRAGMA synchronous = NORMAL"); err != nil {
-        return fmt.Errorf("failed to set synchronous mode: %v", err)
-    }
-    if _, err := db.Exec("PRAGMA busy_timeout = 30000"); err != nil { // 30 second timeout
-        return fmt.Errorf("failed to set busy timeout: %v", err)
-    }
-    if _, err := db.Exec("PRAGMA cache_size = 10000"); err != nil { // Increase cache
-        return fmt.Errorf("failed to set cache size: %v", err)
-    }
-    return nil
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return fmt.Errorf("failed to enable foreign keys: %v", err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		return fmt.Errorf("failed to enable WAL mode: %v", err)
+	}
+	if _, err := db.Exec("PRAGMA synchronous = NORMAL"); err != nil {
+		return fmt.Errorf("failed to set synchronous mode: %v", err)
+	}
+	if _, err := db.Exec("PRAGMA busy_timeout = 30000"); err != nil { // 30 second timeout
+		return fmt.Errorf("failed to set busy timeout: %v", err)
+	}
+	if _, err := db.Exec("PRAGMA cache_size = 10000"); err != nil { // Increase cache
+		return fmt.Errorf("failed to set cache size: %v", err)
+	}
+	return nil
 }
 
 // GetAPIUsageLogsFiltered retrieves API usage logs with enhanced filters
 func (d *Database) GetAPIUsageLogsFiltered(filters APIUsageLogFilters, limit, offset int) ([]APIUsageLog, error) {
-    base := `
+	base := `
     SELECT l.id, l.api_key_id, l.user_id, l.endpoint, l.method, l.file_id, l.file_path,
            l.ip_address, l.user_agent, l.status_code, l.response_size, l.response_time_ms,
            l.error_message, l.request_time, l.created_at,
@@ -1872,111 +1872,126 @@ func (d *Database) GetAPIUsageLogsFiltered(filters APIUsageLogFilters, limit, of
     LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
     WHERE 1=1`
 
-    where, args := buildAPIUsageLogsWhere(filters)
-    query := base + where + " ORDER BY l.request_time DESC LIMIT ? OFFSET ?"
-    args = append(args, limit, offset)
+	where, args := buildAPIUsageLogsWhere(filters)
+	query := base + where + " ORDER BY l.request_time DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
 
-    rows, err := d.db.Query(query, args...)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    return d.scanAPIUsageLogRows(rows)
+	return d.scanAPIUsageLogRows(rows)
 }
 
 // GetAPIUsageLogsCountFiltered retrieves the total count of API usage logs with filters
 func (d *Database) GetAPIUsageLogsCountFiltered(filters APIUsageLogFilters) (int, error) {
-    base := `
+	base := `
     SELECT COUNT(*)
     FROM api_usage_logs l
     LEFT JOIN api_keys k ON l.api_key_id = k.id AND l.api_key_id != 'web_session'
     WHERE 1=1`
 
-    where, args := buildAPIUsageLogsWhere(filters)
-    query := base + where
+	where, args := buildAPIUsageLogsWhere(filters)
+	query := base + where
 
-    var count int
-    err := d.db.QueryRow(query, args...).Scan(&count)
-    return count, err
+	var count int
+	err := d.db.QueryRow(query, args...).Scan(&count)
+	return count, err
 }
 
 // buildAPIUsageLogsWhere builds the WHERE clause and args for API usage log queries.
 func buildAPIUsageLogsWhere(filters APIUsageLogFilters) (string, []interface{}) {
-    where := ""
-    args := []interface{}{}
-    if filters.UserID != "" {
-        where += " AND l.user_id = ?"
-        args = append(args, filters.UserID)
-    }
-    if filters.FileID != "" {
-        where += " AND l.file_id = ?"
-        args = append(args, filters.FileID)
-    }
-    if filters.APIKey != "" {
-        where += " AND (l.api_key_name LIKE ? OR k.name LIKE ? OR l.api_key_id LIKE ?)"
-        likePattern := "%" + filters.APIKey + "%"
-        args = append(args, likePattern, likePattern, likePattern)
-    }
-    if filters.Method != "" {
-        where += " AND l.method = ?"
-        args = append(args, filters.Method)
-    }
-    if filters.Endpoint != "" {
-        where += " AND l.endpoint LIKE ?"
-        args = append(args, "%"+filters.Endpoint+"%")
-    }
-    if filters.TimeFrom != "" {
-        where += " AND l.request_time >= ?"
-        args = append(args, filters.TimeFrom)
-    }
-    if filters.TimeTo != "" {
-        where += " AND l.request_time <= ?"
-        args = append(args, filters.TimeTo)
-    }
-    return where, args
+	where := ""
+	args := []interface{}{}
+	if filters.UserID != "" {
+		where += " AND l.user_id = ?"
+		args = append(args, filters.UserID)
+	}
+	if filters.FileID != "" {
+		where += " AND l.file_id = ?"
+		args = append(args, filters.FileID)
+	}
+	if filters.APIKey != "" {
+		where += " AND (l.api_key_name LIKE ? OR k.name LIKE ? OR l.api_key_id LIKE ?)"
+		likePattern := "%" + filters.APIKey + "%"
+		args = append(args, likePattern, likePattern, likePattern)
+	}
+	if filters.Method != "" {
+		where += " AND l.method = ?"
+		args = append(args, filters.Method)
+	}
+	if filters.Endpoint != "" {
+		where += " AND l.endpoint LIKE ?"
+		args = append(args, "%"+filters.Endpoint+"%")
+	}
+	if filters.TimeFrom != "" {
+		where += " AND l.request_time >= ?"
+		args = append(args, filters.TimeFrom)
+	}
+	if filters.TimeTo != "" {
+		where += " AND l.request_time <= ?"
+		args = append(args, filters.TimeTo)
+	}
+	return where, args
 }
 
 // scanAPIUsageLogRows scans rows from API usage log queries into a slice.
 func (d *Database) scanAPIUsageLogRows(rows *sql.Rows) ([]APIUsageLog, error) {
-    var logs []APIUsageLog
-    for rows.Next() {
-        var logEntry APIUsageLog
-        var requestTimeStr, createdAtStr string
-        var fileID, filePath, userAgent, errorMessage sql.NullString
+	var logs []APIUsageLog
+	for rows.Next() {
+		logEntry, err := scanSingleAPIUsageLogRow(rows)
+		if err != nil {
+			continue
+		}
+		logs = append(logs, logEntry)
+	}
+	return logs, nil
+}
 
-        if err := rows.Scan(
-            &logEntry.ID, &logEntry.APIKeyID, &logEntry.UserID, &logEntry.Endpoint,
-            &logEntry.Method, &fileID, &filePath, &logEntry.IPAddress, &userAgent,
-            &logEntry.StatusCode, &logEntry.ResponseSize, &logEntry.ResponseTimeMs,
-            &errorMessage, &requestTimeStr, &createdAtStr, &logEntry.APIKeyName,
-        ); err != nil {
-            continue
-        }
+func scanSingleAPIUsageLogRow(rows *sql.Rows) (APIUsageLog, error) {
+	var logEntry APIUsageLog
+	var requestTimeStr, createdAtStr string
+	var fileID, filePath, userAgent, errorMessage sql.NullString
 
-        if fileID.Valid {
-            logEntry.FileID = fileID.String
-        }
-        if filePath.Valid {
-            logEntry.FilePath = filePath.String
-        }
-        if userAgent.Valid {
-            logEntry.UserAgent = userAgent.String
-        }
-        if errorMessage.Valid {
-            logEntry.ErrorMessage = errorMessage.String
-        }
+	if err := rows.Scan(
+		&logEntry.ID, &logEntry.APIKeyID, &logEntry.UserID, &logEntry.Endpoint,
+		&logEntry.Method, &fileID, &filePath, &logEntry.IPAddress, &userAgent,
+		&logEntry.StatusCode, &logEntry.ResponseSize, &logEntry.ResponseTimeMs,
+		&errorMessage, &requestTimeStr, &createdAtStr, &logEntry.APIKeyName,
+	); err != nil {
+		return logEntry, err
+	}
 
-        if t, err := time.Parse(time.RFC3339, requestTimeStr); err == nil {
-            logEntry.RequestTime = t
-        }
-        if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
-            logEntry.CreatedAt = t
-        }
+	populateAPIUsageLogFields(&logEntry, fileID, filePath, userAgent, errorMessage, requestTimeStr, createdAtStr)
+	return logEntry, nil
+}
 
-        logs = append(logs, logEntry)
-    }
-    return logs, nil
+func populateAPIUsageLogFields(logEntry *APIUsageLog, fileID, filePath, userAgent, errorMessage sql.NullString, requestTimeStr, createdAtStr string) {
+	if fileID.Valid {
+		logEntry.FileID = fileID.String
+	}
+	if filePath.Valid {
+		logEntry.FilePath = filePath.String
+	}
+	if userAgent.Valid {
+		logEntry.UserAgent = userAgent.String
+	}
+	if errorMessage.Valid {
+		logEntry.ErrorMessage = errorMessage.String
+	}
+
+	parseAPIUsageLogTimes(logEntry, requestTimeStr, createdAtStr)
+}
+
+func parseAPIUsageLogTimes(logEntry *APIUsageLog, requestTimeStr, createdAtStr string) {
+	if t, err := time.Parse(time.RFC3339, requestTimeStr); err == nil {
+		logEntry.RequestTime = t
+	}
+	if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+		logEntry.CreatedAt = t
+	}
 }
 
 // GetAPIUsageLogsCount retrieves the total count of API usage logs

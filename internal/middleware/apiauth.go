@@ -350,36 +350,46 @@ func (r *ResponseRecorder) Write(data []byte) (int, error) {
 // GetClientIP extracts client IP from request
 func GetClientIP(r *http.Request) string {
 	// Check X-Forwarded-For header
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take first IP from comma-separated list
-		if idx := strings.Index(xff, ","); idx != -1 {
-			ip := strings.TrimSpace(xff[:idx])
-			// Handle IPv6 localhost
-			if ip == "::1" {
-				return "127.0.0.1"
-			}
-			return ip
-		}
-		ip := strings.TrimSpace(xff)
-		// Handle IPv6 localhost
-		if ip == "::1" {
-			return "127.0.0.1"
-		}
+	if ip := getIPFromXForwardedFor(r); ip != "" {
 		return ip
 	}
 
 	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		ip := strings.TrimSpace(xri)
-		// Handle IPv6 localhost
-		if ip == "::1" {
-			return "127.0.0.1"
-		}
+	if ip := getIPFromXRealIP(r); ip != "" {
 		return ip
 	}
 
 	// Fall back to RemoteAddr
-	remoteAddr := r.RemoteAddr
+	return getIPFromRemoteAddr(r.RemoteAddr)
+}
+
+func getIPFromXForwardedFor(r *http.Request) string {
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return ""
+	}
+
+	// Take first IP from comma-separated list
+	if idx := strings.Index(xff, ","); idx != -1 {
+		ip := strings.TrimSpace(xff[:idx])
+		return normalizeIPv6Localhost(ip)
+	}
+
+	ip := strings.TrimSpace(xff)
+	return normalizeIPv6Localhost(ip)
+}
+
+func getIPFromXRealIP(r *http.Request) string {
+	xri := r.Header.Get("X-Real-IP")
+	if xri == "" {
+		return ""
+	}
+
+	ip := strings.TrimSpace(xri)
+	return normalizeIPv6Localhost(ip)
+}
+
+func getIPFromRemoteAddr(remoteAddr string) string {
 	// Handle IPv6 localhost
 	if remoteAddr == "[::1]" {
 		return "127.0.0.1"
@@ -392,13 +402,17 @@ func GetClientIP(r *http.Request) string {
 		if strings.HasPrefix(ip, "[") && strings.HasSuffix(ip, "]") {
 			ip = ip[1 : len(ip)-1]
 		}
-		// Handle IPv6 localhost
-		if ip == "::1" {
-			return "127.0.0.1"
-		}
-		return ip
+		return normalizeIPv6Localhost(ip)
 	}
+
 	return remoteAddr
+}
+
+func normalizeIPv6Localhost(ip string) string {
+	if ip == "::1" {
+		return "127.0.0.1"
+	}
+	return ip
 }
 
 // writeAPIErrorResponse writes a JSON error response
