@@ -182,6 +182,7 @@ export function PackagesPanel() {
                   size="icon"
                 >
                   <span className="sr-only">Go to first page</span>
+                  {' '}
                   <ChevronsLeft className="h-4 w-4" />
                 </Button>
                 <Button
@@ -192,6 +193,7 @@ export function PackagesPanel() {
                   size="icon"
                 >
                   <span className="sr-only">Go to previous page</span>
+                  {' '}
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <Button
@@ -202,6 +204,7 @@ export function PackagesPanel() {
                   size="icon"
                 >
                   <span className="sr-only">Go to next page</span>
+                  {' '}
                   <ChevronRight className="h-4 w-4" />
                 </Button>
                 <Button
@@ -212,6 +215,7 @@ export function PackagesPanel() {
                   size="icon"
                 >
                   <span className="sr-only">Go to last page</span>
+                  {' '}
                   <ChevronsRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -311,6 +315,7 @@ function PackageRow({ item, onEdit }: { item: PackageItem, onEdit: () => void })
         >
           <Edit className="h-4 w-4" />
           <span className="sr-only">Edit Remark</span>
+          {''}
         </Button>
       </TableCell>
     </TableRow>

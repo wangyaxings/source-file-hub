@@ -304,7 +304,7 @@ export function AuditLogsPanel() {
                   size="icon"
                 >
                   <span className="sr-only">Go to first page</span>
-                  ««
+                  {' «« '}
                 </Button>
                 <Button
                   variant="outline"
@@ -314,7 +314,7 @@ export function AuditLogsPanel() {
                   size="icon"
                 >
                   <span className="sr-only">Go to previous page</span>
-                  «
+                  {' « '}
                 </Button>
                 <Button
                   variant="outline"
@@ -324,7 +324,7 @@ export function AuditLogsPanel() {
                   size="icon"
                 >
                   <span className="sr-only">Go to next page</span>
-                  »
+                  {' » '}
                 </Button>
                 <Button
                   variant="outline"
@@ -334,7 +334,7 @@ export function AuditLogsPanel() {
                   size="icon"
                 >
                   <span className="sr-only">Go to last page</span>
-                  »»
+                  {' »» '}
                 </Button>
           </div>
         </div>
