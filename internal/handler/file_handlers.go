@@ -245,88 +245,123 @@ func readJSONFileGeneric(path string) (map[string]interface{}, error) {
 
 // File handler implementations
 func handleFileDownload(w http.ResponseWriter, r *http.Request) {
-	filePath := strings.TrimPrefix(r.URL.Path, "/api/v1/web/files/")
-
-	if filePath == "" {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "File path cannot be empty", map[string]interface{}{"field": "path"})
+	filePath, err := extractAndValidateFilePath(r)
+	if err != nil {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error(), map[string]interface{}{"field": "path"})
 		return
+	}
+
+	fullPath, err := resolveFilePath(filePath)
+	if err != nil {
+		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error(), map[string]interface{}{"field": "path"})
+		return
+	}
+
+	if err := serveFile(w, r, fullPath, filePath); err != nil {
+		log.Printf("Error serving file %s: %v", filePath, err)
+	}
+}
+
+func extractAndValidateFilePath(r *http.Request) (string, error) {
+	filePath := strings.TrimPrefix(r.URL.Path, "/api/v1/web/files/")
+	if filePath == "" {
+		return "", fmt.Errorf("file path cannot be empty")
 	}
 
 	if strings.Contains(filePath, "..") || strings.HasPrefix(filePath, "/") {
-		writeErrorWithCodeDetails(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid file path", map[string]interface{}{"field": "path", "reason": "path traversal or absolute path"})
-		return
+		return "", fmt.Errorf("invalid file path: path traversal or absolute path")
 	}
 
-	var fullPath string
+	return filePath, nil
+}
+
+func resolveFilePath(filePath string) (string, error) {
 	if strings.HasPrefix(filePath, "downloads/") {
-		fullPath = filePath
-	} else {
-		fullPath = filepath.Join("downloads", filePath)
+		return filePath, nil
 	}
+	return filepath.Join("downloads", filePath), nil
+}
 
+func serveFile(w http.ResponseWriter, r *http.Request, fullPath, filePath string) error {
 	if !isAllowedPath(fullPath) {
 		writeErrorWithCodeDetails(w, http.StatusForbidden, "INVALID_PERMISSION", "File path not allowed", map[string]interface{}{"path": fullPath})
-		return
+		return fmt.Errorf("file path not allowed")
 	}
 
+	file, fileInfo, err := openAndStatFile(fullPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	return writeFileToResponse(w, r, file, fileInfo, filePath)
+}
+
+func openAndStatFile(fullPath string) (*os.File, os.FileInfo, error) {
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		log.Printf("File not found: %s", fullPath)
-		writeErrorWithCode(w, http.StatusNotFound, "FILE_NOT_FOUND", "File not found")
-		return
+		return nil, nil, fmt.Errorf("file not found")
 	}
 
 	file, err := os.Open(fullPath)
 	if err != nil {
-		log.Printf("Error opening file %s: %v", fullPath, err)
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot open file")
-		return
+		return nil, nil, fmt.Errorf("cannot open file: %v", err)
 	}
-	defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
-		log.Printf("Error getting file info for %s: %v", fullPath, err)
-		writeErrorWithCode(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Cannot get file info")
-		return
+		file.Close()
+		return nil, nil, fmt.Errorf("cannot get file info: %v", err)
 	}
 
-	fileName := filepath.Base(filePath)
+	return file, fileInfo, nil
+}
 
+func writeFileToResponse(w http.ResponseWriter, r *http.Request, file *os.File, fileInfo os.FileInfo, filePath string) error {
+	fileName := filepath.Base(filePath)
 	contentType := getContentType(fileName)
 
+	setDownloadHeaders(w, fileName, contentType, fileInfo.Size())
+
+	if _, err := io.Copy(w, file); err != nil {
+		return fmt.Errorf("error writing file to response: %v", err)
+	}
+
+	logDownloadSuccess(filePath, r.RemoteAddr)
+	logToAuditLogger(r, filePath, fileInfo.Size())
+
+	return nil
+}
+
+func setDownloadHeaders(w http.ResponseWriter, fileName, contentType string, size int64) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
+}
 
-	_, err = io.Copy(w, file)
-	if err != nil {
-		log.Printf("Error writing file to response: %v", err)
-		return
-	}
+func logDownloadSuccess(filePath, remoteAddr string) {
+	log.Printf("File %s downloaded successfully by %s", filePath, remoteAddr)
+}
 
-	log.Printf("File %s downloaded successfully by %s", filePath, r.RemoteAddr)
-
+func logToAuditLogger(r *http.Request, filePath string, size int64) {
 	if l := logger.GetLogger(); l != nil {
-		var userInfo map[string]interface{}
-		if userCtx := r.Context().Value("user"); userCtx != nil {
-			if user, ok := userCtx.(*auth.User); ok {
-				userInfo = map[string]interface{}{
-					"username": user.Username,
-					"role":     user.Role,
-				}
-			}
-		}
-		if rid := r.Context().Value(middleware.RequestIDKey); rid != nil {
-			if userInfo == nil {
-				userInfo = map[string]interface{}{}
-			}
-			userInfo["request_id"] = rid
-		}
-		l.LogFileDownload(filePath, r.RemoteAddr, fileInfo.Size(), userInfo)
+		userInfo := extractUserInfo(r)
+		userInfo["request_id"] = r.Context().Value(middleware.RequestIDKey)
+		l.LogFileDownload(filePath, r.RemoteAddr, size, userInfo)
 	}
+}
+
+func extractUserInfo(r *http.Request) map[string]interface{} {
+	userInfo := make(map[string]interface{})
+	if userCtx := r.Context().Value("user"); userCtx != nil {
+		if user, ok := userCtx.(*auth.User); ok {
+			userInfo["username"] = user.Username
+			userInfo["role"] = user.Role
+		}
+	}
+	return userInfo
 }
 
 func handleFileUpload(w http.ResponseWriter, r *http.Request) {

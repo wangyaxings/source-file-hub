@@ -343,44 +343,60 @@ func getFilesByType(fileType string) ([]database.FileRecord, error) {
 
 // determineVersionStatus determines the status of versions for a file type
 func determineVersionStatus(items []database.FileRecord) (string, string, *database.FileRecord) {
-	var latest *database.FileRecord
-	hasActive := false
+	latest := findLatestVersionFromItems(items)
+	status, message := determineStatusAndMessage(latest, items)
 
+	return status, message, latest
+}
+
+func findLatestVersionFromItems(items []database.FileRecord) *database.FileRecord {
+	// First, try to find the latest marked version
 	for i := range items {
 		if items[i].IsLatest && items[i].Status == database.FileStatusActive {
-			latest = &items[i]
-			break
+			return &items[i]
 		}
 	}
 
-	if latest == nil && len(items) > 0 {
+	// If no latest marked version, find the highest version among active items
+	if len(items) > 0 {
+		var latest *database.FileRecord
 		for i := range items {
 			if items[i].Status == database.FileStatusActive {
-				hasActive = true
-				if latest == nil || (latest != nil && items[i].Version > latest.Version) {
+				if latest == nil || items[i].Version > latest.Version {
 					latest = &items[i]
 				}
 			}
 		}
+		return latest
 	}
 
-	var status string
-	var message string
+	return nil
+}
+
+func determineStatusAndMessage(latest *database.FileRecord, items []database.FileRecord) (string, string) {
 	if latest != nil {
-		status = "available"
-		message = "Latest version is available for download"
-	} else if hasActive {
-		status = "available"
-		message = "Active versions exist but none is marked as latest"
-	} else if len(items) > 0 {
-		status = "inactive"
-		message = "All versions are in inactive state"
-	} else {
-		status = "empty"
-		message = "No files uploaded for this type"
+		return "available", "Latest version is available for download"
 	}
 
-	return status, message, latest
+	hasActive := hasActiveVersions(items)
+	if hasActive {
+		return "available", "Active versions exist but none is marked as latest"
+	}
+
+	if len(items) > 0 {
+		return "inactive", "All versions are in inactive state"
+	}
+
+	return "empty", "No files uploaded for this type"
+}
+
+func hasActiveVersions(items []database.FileRecord) bool {
+	for _, item := range items {
+		if item.Status == database.FileStatusActive {
+			return true
+		}
+	}
+	return false
 }
 
 // countActiveVersions counts the number of active versions
